@@ -103,9 +103,12 @@ async def receive_webhook(request: Request) -> JSONResponse:
         or body.get("content", "")
     )
 
-    # Para áudio sem caption, placeholder para o STT preencher
-    if message_type == "audioMessage" and not message:
-        message = "[áudio]"
+    # Para áudio/imagem sem caption, placeholder para o RAG não descartar
+    if not message:
+        if message_type == "audioMessage":
+            message = "[áudio]"
+        elif message_type == "imageMessage":
+            message = "[imagem]"
 
     # ── Fallbacks de campos ausentes ──────────────────────────────────────────
     if not phone:
