@@ -1,0 +1,144 @@
+{
+  "version": "2026-05-23",
+  "owner": "refrimix_tecnologia",
+  "compiler": "/home/will/.hermes/scripts/refrimix/gerar_proposta.py",
+  "python": "/home/will/.hermes/python/.venv/bin/python3",
+  "delivery_root": "/home/will/Refrimix-tecnologia",
+  "principles": [
+    "Every PDF must be final-client-ready, not a draft.",
+    "The proposal reference floor is /home/will/Downloads/teste_skill_proposta.pdf.",
+    "The contract floor is /home/will/Refrimix-tecnologia/02_CONTRATOS_E_SLA/Condomínio_Costa_do_Sol/heliprime_contrato_codex_superior.pdf.",
+    "Keep secrets out of prompts, markdown, logs and requests.",
+    "Use structured request data first; let Hermes write copy from the template contract before compiling."
+  ],
+  "common_request_fields": {
+    "cliente.nome": "Required client display name.",
+    "cliente.cnpj_cpf": "Optional. Use only when provided by the user or a safe CRM source.",
+    "cliente.local": "Optional job site or city.",
+    "execucao.resumo": "Short natural-language summary of the work to execute.",
+    "execucao.escopo": "List of executed or planned technical activities.",
+    "execucao.equipamentos": "List of HVAC equipment in proposta schema.",
+    "execucao.dutos_extras": "List of extras with desc and valor.",
+    "valores.gestao_valor": "Engineering, management and technical execution value.",
+    "valores.materiais_valor": "Materials and installation supplies value.",
+    "valores.dutos_valor": "Duct system value.",
+    "condicoes.validade_proposta": "Commercial validity.",
+    "condicoes.garantia_instalacao": "Installation warranty.",
+    "condicoes.obra_prazo": "Estimated execution time.",
+    "documentos": "List of document types to compile."
+  },
+  "document_types": {
+    "proposta": {
+      "title": "Proposta Tecnica Executiva",
+      "delivery_folder": "01_PROPOSTAS_TECNICAS",
+      "ideal_pages": "12+",
+      "copy_floor": "Must preserve or exceed the 12-page reference proposal: presentation, Refrimix authority, high-end projects, objective, Daikin equipment, authorized dealer supply, coastal engineering, methodology, refrigeration infrastructure, ducts, commissioning, Daikin warranty, ART/CREA responsibility, investment, commercial terms, payment, final considerations and 34-item checklist.",
+      "minimum_sections": [
+        "Capa executiva",
+        "Apresentacao institucional",
+        "Sobre a Refrimix",
+        "Experiencia em alto padrao",
+        "Objetivo do projeto",
+        "Equipamentos de climatizacao",
+        "Fornecimento Daikin separado",
+        "Engenharia litoranea",
+        "Metodologia de execucao",
+        "Infraestrutura frigorigena",
+        "Sistema de dutos",
+        "Comissionamento tecnico",
+        "Garantia Daikin",
+        "Responsabilidade tecnica",
+        "Investimento",
+        "Condicoes comerciais",
+        "Forma de pagamento",
+        "Checklist de contratacao",
+        "Fechamento institucional"
+      ],
+      "required_fields": ["cliente.nome", "execucao.equipamentos"],
+      "quality_gates": ["pages >= 9", "contains Investimento", "contains Checklist", "contains Refrimix Tecnologia"]
+    },
+    "contrato": {
+      "title": "Contrato de Instalacao e Execucao",
+      "delivery_folder": "02_CONTRATOS_E_SLA",
+      "ideal_pages": "4",
+      "copy_floor": "Must exceed the Gemini 1-page contract. Include executive table, 10 clauses, responsibilities, acceptance criteria, linked annexes and signatures.",
+      "minimum_sections": [
+        "Cabecalho contratual",
+        "Quadro executivo",
+        "Clausulas essenciais",
+        "Responsabilidades",
+        "Criterios de aceite",
+        "Encerramento e anexos",
+        "Assinaturas"
+      ],
+      "required_fields": ["cliente.nome", "valores.gestao_valor", "valores.materiais_valor", "valores.dutos_valor"],
+      "quality_gates": ["pages >= 3", "contains QUADRO EXECUTIVO", "contains RESPONSABILIDADES", "contains ACEITE"]
+    },
+    "os": {
+      "title": "Ordem de Servico de Campo",
+      "delivery_folder": "03_ORDENS_DE_SERVICO",
+      "ideal_pages": "1-2",
+      "copy_floor": "Must be operational, auditable and usable by field technicians. Keep status, checklist and signature above decorative content.",
+      "minimum_sections": [
+        "Numero OS e abertura",
+        "Cliente e tecnico",
+        "Resumo da execucao",
+        "Checklist operacional",
+        "Materiais usados quando houver",
+        "Observacoes de campo",
+        "Assinatura tecnico e cliente"
+      ],
+      "required_fields": ["cliente.nome"],
+      "quality_gates": ["pages >= 1", "contains ORDEM DE SERVICO", "contains CHECKLIST", "contains ASSINATURA"]
+    },
+    "contrato_prestacao": {
+      "title": "Contrato de Prestacao de Servicos SRE",
+      "delivery_folder": "02_CONTRATOS_E_SLA",
+      "ideal_pages": "3-5",
+      "copy_floor": "Must define recurring service or SLA with measurable response, responsibility boundaries, evidence and warranty.",
+      "minimum_sections": [
+        "Identificacao das partes",
+        "Objeto e escopo SRE",
+        "Quadro de SLA",
+        "Valores e vigencia",
+        "Garantias e exclusoes",
+        "Relatorios e evidencias",
+        "Assinaturas"
+      ],
+      "required_fields": ["cliente.nome", "condicoes.garantia_instalacao"],
+      "quality_gates": ["pages >= 2", "contains SLA", "contains GARANTIA", "contains ASSINATURAS"]
+    },
+    "orcamento_material": {
+      "title": "Orcamento de Materiais e Insumos",
+      "delivery_folder": "05_ORCAMENTOS/MATERIAL",
+      "ideal_pages": "1-2",
+      "copy_floor": "Must explain material value before price: durability, coastal resistance, traceability, logistics and invoice conditions.",
+      "minimum_sections": [
+        "Cabecalho do orcamento",
+        "Resumo do fornecimento",
+        "Tabela de materiais",
+        "Total geral",
+        "Condicoes logisticas",
+        "Aceite"
+      ],
+      "required_fields": ["cliente.nome", "valores.materiais_valor", "valores.dutos_valor"],
+      "quality_gates": ["pages >= 1", "contains MATERIAIS", "contains TOTAL"]
+    },
+    "orcamento_mao_de_obra": {
+      "title": "Orcamento de Mao de Obra e Execucao",
+      "delivery_folder": "05_ORCAMENTOS/MAO_DE_OBRA",
+      "ideal_pages": "1-2",
+      "copy_floor": "Must show specialized execution value, not a generic labor line. Include engineering, installation, commissioning and safety.",
+      "minimum_sections": [
+        "Cabecalho do orcamento",
+        "Resumo executivo",
+        "Tabela de execucao",
+        "Seguranca e certificacoes",
+        "Condicoes",
+        "Aceite"
+      ],
+      "required_fields": ["cliente.nome", "valores.gestao_valor"],
+      "quality_gates": ["pages >= 1", "contains MAO DE OBRA", "contains SEGURANCA"]
+    }
+  }
+}

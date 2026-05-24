@@ -25,13 +25,29 @@ services:
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       - REDIS_URL=redis://127.0.0.1:6379
       - QDRANT_URL=http://127.0.0.1:6333
-      - QDRANT_COLLECTION=whatsapp_rag
+      - QDRANT_COLLECTION=hermes_hvac_rag_service_staging
+      - LOCAL_QWEN_BASE_URL=${LOCAL_QWEN_BASE_URL:-http://127.0.0.1:8011/v1}
+      - LOCAL_QWEN_MODEL=${LOCAL_QWEN_MODEL:-qwen2.5-vl-7b-instruct}
+      - LOCAL_PTBR_BASE_URL=${LOCAL_PTBR_BASE_URL:-http://127.0.0.1:8211/v1}
+      - LOCAL_PTBR_MODEL=${LOCAL_PTBR_MODEL:-qwen2.5-7b-pt-br-instruct}
+      - PTBR_POLISH_ENABLED=${PTBR_POLISH_ENABLED:-0}
     env_file:
       - .env
     depends_on:
       - evolution-api
     restart: unless-stopped
     network_mode: host
+    command: >
+      bash -c "cp -r /tmp/home/.ssh /root/.ssh &&
+      cp /tmp/home/.ssh/pc1_zappro_ed25519 /root/.ssh/id_ed25519 &&
+      chown -R root:root /root/.ssh &&
+      chmod 700 /root/.ssh &&
+      chmod 600 /root/.ssh/* &&
+      exec python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ~/.ssh:/tmp/home/.ssh:ro
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.local/share/fastembed:/root/.local/share/fastembed
 
 volumes:
   evolution_instances:

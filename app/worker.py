@@ -87,14 +87,11 @@ async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "d
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{api_url}/message/sendMedia/{instance_name}",
+                f"{api_url}/message/sendWhatsAppAudio/{instance_name}",
                 headers={"apikey": api_key, "Content-Type": "application/json"},
                 json={
                     "number": phone,
-                    "mediatype": "audio",
-                    "media": audio_b64,
-                    "mimetype": "audio/wav",
-                    "fileName": "resposta.wav",
+                    "audio": audio_b64
                 },
             )
             if resp.status_code in (200, 201):
@@ -105,6 +102,13 @@ async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "d
     except Exception as e:
         logger.error(f"Falha ao enviar áudio para {phone}: {e}")
         return False
+
+
+async def notify_owner(lead_phone: str, lead_message: str, instance: str = "default") -> bool:
+    """Notifica o dono (Will) sobre handoff ou intenções de alto valor."""
+    owner_phone = "5513996659382"
+    text = f"🚨 *ALERTA DE HANDOFF* 🚨\nO lead {lead_phone} solicitou atendimento humano ou fechamento de alto valor.\nMensagem: {lead_message}\nAssuma a conversa no WhatsApp Web."
+    return await send_whatsapp_message(owner_phone, text, instance)
 
 
 _CONV_TTL = int(os.getenv("CONV_TTL_SECONDS", "1800"))  # 30 min de inatividade
@@ -149,6 +153,18 @@ async def save_history(phone: str, messages: list) -> None:
     await r.set(f"conv_history:{phone}", json.dumps(turns), ex=_CONV_TTL)
 
 
+_BOT_KEY     = "whatsapp_rag:bot_enabled"   # "1" = ativo, "0" = pausado
+_BOT_OFF_MSG = os.getenv(
+    "BOT_OFF_MESSAGE",
+    "Oi! No momento estou atendendo pessoalmente. Te respondo em breve 🙂",
+)
+
+
+async def is_bot_enabled(r: redis.Redis) -> bool:
+    val = await r.get(_BOT_KEY)
+    return val != "0"   # ausente ou "1" → ativo
+
+
 async def worker_loop() -> None:
     """Poll Redis queue and process messages through LangGraph."""
     logger.info("Worker loop started")
@@ -166,11 +182,20 @@ async def worker_loop() -> None:
             message_text = data.get("message", "")
             instance = data.get("instance", "default")
             message_type = data.get("message_type", "conversation")
+            msg_id = data.get("msg_id", "")
             media_url = data.get("media_url", "")
+            media_base64 = data.get("media_base64", "")
 
             logger.info(f"Processando [{message_type}] de {phone}: {message_text[:60]}")
 
             if not message_text:
+                continue
+
+            # ── Verifica se bot está ativo ────────────────────────────────
+            if not await is_bot_enabled(r):
+                logger.info(f"Bot PAUSADO — mensagem de {phone} ignorada pela IA")
+                if _BOT_OFF_MSG:
+                    await send_whatsapp_message(phone, _BOT_OFF_MSG, instance)
                 continue
 
             # Carrega histórico da conversa deste lead
@@ -190,13 +215,19 @@ async def worker_loop() -> None:
                 "is_human": False,
                 "confidence": 1.0,
                 "message_type": message_type,
+                "msg_id": msg_id,
                 "media_url": media_url,
+                "media_base64": media_base64,
                 "instance": instance,
                 "response_modality": None,
                 "audio_bytes": None,
             }
 
             result = await GRAPH.ainvoke(initial_state)
+            
+            outcome = result.get("outcome")
+            if outcome == "escalar_humano":
+                await notify_owner(phone, message_text, instance)
 
             # ── Extrai resposta do AI (última AIMessage do resultado) ──────────
             messages_out = result.get("messages", [])
