@@ -1,6 +1,9 @@
 # WhatsApp RAG Lead — Refrimix
 
-Bot WhatsApp para onboarding e atendimento a leads da Refrimix Tecnologia usando RAG (Retrieval-Augmented Generation).
+Bot WhatsApp para onboarding e atendimento a leads da Refrimix Tecnologia.
+O Will responde leads automaticamente, coleta dados de agendamento e escala para humano quando necessário.
+
+---
 
 ## Arquitetura
 
@@ -8,129 +11,339 @@ Bot WhatsApp para onboarding e atendimento a leads da Refrimix Tecnologia usando
 [WhatsApp] → [Evolution API Docker :8080]
                   ↓ webhook POST
             [FastAPI + LangGraph :8000]
-                  ↓                    ↓
-           [Redis PC1:6379]      [Qdrant :6333]
+                  ↓ Redis queue
+            [worker_loop]
+              ↓ classify    ↓ RAG         ↓ gera resposta
+         [Groq 70b]   [Qdrant :6333]  [Groq 8b / MiniMax M2.7]
                                           ↓
-                              [PostgreSQL Evolution API :5432]
+                              [Redis histórico] + [PostgreSQL leads]
 ```
 
-## Stack
+### LangGraph — 8 nós em sequência
 
-- **Evolution API** v2.3.7 (WhatsApp gateway Docker)
-- **FastAPI** (webhook receiver + health)
-- **LangGraph** (stateful multi-node RAG pipeline)
-- **Qdrant** (vector search, 768 dimensões, cosine)
-- **Redis** (cache + queue)
-- **PostgreSQL** (interaction storage via Prisma)
-- **MiniMax LLM** (text generation)
-
-## Variáveis de Ambiente
-
-```env
-# Evolution API
-AUTHENTICATION_API_KEY=your_api_key_here
-SERVER_URL=https://your-server.com
-
-# Database
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
-
-# Redis
-REDIS_URL=redis://192.168.15.83:6379
-
-# Qdrant
-QDRANT_URL=http://192.168.15.83:6333
-
-# MiniMax LLM
-MINIMAX_API_KEY=your_minimax_key
+```
+preprocess_input → classify_service → retrieve_knowledge → generate_response
+→ language_guard_check → format_whatsapp → decide_response_modality
+→ tts_voice_clone | dispatch_appointment_alert → save_interaction
 ```
 
-## Como Rodar
+### Routing de modelo LLM
 
-### Local (desenvolvimento)
+| Intent | Modelo | Latência |
+|--------|--------|----------|
+| `onboarding`, `manutencao`, `instalacao`, `higienizacao` | Groq llama-3.1-8b-instant | ~1s |
+| `pmoc`, `consultoria`, `projeto-central` | MiniMax M2.7 | ~7-15s |
+| Classificação (LLM override) | Groq llama-3.3-70b-versatile | ~2s |
 
-```bash
-# 1. Instalar dependências
-cd app
-pip install -r requirements.txt
+---
 
-# 2. Gerar Prisma Client
-prisma generate
-
-# 3. Aplicar migrations
-prisma migrate dev --name init
-
-# 4. Rodar FastAPI
-uvicorn app.main:app --reload --port 8000
-```
-
-### Docker Compose
-
-```bash
-docker compose up --build
-```
-
-## Endpoints
-
-| Método | Path | Descrição |
-|--------|------|-----------|
-| POST | `/webhook/evolution` | Webhook da Evolution API |
-| GET | `/health` | Health check |
-| GET | `/` | Info do serviço |
-
-## LangGraph Pipeline (7 nós)
-
-1. **classify_service** — Classifica intent entre 6 serviços KB
-2. **retrieve_knowledge** — Busca top-5 no Qdrant por service_name
-3. **generate_response** — Monta resposta com contexto RAG
-4. **language_guard_check** — Valida saída em pt-BR (anti-CJK)
-5. **format_whatsapp** — Formata mensagem para WhatsApp
-6. **save_interaction** — Persiste no PostgreSQL via Prisma
-7. **route_human** — Escalona para humano se intent=="human" ou confidence<0.6
-
-## Guardrail de Idioma
-
-Arquitetura dual-layer anti-CJK:
-- **Layer 1**: System prompt instruindo resposta apenas em pt-BR
-- **Layer 2**: Validação pós-resposta — detecta scripts CJK, Cirílico, Hangul, Árabe
-
-Bloqueia: CJK (chinês/japonês), Cirílico, Hangul, Árabe, Hebraico, Thai, Devanagari, Tamil, Kannada, Malayalam.
-
-## Verificação
-
-```bash
-cd /home/will/whatsapp-rag
-python -c "from langgraph.guards.language_guard import LanguageGuard; print('language_guard: OK')"
-python -c "from langgraph.graph.graph import build_graph; print('graph: OK')"
-python -c "from app.main import app; print('fastapi: OK')"
-```
-
-## Estrutura de Diretórios
+## Estrutura de Pastas
 
 ```
 whatsapp-rag/
-├── .env
-├── docker-compose.yml
+├── .env                          # segredos — nunca versionar
+├── .env.example                  # contrato de variáveis (versionar)
+├── .gitignore
+├── docker-compose.yml            # Evolution API + FastAPI
+│
+├── bot.sh                        # liga/desliga IA em tempo real
+├── git.sh                        # save / push / merge rápido
+├── refinar.py                    # loop interativo de refinamento
+├── sync.sh                       # gera CLAUDE.md a partir de .context/docs/
+│
+├── agent_graph/
+│   ├── graph/
+│   │   └── graph.py              # StateGraph + edges + routing
+│   ├── guards/
+│   │   └── language_guard.py     # anti-CJK/cirílico dual-layer
+│   ├── nodes/
+│   │   └── nodes.py              # 8 nós + WILL_SYSTEM_PROMPT + SCORE_MAP
+│   └── services/
+│       ├── alerts.py             # alerta WhatsApp dono + upsert lead Prisma
+│       ├── stt.py                # Groq Whisper (transcrição de áudio)
+│       ├── tts.py                # Coqui XTTS v2 (voz do Will)
+│       └── vision.py             # Groq Vision (análise de imagens)
+│
 ├── app/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   ├── main.py
-│   └── config/
-│       └── settings.py
-├── langgraph/
-│   ├── __init__.py
-│   ├── nodes/
-│   │   ├── __init__.py
-│   │   └── nodes.py
-│   ├── graph/
-│   │   ├── __init__.py
-│   │   └── graph.py
-│   └── guards/
-│       ├── __init__.py
-│       └── language_guard.py
+│   ├── main.py                   # FastAPI: webhook + /bot + /test/*
+│   └── worker.py                 # worker_loop: Redis queue → LangGraph
+│
 ├── prisma/
-│   ├── schema.prisma
-│   └── .env.example
+│   └── schema.prisma             # Interaction + Lead models
+│
 ├── qdrant/
-│   └── seed_qdrant.py
-└── README.md
+│   └── seed_hvac.py              # chunks de conhecimento (upsert)
+│
+└── .context/
+    └── docs/
+        ├── project-rules.md      # regras do projeto → gera CLAUDE.md
+        └── refinamento.md        # guia de refinamento → gera CLAUDE.md
+```
+
+**Regra de ouro:** só edite `.env` e `WILL_SYSTEM_PROMPT` sem rebuild. Todo o resto exige `docker compose build fastapi-rag`.
+
+---
+
+## Variáveis de Ambiente (`.env`)
+
+```env
+# Evolution API
+AUTHENTICATION_API_KEY=sua_chave
+SERVER_URL=https://seu-servidor.com
+EVOLUTION_API_URL=http://localhost:8080
+EVOLUTION_INSTANCE=RefrimixLead
+
+# LLM
+MINIMAX_API_KEY=sk-...
+MINIMAX_MODEL=MiniMax-M2.7
+GROQ_API_KEY=gsk_...
+
+# Infraestrutura
+REDIS_URL=redis://192.168.15.83:6379
+QDRANT_URL=http://127.0.0.1:6333
+QDRANT_COLLECTION=hermes_hvac_rag_service_staging
+DATABASE_URL=postgresql://USER:PASS@192.168.15.83:5432/whatsapp_rag
+
+# Alertas
+OWNER_PHONE=5513974139382
+
+# Bot (opcional)
+BOT_OFF_MESSAGE=Oi! Estou em atendimento agora, te respondo em breve 🙂
+```
+
+---
+
+## Subir / Atualizar o Container
+
+```bash
+# Build e sobe (primeira vez ou após mudança em nodes.py)
+docker compose build fastapi-rag
+docker rm -f whatsapp-rag-fastapi-rag-1
+docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-stopped \
+  --env-file .env \
+  -e QDRANT_URL=http://127.0.0.1:6333 \
+  -e QDRANT_COLLECTION=hermes_hvac_rag_service_staging \
+  whatsapp-rag-fastapi-rag:latest
+
+# Confirma saúde
+curl -s http://localhost:8000/health
+```
+
+---
+
+## Ligar e Desligar o Bot
+
+Controle instantâneo sem restart — a chave fica no Redis.
+
+```bash
+./bot.sh on      # 🟢 Will responde normalmente
+./bot.sh off     # 🔴 IA pausada (manda mensagem de ausência ou fica em silêncio)
+./bot.sh status  # vê o estado atual
+```
+
+**Painel visual** (celular ou browser):
+```
+http://localhost:8000/bot
+```
+Botão grande, atualiza sozinho a cada 10s.
+
+**Mensagem de ausência** quando bot está off:
+```env
+BOT_OFF_MESSAGE=Oi! No momento estou em atendimento. Te retorno em breve 🙂
+```
+Deixe vazio para silêncio total.
+
+---
+
+## Refinar as Respostas
+
+O ciclo de refinamento tem 4 níveis. **Sempre refine no nível mais baixo que resolve o problema.**
+
+```
+Nível 1 — Tom e persona    →  WILL_SYSTEM_PROMPT  (nodes.py)
+Nível 2 — Conhecimento RAG →  chunks no Qdrant    (seed_hvac.py)
+Nível 3 — Classificação    →  SCORE_MAP           (nodes.py)
+Nível 4 — Modelo LLM       →  .env MINIMAX_MODEL
+```
+
+### Loop interativo — `refinar.py`
+
+```bash
+# Inicia o loop de refinamento
+python3 refinar.py
+
+# Ou já passa uma mensagem direto
+python3 refinar.py "O ar tá fazendo barulho"
+```
+
+O script mostra a resposta do Will + intent + RAG hits e pergunta o que ficou errado:
+
+| Opção | O que corrige | Onde mexe |
+|-------|--------------|-----------|
+| `1` Tom errado | Você digita como o Will deveria ter dito → vira exemplo no `WILL_SYSTEM_PROMPT` | `nodes.py` |
+| `2` Regra nova | "NUNCA diga X" → vai para REGRAS ABSOLUTAS | `nodes.py` |
+| `3` Intent errado | Você diz o serviço certo + keyword → `SCORE_MAP` | `nodes.py` |
+| `4` Info faltando | Texto correto → chunk no Qdrant (re-indexa na hora) | `seed_hvac.py` |
+| `5` Ver 3 variações | Mostra 3 respostas seguidas para checar consistência | — |
+
+Depois de refinar, ainda no loop:
+```
+> rebuild       ← aplica tudo (faz build + restart do container)
+> commit        ← salva na feature branch sem rebuild
+> sair          ← pergunta se quer rebuild antes de sair
+```
+
+### Testar sem WhatsApp
+
+```bash
+# Resposta única
+curl -X POST "http://localhost:8000/test/chat?message=O+ar+tá+com+barulho"
+
+# 3 variações da mesma mensagem (checa consistência)
+curl -X POST "http://localhost:8000/test/refine?message=Quero+instalar+split"
+
+# Acurácia dos 34 cenários E2E
+curl -X POST "http://localhost:8000/test/e2e?start=0&limit=34&delay=0"
+```
+
+### Nível 1 — Tom e persona (sem rebuild)
+
+Edite `agent_graph/nodes/nodes.py` → `WILL_SYSTEM_PROMPT`.  
+Adicione exemplos na seção `EXEMPLOS_VALIDADOS_START`:
+
+```python
+# EXEMPLOS_VALIDADOS_START
+Lead: "Oi"
+Will: "Ei! Sou o Will da Refrimix — cuida do seu ar aqui na Baixada. O que tá precisando?"
+# EXEMPLOS_VALIDADOS_END
+```
+
+Ou adicione/remova regras na seção `REGRAS ABSOLUTAS`.  
+**Exige rebuild.**
+
+### Nível 2 — Conhecimento RAG (sem rebuild)
+
+Edite `qdrant/seed_hvac.py` → lista `CHUNKS`. Depois re-indexe:
+
+```bash
+source .venv/bin/activate
+python3 qdrant/seed_hvac.py
+```
+
+O Qdrant é consultado em runtime — não precisa rebuildar o container.
+
+### Nível 3 — Classificação de intent
+
+Edite `agent_graph/nodes/nodes.py` → `SCORE_MAP` dentro de `classify_service`.
+
+```python
+("laudo técnico", 4): "pmoc",    # adiciona keyword nova
+("pmoc", 5): "pmoc",             # aumenta peso de keyword existente
+```
+
+**Exige rebuild.**
+
+### Nível 4 — Modelo LLM
+
+Edite `.env`:
+
+```bash
+MINIMAX_MODEL=MiniMax-M2.5-highspeed   # mais rápido, menos raciocínio
+GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile  # Groq mais preciso
+```
+
+Reinicie o container sem rebuild (só lê `.env`):
+
+```bash
+docker rm -f whatsapp-rag-fastapi-rag-1 && \
+docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-stopped \
+  --env-file .env \
+  -e QDRANT_URL=http://127.0.0.1:6333 \
+  -e QDRANT_COLLECTION=hermes_hvac_rag_service_staging \
+  whatsapp-rag-fastapi-rag:latest
+```
+
+---
+
+## Como Não Quebrar
+
+### O que pode editar com segurança
+
+| Arquivo | Impacto | Precisa de rebuild? |
+|---------|---------|---------------------|
+| `.env` | Configs e chaves | Não (reinicia container) |
+| `WILL_SYSTEM_PROMPT` em `nodes.py` | Tom do Will | Sim |
+| `SCORE_MAP` em `nodes.py` | Classificação de intent | Sim |
+| `qdrant/seed_hvac.py` | Conhecimento RAG | Não (re-seed via Python) |
+| `docker-compose.yml` da Evolution API | **NÃO MEXA** | — |
+
+### Antes de qualquer mudança grande
+
+```bash
+# Veja o estado atual
+./git.sh status
+
+# Cria um ponto de retorno
+./git.sh save "backup: antes de refatorar X"
+```
+
+### Depois de uma mudança
+
+```bash
+# 1. Rebuilda
+docker compose build fastapi-rag && \
+docker rm -f whatsapp-rag-fastapi-rag-1 && \
+docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-stopped \
+  --env-file .env -e QDRANT_URL=http://127.0.0.1:6333 \
+  -e QDRANT_COLLECTION=hermes_hvac_rag_service_staging \
+  whatsapp-rag-fastapi-rag:latest
+
+# 2. Confirma que não quebrou nada
+curl -X POST "http://localhost:8000/test/e2e?start=0&limit=34&delay=0" | \
+  python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Acerto: {d[\"correct\"]}/{len(d[\"results\"])}')"
+
+# 3. Salva se passou
+./git.sh save "refina: descreve o que mudou"
+```
+
+### Para voltar uma mudança que quebrou
+
+```bash
+git log --oneline -10      # vê o histórico
+git checkout <hash> -- agent_graph/nodes/nodes.py   # restaura arquivo específico
+./git.sh save "revert: voltou nodes.py para versão estável"
+```
+
+---
+
+## Git — Fluxo de Trabalho
+
+```bash
+./git.sh save "mensagem"   # add + commit + push na feature branch
+./git.sh merge             # merge da feature → main (quando aprovado)
+./git.sh status            # arquivos modificados + últimos commits
+./git.sh log               # histórico visual das branches
+```
+
+Repositório: `http://100.87.53.54:3000/hermes-agent/whatsapp-rag`
+
+---
+
+## Monitorar em Tempo Real
+
+```bash
+# Logs ao vivo (filtra só o relevante)
+docker logs -f whatsapp-rag-fastapi-rag-1 2>&1 | grep -E "INFO|ERROR|WARNING" | grep -v "HTTP Request"
+
+# Ver leads salvos no PostgreSQL
+ssh will-zappro@192.168.15.83 \
+  "sudo -u postgres psql -d whatsapp_rag -c \
+  'SELECT phone, service, address, window FROM leads ORDER BY created_at DESC LIMIT 10;'"
+
+# Ver interações
+ssh will-zappro@192.168.15.83 \
+  "sudo -u postgres psql -d whatsapp_rag -c \
+  'SELECT phone, intent, LEFT(response,80) FROM interactions ORDER BY created_at DESC LIMIT 5;'"
 ```
