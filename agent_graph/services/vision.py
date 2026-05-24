@@ -81,27 +81,46 @@ class VisionService:
         if caption:
             user_content.append({"type": "text", "text": f"Legenda do usuário: {caption}"})
 
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                _GROQ_CHAT_URL,
-                headers={
-                    "Authorization": f"Bearer {self._groq_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": _GROQ_VISION_MODEL,
-                    "messages": [
-                        {"role": "system", "content": _HVAC_VISION_PROMPT},
-                        {"role": "user", "content": user_content},
-                    ],
-                    "max_tokens": 300,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if not data.get("choices"):
-                raise RuntimeError(f"Groq Vision sem choices: {data}")
-            return data["choices"][0]["message"]["content"].strip()
+        max_retries = 5
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                    resp = await client.post(
+                        _GROQ_CHAT_URL,
+                        headers={
+                            "Authorization": f"Bearer {self._groq_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": _GROQ_VISION_MODEL,
+                            "messages": [
+                                {"role": "system", "content": _HVAC_VISION_PROMPT},
+                                {"role": "user", "content": user_content},
+                            ],
+                            "max_tokens": 300,
+                        },
+                    )
+                    if resp.status_code == 429:
+                        import asyncio
+                        wait_time = 2 ** attempt + 2.0
+                        logger.warning(f"Groq Vision 429 Rate Limit. Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+
+                    resp.raise_for_status()
+                    data = resp.json()
+                    if not data.get("choices"):
+                        raise RuntimeError(f"Groq Vision sem choices: {data}")
+                    return data["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    import asyncio
+                    await asyncio.sleep(2 ** attempt + 1.0)
+                else:
+                    raise RuntimeError(f"Erro no Groq Vision após {max_retries} tentativas: {e}")
+        return ""
 
     async def _analyze_hf(self, image_b64: str, caption: str) -> str:
         """Fallback: Qwen 2.5 VL via SSH no PC1."""

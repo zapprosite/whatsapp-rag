@@ -124,7 +124,7 @@ def _strip_thinking_tags(text: str) -> str:
     return text.strip()
 
 
-async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 2) -> str:
+async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 5) -> str:
     api_key = os.getenv("MINIMAX_API_KEY", "")
     base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
     model = os.getenv("MINIMAX_MODEL", "MiniMax-M2.7")
@@ -156,11 +156,11 @@ async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 2) ->
             last_error = exc
             if attempt < max_retries - 1:
                 import asyncio
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt + 1.0)
     raise RuntimeError(f"MiniMax falhou após {max_retries} tentativas: {last_error}")
 
 
-async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 2, model_override: str | None = None, tools: list[dict] | None = None) -> str | tuple[str, list[dict]]:
+async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 5, model_override: str | None = None, tools: list[dict] | None = None) -> str | tuple[str, list[dict]]:
     api_key = os.getenv("GROQ_API_KEY", "")
     base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     model = model_override or os.getenv("GROQ_FALLBACK_MODEL", os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
@@ -184,6 +184,14 @@ async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 2, model
                         },
                         json=payload,
                     )
+                    
+                    if resp.status_code == 429:
+                        import asyncio
+                        wait_time = 2 ** attempt + 2.0
+                        logger.warning(f"Groq 429 Rate Limit. Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+
                     resp.raise_for_status()
                     data = resp.json()
                     if "error" in data:
@@ -199,7 +207,7 @@ async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 2, model
             last_error = exc
             if attempt < max_retries - 1:
                 import asyncio
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt + 1.0)
     raise RuntimeError(f"Groq falhou após {max_retries} tentativas: {last_error}")
 
 

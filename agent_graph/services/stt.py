@@ -36,7 +36,7 @@ class STTService:
         if media_url:
             try:
                 async with httpx.AsyncClient(timeout=_EVO_TIMEOUT) as client:
-                    resp = await client.get(media_url)
+                    resp = await client.get(media_url, headers={"User-Agent": "Mozilla/5.0"})
                     if resp.status_code == 200 and len(resp.content) > 1024:
                         return resp.content
             except Exception:
