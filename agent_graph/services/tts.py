@@ -20,7 +20,7 @@ _VOICE_STYLES: dict[str, str] = {
     "normal":     "willrefrimix-normal",
     "serio":      "willrefrimix-serio",
 }
-_DEFAULT_STYLE = "normal"
+_DEFAULT_STYLE = "influencer"
 
 # Mensagens que devem sempre ser respondidas em áudio
 _AUDIO_INTENT_KEYWORDS = frozenset([
@@ -160,13 +160,8 @@ sys.stdout.buffer.write(response.content)
 
 def choose_voice_style(intent: str | None, outcome: str | None) -> str:
     """Seleciona estilo de voz do Will conforme contexto da conversa."""
-    if outcome == "escalar_humano":
-        return "calmo"
-    if intent in ("pmoc", "consultoria", "projeto-central"):
-        return "tecnico"
-    if outcome in ("analise_tecnica", "higienizacao_preventiva"):
-        return "animado"
-    return "normal"
+    # O foco do projeto é sempre manter a persona de influenciador/dono da empresa
+    return "influencer"
 
 
 def should_respond_with_audio(
