@@ -15,6 +15,8 @@ Uso:
 from __future__ import annotations
 import os, sys, re, json, time, argparse, textwrap, subprocess
 from pathlib import Path
+from pydantic import BaseModel, Field
+from openai import OpenAI
 
 try:
     import httpx
@@ -54,10 +56,10 @@ def load_playbook() -> str:
 
 # ── Bot local ─────────────────────────────────────────────────────────────────
 
-def call_will(message: str) -> dict:
+def call_will(message: str, media_type: str = "conversation", media_url: str = "") -> dict:
     try:
         r = httpx.post(f"{BASE_URL}/test/chat",
-                       params={"message": message}, timeout=90)
+                       params={"message": message, "media_type": media_type, "media_url": media_url}, timeout=90)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -130,46 +132,41 @@ def upsert_validated_reply_qdrant(lead_msg: str, servico: str, ideal: str) -> No
         print(c(YL, f"  Qdrant validated_reply ignorado ({e})"))
 
 
-# ── LLM Juiz ──────────────────────────────────────────────────────────────────
+# ── LLM Juiz e Schema ────────────────────────────────────────────────────────
 
-def _call_judge_groq(messages: list[dict], system: str) -> str:
-    api_key = os.getenv("GROQ_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY não configurado")
+class ScoreAvaliacao(BaseModel):
+    score: float = Field(description="Nota de 0.0 a 10.0")
+    falhas: list[str] = Field(description="Lista de falhas encontradas na resposta (max 2)")
+    ideal: str = Field(description="A resposta exata que o Will deveria ter enviado")
+    nivel: int = Field(description="1=WILL_SYSTEM_PROMPT, 2=RAG Qdrant, 3=SCORE_MAP keywords")
+    regra: str = Field(description="Se nivel==1: regra ou exemplo a adicionar ao prompt")
+
+def call_judge(messages: list[dict], system: str) -> ScoreAvaliacao:
+    """Usa OpenAI com Structured Outputs para garantir o retorno via Groq ou Qwen Local."""
+    api_key = os.getenv("GROQ_API_KEY")
     payload_msgs = [{"role": "system", "content": system}] + messages
-    r = httpx.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}",
-                 "Content-Type": "application/json"},
-        json={"model": JUDGE_MODEL_GROQ, "messages": payload_msgs,
-              "max_tokens": 1024, "temperature": 0.3},
-        timeout=60,
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    
+    def _do_call(base_url, api_key, model):
+        client = OpenAI(base_url=base_url, api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=payload_msgs,
+            response_format={"type": "json_object"},
+            temperature=0.2,
+        )
+        return ScoreAvaliacao.model_validate_json(response.choices[0].message.content)
 
+    if api_key:
+        try:
+            return _do_call("https://api.groq.com/openai/v1", api_key, JUDGE_MODEL_GROQ)
+        except Exception as e:
+            print(c(YL, f"  Groq falhou ({e}), usando Qwen local"))
 
-def _call_judge_qwen(messages: list[dict], system: str) -> str:
-    payload_msgs = [{"role": "system", "content": system}] + messages
-    r = httpx.post(
-        f"{LOCAL_QWEN_BASE_URL}/chat/completions",
-        headers={"Content-Type": "application/json"},
-        json={"model": LOCAL_QWEN_MODEL, "messages": payload_msgs,
-              "max_tokens": 1024, "temperature": 0.2},
-        timeout=90,
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
-
-
-def call_judge(messages: list[dict], system: str) -> str:
-    """Tenta Groq 70b primeiro, cai no Qwen local."""
     try:
-        return _call_judge_groq(messages, system)
+        return _do_call(LOCAL_QWEN_BASE_URL, "sk-local", LOCAL_QWEN_MODEL)
     except Exception as e:
-        print(c(YL, f"  Groq juiz falhou ({e}), usando Qwen local"))
-        return _call_judge_qwen(messages, system)
-
+        print(c(YL, f"  Erro no LLM Juiz (Qwen): {e}"))
+        return ScoreAvaliacao(score=0.0, falhas=[str(e)], ideal="", nivel=1, regra="")
 
 # ── Sistema do juiz ───────────────────────────────────────────────────────────
 
@@ -191,18 +188,10 @@ CRITÉRIOS DE AVALIAÇÃO (peso igual):
 2. TOM: soa como WhatsApp humano informal? usa "a gente", "pra", "tá"?
 3. QUALIFICAÇÃO: fez pergunta qualificadora certa (localização/equipo/urgência)?
 4. PREÇO: citou preço quando relevante? sem rodeios?
-5. CONCISÃO: resposta curta e direta? sem listas, sem formalidade?
+5. MULTIMODAL/VISÃO: Se o cliente relatou defeito físico, o Will pediu foto proativamente? Se o cliente enviou foto, o Will avaliou a imagem?
+6. CONCISÃO PARA ÁUDIO: O texto é direto o suficiente para virar um áudio de TTS curto sem parecer que está lendo uma bula? Evita listas e formatações markdown?
 
-Responda SEMPRE em JSON válido:
-{{
-  "score": 0-10,
-  "falhas": ["falha 1", "falha 2"],
-  "ideal": "a resposta exata que o Will deveria ter enviado",
-  "nivel": 1,
-  "regra": "se nivel==1: regra ou exemplo a adicionar ao prompt"
-}}
-
-nivel: 1=WILL_SYSTEM_PROMPT, 2=RAG Qdrant, 3=SCORE_MAP keywords"""
+Responda usando o schema JSON estruturado e garanta que o output seja um JSON válido."""
 
 
 # ── Cenários ──────────────────────────────────────────────────────────────────
@@ -235,29 +224,49 @@ CENARIOS_BASE = [
 ]
 
 
+class CenarioDeTeste(BaseModel):
+    msg: str = Field(description="Mensagem do lead, pode simular anexo tipo [IMG:url]")
+    servico: str = Field(description="instalacao|higienizacao|manutencao|pmoc|onboarding")
+
+class ListaCenarios(BaseModel):
+    cenarios: list[CenarioDeTeste]
+
 def gerar_cenarios_com_llm(playbook: str, n: int = 10) -> list[tuple[str, str]]:
     """Gera cenários novos e difíceis usando o LLM juiz."""
     system = f"""Você é um gerador de cenários de teste para um bot de vendas HVAC.
-
 PLAYBOOK:
 {playbook}
 
 Gere {n} mensagens DIFÍCEIS que um lead real mandaria no WhatsApp — situações
 que um bot genérico erraria: objeções de preço, comparação com concorrente,
-perguntas ambíguas, múltiplas dúvidas na mesma mensagem, linguagem informal
-extrema, leads que parecem curiosos mas são compradores reais.
+perguntas ambíguas, envio de fotos (use [IMG:url] para simular a foto),
+linguagem informal extrema.
 
-Responda APENAS em JSON:
-[
-  {{"msg": "mensagem do lead", "servico": "instalacao|higienizacao|manutencao|pmoc|onboarding"}},
-  ...
-]"""
+Você deve responder com um JSON válido correspondente ao schema solicitado."""
+    api_key = os.getenv("GROQ_API_KEY")
+    payload = [{"role": "system", "content": system}, {"role": "user", "content": "Gera os cenários."}]
+    
+    def _do_call(base_url, key, model):
+        client = OpenAI(base_url=base_url, api_key=key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=payload,
+            response_format={"type": "json_object"},
+            temperature=0.7,
+        )
+        data = ListaCenarios.model_validate_json(response.choices[0].message.content)
+        return [(c.msg, normalize_service(c.servico) or "?") for c in data.cenarios]
+
+    if api_key:
+        try:
+            return _do_call("https://api.groq.com/openai/v1", api_key, JUDGE_MODEL_GROQ)
+        except Exception as e:
+            print(c(YL, f"  Geração de cenários Groq falhou ({e}), tentando Qwen local"))
+
     try:
-        raw = call_judge([{"role": "user", "content": "Gera os cenários."}], system)
-        data = json.loads(re.search(r'\[.*\]', raw, re.DOTALL).group())
-        return [(d["msg"], normalize_service(d.get("servico")) or "?") for d in data if "msg" in d]
+        return _do_call(LOCAL_QWEN_BASE_URL, "sk-local", LOCAL_QWEN_MODEL)
     except Exception as e:
-        print(c(YL, f"  Geração de cenários falhou ({e}), usando base"))
+        print(c(YL, f"  Geração de cenários Qwen falhou ({e}), usando base"))
         return []
 
 
@@ -367,7 +376,23 @@ def avaliar_cenario(lead_msg: str, servico: str, playbook: str,
 
     # 1. Will responde
     print(c(DIM, f"  ▶ Lead: {lead_msg[:70]}"))
-    data = call_will(lead_msg)
+    
+    media_type = "conversation"
+    media_url = ""
+    clean_msg = lead_msg
+    
+    if lead_msg.startswith("[IMG:"):
+        import re as re_local
+        m = re_local.match(r"\[IMG:(.+?)\]\s*(.*)", lead_msg)
+        if m:
+            media_type = "imageMessage"
+            media_url = m.group(1).strip()
+            clean_msg = m.group(2).strip()
+    elif lead_msg.startswith("[AUDIO]"):
+        media_type = "audioMessage"
+        clean_msg = lead_msg.replace("[AUDIO]", "").strip()
+
+    data = call_will(clean_msg, media_type, media_url)
     will_resp = data.get("response") or data.get("error") or ""
     intent    = data.get("intent", "?")
 
@@ -387,21 +412,16 @@ Will respondeu: "{will_resp}"
 Retorne o JSON de avaliação."""
 
     try:
-        raw = call_judge([{"role": "user", "content": prompt}], system)
-        # Extrai JSON do texto (o LLM pode adicionar texto antes/depois)
-        match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if not match:
-            raise ValueError("JSON não encontrado na resposta")
-        resultado = json.loads(match.group())
+        resultado = call_judge([{"role": "user", "content": prompt}], system)
     except Exception as e:
         print(c(RD, f"  ✗ Juiz falhou: {e}"))
         return 0.0
 
-    score  = float(resultado.get("score", 0))
-    falhas = resultado.get("falhas", [])
-    ideal  = resultado.get("ideal", "")
-    nivel  = int(resultado.get("nivel", 1))
-    regra  = resultado.get("regra", "")
+    score  = resultado.score
+    falhas = resultado.falhas
+    ideal  = resultado.ideal
+    nivel  = resultado.nivel
+    regra  = resultado.regra
 
     # 3. Exibe resultado
     cor_score = GR if score >= 8 else (YL if score >= 6 else RD)

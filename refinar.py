@@ -35,9 +35,13 @@ def c(color: str, text: str) -> str:
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 
-def call_bot(message: str) -> dict:
+def call_bot(message: str, media_type: str = "conversation", media_url: str = "") -> dict:
     try:
-        r = httpx.post(f"{BASE_URL}/test/chat", params={"message": message}, timeout=90)
+        r = httpx.post(f"{BASE_URL}/test/chat", params={
+            "message": message,
+            "media_type": media_type,
+            "media_url": media_url
+        }, timeout=90)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -66,11 +70,16 @@ def show_response(data: dict, message: str, label: str = "Will"):
     service = data.get("service", "?")
     rag     = data.get("rag_hits", 0)
     resp    = data.get("response") or data.get("error") or "(sem resposta)"
+    
+    # Se o bot decidiu responder em áudio, loga isso
+    audio_info = ""
+    if data.get("audio_bytes"):
+        audio_info = c(MAGENTA, " [TTS Áudio Gerado]")
 
     color = GREEN if not data.get("error") else RED
     print(f"\n{BOLD}{'─'*62}{R}")
     print(f"  {c(DIM,'Msg:')} {message}")
-    print(f"  {c(DIM,'Intent:')} {c(CYAN, intent)}  {c(DIM,'Service:')} {c(CYAN, service)}  {c(DIM,'RAG hits:')} {rag}")
+    print(f"  {c(DIM,'Intent:')} {c(CYAN, intent)}  {c(DIM,'Service:')} {c(CYAN, service)}  {c(DIM,'RAG hits:')} {rag}{audio_info}")
     print(f"{BOLD}{'─'*62}{R}")
     for line in textwrap.wrap(resp, 60):
         print(f"  {c(color, line)}")
@@ -300,8 +309,9 @@ def main():
             message = initial_msg.strip()
             initial_msg = None
         else:
-            print(f"\n{c(BOLD,'Mensagem do lead')} (ou {c(CYAN,'sair')} / {c(CYAN,'rebuild')} / {c(CYAN,'commit')}): ", end="")
-            message = input().strip()
+            print(f"\n{c(BOLD,'Mensagem do lead')} (ou {c(CYAN,'sair')} / {c(CYAN,'rebuild')} / {c(CYAN,'commit')}): ")
+            print(c(DIM, "  Dica: use [IMG:url] ou [AUDIO] antes do texto para simular mídia."))
+            message = input(f"  {BOLD}>{R} ").strip()
 
         if message.lower() in ("sair", "exit", "q"):
             if needs_rebuild:
@@ -326,7 +336,23 @@ def main():
 
         # ── Chama o bot ───────────────────────────────────────────────────
         print(c(DIM, "  chamando Will..."))
-        data = call_bot(message)
+        
+        media_type = "conversation"
+        media_url = ""
+        clean_msg = message
+        
+        if message.startswith("[IMG:"):
+            import re
+            m = re.match(r"\[IMG:(.+?)\]\s*(.*)", message)
+            if m:
+                media_type = "imageMessage"
+                media_url = m.group(1).strip()
+                clean_msg = m.group(2).strip()
+        elif message.startswith("[AUDIO]"):
+            media_type = "audioMessage"
+            clean_msg = message.replace("[AUDIO]", "").strip()
+
+        data = call_bot(clean_msg, media_type, media_url)
         resp, intent, service = show_response(data, message)
 
         # ── Aprova? ───────────────────────────────────────────────────────
