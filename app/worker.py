@@ -34,6 +34,7 @@ _CONV_MAX_TURNS = int(os.getenv("CONV_MAX_TURNS", "6"))
 _WORKER_COUNT = max(1, int(os.getenv("WORKER_CONCURRENCY", "4")))
 _QUEUE_POP_TIMEOUT = int(os.getenv("WORKER_QUEUE_POP_TIMEOUT_SECONDS", "5"))
 _MESSAGE_TIMEOUT = float(os.getenv("WORKER_MESSAGE_TIMEOUT_SECONDS", "180"))
+_GRAPH_TIMEOUT = float(os.getenv("GRAPH_RESPONSE_TIMEOUT_SECONDS", "45"))
 _MAX_ATTEMPTS = max(1, int(os.getenv("WORKER_MAX_ATTEMPTS", "3")))
 _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
@@ -123,6 +124,26 @@ def _message_text(message: BaseMessage | Any) -> str:
     return content if isinstance(content, str) else str(content)
 
 
+def normalize_whatsapp_number(value: str) -> str:
+    """Converte JID da Evolution em número aceito pelo sendText/sendAudio."""
+    raw = str(value or "").strip()
+    local = raw.split("@", 1)[0].split(":", 1)[0]
+    return re.sub(r"\D", "", local)
+
+
+def _safe_fallback_response(message_text: str) -> str:
+    lowered = message_text.lower()
+    if any(term in lowered for term in ("humano", "atendente", "reembolso", "cancelamento", "ninguém", "ninguem")):
+        return (
+            "Recebi sua mensagem. Tive uma instabilidade aqui, mas já deixei isso sinalizado "
+            "e vou adiantar por aqui: me passa o número do orçamento ou serviço e o melhor horário pra retorno?"
+        )
+    return (
+        "Recebi sua mensagem. Tive uma instabilidade rápida pra consultar os detalhes agora, "
+        "mas já consigo adiantar: isso é instalação, manutenção ou higienização? Me passa também sua cidade/bairro."
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan: start queue consumers and tear down on shutdown."""
@@ -165,16 +186,21 @@ async def send_whatsapp_message(phone: str, text: str, instance: str = "default"
     api_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
     api_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
     instance_name = os.getenv("EVOLUTION_INSTANCE", instance)
+    number = normalize_whatsapp_number(phone)
+
+    if not number:
+        logger.error("Número WhatsApp inválido para envio de texto: %r", phone)
+        return False
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{api_url}/message/sendText/{instance_name}",
                 headers={"apikey": api_key, "Content-Type": "application/json"},
-                json={"number": phone, "text": text},
+                json={"number": number, "text": text},
             )
             if resp.status_code in (200, 201):
-                logger.info("Texto enviado para %s: %s", phone, text[:50])
+                logger.info("Texto enviado para %s: %s", number, text[:50])
                 return True
             logger.warning("Evolution API erro %s: %s", resp.status_code, resp.text)
             return False
@@ -191,16 +217,21 @@ async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "d
     api_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
     instance_name = os.getenv("EVOLUTION_INSTANCE", instance)
     audio_b64 = base64.b64encode(audio_bytes).decode()
+    number = normalize_whatsapp_number(phone)
+
+    if not number:
+        logger.error("Número WhatsApp inválido para envio de áudio: %r", phone)
+        return False
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{api_url}/message/sendWhatsAppAudio/{instance_name}",
                 headers={"apikey": api_key, "Content-Type": "application/json"},
-                json={"number": phone, "audio": audio_b64},
+                json={"number": number, "audio": audio_b64},
             )
             if resp.status_code in (200, 201):
-                logger.info("Áudio enviado para %s: %s bytes", phone, len(audio_bytes))
+                logger.info("Áudio enviado para %s: %s bytes", number, len(audio_bytes))
                 return True
             logger.warning("Evolution API (áudio) erro %s: %s", resp.status_code, resp.text)
             return False
@@ -406,9 +437,13 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
     if GRAPH is None:
         raise RuntimeError("LangGraph não inicializado")
 
-    phone = payload.phone.strip()
+    phone = normalize_whatsapp_number(payload.phone)
     message_text = payload.message.strip()
     instance = payload.instance or "default"
+
+    if not phone:
+        logger.error("Mensagem sem número normalizável: %r", payload.phone)
+        return
 
     logger.info(
         "worker=%s processando [%s] de %s: %s",
@@ -450,7 +485,18 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             "audio_bytes": None,
         }
 
-        result = await GRAPH.ainvoke(initial_state)
+        try:
+            result = await asyncio.wait_for(GRAPH.ainvoke(initial_state), timeout=_GRAPH_TIMEOUT)
+        except Exception as e:
+            logger.exception("Falha no grafo; usando fallback seguro para %s: %s", phone, e)
+            fallback = _safe_fallback_response(message_text)
+            result = {
+                "messages": messages_with_history + [AIMessage(content=fallback)],
+                "response_modality": "text",
+                "handoff_mode": "none",
+                "handoff_reason": None,
+                "outcome": "fallback_seguro",
+            }
 
         await maybe_notify_owner_from_result(
             r,

@@ -238,3 +238,11 @@ def test_worker_soft_alert_is_deduped(monkeypatch):
     assert len(sent) == 1
     assert sent[0]["handoff_mode"] == "soft_alert"
     assert "high_value_pmoc" in sent[0]["reason"]
+
+
+def test_worker_normalizes_evolution_jid_to_number():
+    from app import worker
+
+    assert worker.normalize_whatsapp_number("5513999999999@s.whatsapp.net") == "5513999999999"
+    assert worker.normalize_whatsapp_number("5513999999999:12@s.whatsapp.net") == "5513999999999"
+    assert worker.normalize_whatsapp_number("+55 (13) 99999-9999") == "5513999999999"

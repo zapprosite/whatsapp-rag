@@ -468,6 +468,8 @@ async def redis_set(key: str, value: str, ex: int | None = None) -> None:
 # Qdrant Helper
 # ──────────────────────────────────────────────────────────────────────────────
 
+_RAG_TIMEOUT_SECONDS = _env_float("RAG_TIMEOUT_SECONDS", 8.0)
+
 def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[dict[str, Any]]:
     from qdrant_client import QdrantClient
     from fastembed import TextEmbedding
@@ -941,17 +943,26 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
     query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
 
     try:
-        rag_context = await asyncio.to_thread(qdrant_search, query, service, 5)
+        rag_context = await asyncio.wait_for(
+            asyncio.to_thread(qdrant_search, query, service, 5),
+            timeout=_RAG_TIMEOUT_SECONDS,
+        )
         if len(rag_context) < 3:
             # Complementa com conhecimento geral de vendas, preço e políticas.
             seen = {ctx["id"] for ctx in rag_context}
-            general_context = await asyncio.to_thread(qdrant_search, user_text, None, 5)
+            general_context = await asyncio.wait_for(
+                asyncio.to_thread(qdrant_search, user_text, None, 5),
+                timeout=_RAG_TIMEOUT_SECONDS,
+            )
             for ctx in general_context:
                 if ctx["id"] not in seen:
                     rag_context.append(ctx)
                     seen.add(ctx["id"])
                 if len(rag_context) >= 5:
                     break
+    except asyncio.TimeoutError:
+        logger.warning("Qdrant search excedeu timeout de %.1fs", _RAG_TIMEOUT_SECONDS)
+        rag_context = []
     except Exception as e:
         logger.warning(f"Qdrant search falhou: {e}")
         rag_context = []

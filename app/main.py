@@ -13,13 +13,13 @@ from fastapi.responses import JSONResponse
 
 try:
     import worker as worker_module
-    from worker import lifespan, get_redis, send_whatsapp_message
+    from worker import lifespan, get_redis, send_whatsapp_message, normalize_whatsapp_number
 except ModuleNotFoundError:
     # Importação a partir da raiz do projeto (testes / verificação)
     import sys, importlib
     sys.path.insert(0, str(Path(__file__).parent))
     import worker as worker_module
-    from worker import lifespan, get_redis, send_whatsapp_message
+    from worker import lifespan, get_redis, send_whatsapp_message, normalize_whatsapp_number
 from langchain_core.messages import HumanMessage
 
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +140,11 @@ async def receive_webhook(request: Request) -> JSONResponse:
     if phone_str.endswith("@broadcast"):
         logger.info(f"Ignorando broadcast: {phone_str}")
         return JSONResponse({"status": "ok", "skipped": "broadcast"})
+
+    phone = normalize_whatsapp_number(phone_str)
+    if not phone:
+        logger.error("Webhook com telefone inválido — raw=%r body_keys=%s", phone_str, list(body.keys()))
+        return JSONResponse({"status": "ok", "skipped": "invalid phone"})
 
     r = await get_redis()
     await r.lpush("whatsapp_rag:queue", json.dumps({
