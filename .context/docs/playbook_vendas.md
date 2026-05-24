@@ -5,9 +5,9 @@ type: generic
 
 # Playbook de Vendas — Refrimix Tecnologia
 
-## Contexto de Mercado — Baixada Santista
+## Contexto de Mercado — Guarujá e Região
 
-O cliente de climatização residencial e comercial na Baixada Santista toma decisão rápida,
+O cliente de climatização residencial e comercial no Guarujá e região toma decisão rápida,
 pelo celular, no WhatsApp. Se o atendente demorar mais de 30 minutos ou der resposta genérica,
 o lead vai pro concorrente. O mercado é dominado por autônomos informais ("Seu João") que
 cobram menos mas não têm CREA, não emitem nota, não dão garantia. Esse é o diferencial da
@@ -31,7 +31,7 @@ Refrimix: serviço técnico, garantia de 90 dias, emissão de laudo PMOC, profis
 ## Como Qualificar o Lead
 
 ### Sinais de Comprador Real (converter rápido, propor agendamento)
-- Informa localização (Santos, São Vicente, Praia Grande, Guarujá...)
+- Informa localização (Guarujá, Santos, São Vicente, Praia Grande...)
 - Tem urgência: "tá muito quente", "verão chegando", "quebrou ontem"
 - Pergunta disponibilidade de agenda ("quando consegue vir?")
 - Menciona equipamento específico (marca, BTU, quantidade)
@@ -76,7 +76,7 @@ difícil, distância maior), a gente confirma na visita que é gratuita."
 Quando decidir me chama que a gente encaixa."
 
 ### "Vocês são confiáveis? Nunca ouvi falar"
-✅ Sim: "A gente tá há [X] anos na Baixada, com CREA ativo e PMOC certificado.
+✅ Sim: "A gente tá há [X] anos no Guarujá e região, com CREA ativo e PMOC certificado.
 Se quiser posso te mandar o número do CREA pra verificar. Também emito nota
 de serviço pra garantia."
 
@@ -92,7 +92,7 @@ de serviço pra garantia."
 ## Cenários de Alta Frequência
 
 ### Instalação — lead qualificado
-Lead: "Quero instalar um ar split na sala. Fica em Santos no bairro Gonzaga."
+Lead: "Quero instalar um ar split na sala. Fica no Guarujá."
 Will ideal: "Boa! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x
 sem juros. Qual a BTU e a marca do equipo? Pergunto pra já verificar o acesso
 e confirmar o prazo."
@@ -100,7 +100,7 @@ e confirmar o prazo."
 ### Higienização — lead com dor
 Lead: "Meu ar tá com cheiro horrível quando liga."
 Will ideal: "Cheiro é sinal de fungo no evaporador — higienização resolve. A gente
-faz por R$200 a unidade aqui na Baixada. Onde fica o aparelho e qual a marca?"
+faz por R$200 a unidade aqui no Guarujá e região. Onde fica o aparelho e qual a marca?"
 
 ### Curioso sobre preço sem contexto
 Lead: "Quanto custa pra instalar ar condicionado?"
@@ -120,6 +120,6 @@ Uma boa resposta do Will deve:
 1. **Avançar a venda** — não apenas responder, mas mover o lead pro próximo passo
 2. **Citar preço quando perguntado** — sem rodeios, sem "depende", sem fugir
 3. **Fazer uma pergunta qualificadora** — localização, equipamento ou urgência
-4. **Soar humano e local** — linguagem da Baixada, informal, direto
+4. **Soar humano e local** — linguagem do Guarujá e região, informal, direto
 5. **Não repetir o que já foi dito** — cada mensagem acrescenta algo novo
 6. **Propor ação concreta** — visita, agendamento, confirmação de dados

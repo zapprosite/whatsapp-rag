@@ -31,10 +31,11 @@ SCORE_META   = 8.0   # meta de score médio para convergência
 MARKER_START = "# EXEMPLOS_VALIDADOS_START"
 MARKER_END   = "# EXEMPLOS_VALIDADOS_END"
 
-# LLM juiz — usa o mais forte disponível
-# Prioridade: Anthropic Opus → Groq 70b → MiniMax M2.7
+# LLM juiz — usa o que já existe no stack
+# Prioridade: Groq 70b → Qwen2.5-VL local
 JUDGE_MODEL_GROQ      = "llama-3.3-70b-versatile"
-JUDGE_MODEL_ANTHROPIC = "claude-opus-4-7"
+LOCAL_QWEN_BASE_URL   = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8010/v1").rstrip("/")
+LOCAL_QWEN_MODEL      = os.getenv("LOCAL_QWEN_MODEL", "qwen2.5-vl-7b-instruct")
 
 # ── ANSI ──────────────────────────────────────────────────────────────────────
 R="\033[0m"; B="\033[1m"; DIM="\033[2m"
@@ -63,23 +64,73 @@ def call_will(message: str) -> dict:
         return {"error": str(e), "response": "", "intent": "?"}
 
 
+def normalize_service(service: str | None) -> str | None:
+    if service == "hygienizacao":
+        return "higienizacao"
+    return service
+
+
+def sales_cache_key(service: str | None, text: str) -> str:
+    import hashlib
+    normalized = " ".join(text.lower().strip().split())
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+    return f"sales_reply:v1:{service or 'none'}:{digest}"
+
+
+def cache_validated_reply(lead_msg: str, servico: str, response: str, score: float) -> None:
+    if score < float(os.getenv("VALIDATED_REPLY_MIN_SCORE", "9.0")):
+        return
+    try:
+        import redis
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        ttl = int(os.getenv("SALES_CACHE_TTL_SECONDS", "2592000"))
+        client = redis.Redis.from_url(redis_url, decode_responses=True)
+        client.set(sales_cache_key(normalize_service(servico), lead_msg), response, ex=ttl)
+        client.close()
+        print(c(GR, "  ✓ Resposta 9+ cacheada no Redis"))
+    except Exception as e:
+        print(c(YL, f"  Redis cache ignorado ({e})"))
+
+
+def upsert_validated_reply_qdrant(lead_msg: str, servico: str, ideal: str) -> None:
+    """Insere resposta ideal no Qdrant como memória comercial recuperável."""
+    try:
+        import hashlib
+        from fastembed import TextEmbedding
+        from qdrant_client import QdrantClient
+        from qdrant_client.http import models
+
+        collection = os.getenv("QDRANT_COLLECTION", "hermes_hvac_rag_service_staging")
+        qdrant_url = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+        text = f"Lead: {lead_msg}\nResposta validada do Will: {ideal}"
+        vector = next(TextEmbedding(model="nomic-ai/nomic-embed-text-v1.5", max_length=512).embed([text]))
+        digest = hashlib.sha256(f"{servico}:{lead_msg}".encode("utf-8")).hexdigest()
+        point_id = f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+
+        QdrantClient(url=qdrant_url).upsert(
+            collection_name=collection,
+            points=[
+                models.PointStruct(
+                    id=point_id,
+                    vector=vector.tolist(),
+                    payload={
+                        "service_name": normalize_service(servico),
+                        "outcome": "validated_reply",
+                        "doc_type": "validated_reply",
+                        "priority": 1,
+                        "source": "refinar_llm.py",
+                        "title": f"Resposta validada: {lead_msg[:60]}",
+                        "text": text,
+                    },
+                )
+            ],
+        )
+        print(c(GR, "  ✓ Resposta ideal adicionada ao Qdrant"))
+    except Exception as e:
+        print(c(YL, f"  Qdrant validated_reply ignorado ({e})"))
+
+
 # ── LLM Juiz ──────────────────────────────────────────────────────────────────
-
-def _call_judge_anthropic(messages: list[dict], system: str) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY não configurado")
-    r = httpx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
-                 "Content-Type": "application/json"},
-        json={"model": JUDGE_MODEL_ANTHROPIC, "max_tokens": 1024,
-              "system": system, "messages": messages},
-        timeout=120,
-    )
-    r.raise_for_status()
-    return r.json()["content"][0]["text"]
-
 
 def _call_judge_groq(messages: list[dict], system: str) -> str:
     api_key = os.getenv("GROQ_API_KEY", "")
@@ -98,21 +149,33 @@ def _call_judge_groq(messages: list[dict], system: str) -> str:
     return r.json()["choices"][0]["message"]["content"]
 
 
+def _call_judge_qwen(messages: list[dict], system: str) -> str:
+    payload_msgs = [{"role": "system", "content": system}] + messages
+    r = httpx.post(
+        f"{LOCAL_QWEN_BASE_URL}/chat/completions",
+        headers={"Content-Type": "application/json"},
+        json={"model": LOCAL_QWEN_MODEL, "messages": payload_msgs,
+              "max_tokens": 1024, "temperature": 0.2},
+        timeout=90,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+
 def call_judge(messages: list[dict], system: str) -> str:
-    """Tenta Anthropic Opus primeiro, cai no Groq 70b."""
-    if os.getenv("ANTHROPIC_API_KEY"):
-        try:
-            return _call_judge_anthropic(messages, system)
-        except Exception as e:
-            print(c(YL, f"  Anthropic falhou ({e}), usando Groq 70b"))
-    return _call_judge_groq(messages, system)
+    """Tenta Groq 70b primeiro, cai no Qwen local."""
+    try:
+        return _call_judge_groq(messages, system)
+    except Exception as e:
+        print(c(YL, f"  Groq juiz falhou ({e}), usando Qwen local"))
+        return _call_judge_qwen(messages, system)
 
 
 # ── Sistema do juiz ───────────────────────────────────────────────────────────
 
 def build_judge_system(playbook: str) -> str:
     return f"""Você é um especialista em vendas B2C de serviços de climatização no Brasil,
-com foco na Baixada Santista (São Vicente, Santos, Praia Grande, Guarujá).
+com foco no Guarujá e atendimento regional para Santos, São Vicente e Praia Grande.
 
 Você avalia respostas de um atendente virtual chamado Will da Refrimix Tecnologia.
 
@@ -152,10 +215,10 @@ CENARIOS_BASE = [
     ("Faz instalação em apartamento no 5° andar?", "instalacao"),
     ("Tenho 3 quartos pra instalar, como funciona?", "instalacao"),
     # Higienização
-    ("Meu ar tá com cheiro ruim quando liga.", "hygienizacao"),
-    ("Qual a diferença de limpeza e higienização?", "hygienizacao"),
-    ("Faz higienização com ozônio? Tenho criança em casa.", "hygienizacao"),
-    ("Quanto custa pra higienizar um split?", "hygienizacao"),
+    ("Meu ar tá com cheiro ruim quando liga.", "higienizacao"),
+    ("Qual a diferença de limpeza e higienização?", "higienizacao"),
+    ("Faz higienização com ozônio? Tenho criança em casa.", "higienizacao"),
+    ("Quanto custa pra higienizar um split?", "higienizacao"),
     # Manutenção
     ("O ar não tá gelando mais, o que pode ser?", "manutencao"),
     ("Meu split fica desligando sozinho depois de 10 minutos.", "manutencao"),
@@ -186,15 +249,54 @@ extrema, leads que parecem curiosos mas são compradores reais.
 
 Responda APENAS em JSON:
 [
-  {{"msg": "mensagem do lead", "servico": "instalacao|hygienizacao|manutencao|pmoc|onboarding"}},
+  {{"msg": "mensagem do lead", "servico": "instalacao|higienizacao|manutencao|pmoc|onboarding"}},
   ...
 ]"""
     try:
         raw = call_judge([{"role": "user", "content": "Gera os cenários."}], system)
         data = json.loads(re.search(r'\[.*\]', raw, re.DOTALL).group())
-        return [(d["msg"], d["servico"]) for d in data if "msg" in d]
+        return [(d["msg"], normalize_service(d.get("servico")) or "?") for d in data if "msg" in d]
     except Exception as e:
         print(c(YL, f"  Geração de cenários falhou ({e}), usando base"))
+        return []
+
+
+def carregar_cenarios_postgres(limit: int = 20) -> list[tuple[str, str]]:
+    """Extrai conversas reais salvas como cenários de refinamento."""
+    if not os.getenv("DATABASE_URL"):
+        return []
+    try:
+        import asyncio
+        from prisma import Prisma
+
+        async def _load() -> list[tuple[str, str]]:
+            db = Prisma()
+            await db.connect()
+            try:
+                rows = await db.query_raw(
+                    """
+                    SELECT message, COALESCE(service, intent, 'onboarding') AS service
+                    FROM interactions
+                    WHERE message IS NOT NULL
+                      AND length(message) BETWEEN 3 AND 500
+                    ORDER BY created_at DESC
+                    LIMIT $1
+                    """,
+                    limit,
+                )
+                result = []
+                for row in rows:
+                    msg = row.get("message")
+                    service = normalize_service(row.get("service")) or "onboarding"
+                    if msg:
+                        result.append((msg, service))
+                return result
+            finally:
+                await db.disconnect()
+
+        return asyncio.run(_load())
+    except Exception as e:
+        print(c(YL, f"  PostgreSQL cenários ignorados ({e})"))
         return []
 
 
@@ -313,7 +415,11 @@ Retorne o JSON de avaliação."""
         print(f"  {c(CY,'Ideal:')} {ideal[:120]}")
 
     # 4. Aplica melhoria se score abaixo da meta
+    if score >= float(os.getenv("VALIDATED_REPLY_MIN_SCORE", "9.0")):
+        cache_validated_reply(lead_msg, servico, will_resp, score)
+
     if score < SCORE_META and ideal and aplicar:
+        upsert_validated_reply_qdrant(lead_msg, servico, ideal)
         aplicar_melhoria(lead_msg, ideal, nivel, regra)
 
     salvar_log(ciclo, lead_msg, servico, will_resp, score, falhas, ideal)
@@ -406,7 +512,7 @@ def main():
         sys.exit(1)
 
     # Verifica disponibilidade do juiz
-    juiz = "Claude Opus" if os.getenv("ANTHROPIC_API_KEY") else "Groq 70b-versatile"
+    juiz = "Groq 70b-versatile" if os.getenv("GROQ_API_KEY") else f"Qwen local ({LOCAL_QWEN_MODEL})"
     print(f"  {c(CY,'Juiz:')} {juiz}")
     print(f"  {c(CY,'Meta:')} score médio >= {SCORE_META}/10\n")
 
@@ -426,6 +532,10 @@ def main():
 
     # ── Define cenários ───────────────────────────────────────────────────────
     cenarios = list(CENARIOS_BASE)
+    reais = carregar_cenarios_postgres(limit=20)
+    if reais:
+        cenarios = reais + cenarios
+        print(c(GR, f"  +{len(reais)} cenários reais do PostgreSQL\n"))
     print(c(YL, "Gerando cenários adicionais com LLM..."))
     extras = gerar_cenarios_com_llm(playbook, n=8)
     if extras:
