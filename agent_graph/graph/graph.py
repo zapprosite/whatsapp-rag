@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict, Annotated, Any
+from typing import Annotated, Any, Literal, TypedDict
 from langgraph.graph import StateGraph, add_messages, END
 from langchain_core.messages import BaseMessage
 
@@ -19,24 +19,37 @@ from agent_graph.nodes.nodes import (
 )
 
 
+class RagContextItem(TypedDict, total=False):
+    id: Any
+    score: float | None
+    priority: int
+    payload: dict[str, Any]
+
+
+class CustomerData(TypedDict, total=False):
+    phone: str
+    is_first_message: bool
+    name: str
+
+
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     intent: str | None
     service: str | None
     outcome: str | None
-    rag_context: list[str]
-    customer_data: dict
+    rag_context: list[RagContextItem]
+    customer_data: CustomerData
     is_human: bool
     confidence: float
     # Multimodal
-    message_type: str | None       # "conversation" | "audioMessage" | "imageMessage"
+    message_type: Literal["conversation", "audioMessage", "imageMessage"] | str | None
     msg_id: str | None             # ID da mensagem para recuperar base64
     media_url: str | None          # URL da mídia inbound (áudio ou imagem)
     media_base64: str | None       # Base64 cacheado via webhook
     instance: str | None           # instância Evolution API
     # Resposta
-    response_modality: str | None  # "text" | "audio"
-    audio_bytes: Any               # bytes WAV do TTS (não serializado no Redis)
+    response_modality: Literal["text", "audio"] | None
+    audio_bytes: bytes | None      # bytes WAV do TTS (não serializado no Redis)
 
 
 def route_after_classify(state: AgentState) -> str:

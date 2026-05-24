@@ -18,6 +18,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from openai import OpenAI
 
+from agent_graph.utils.llm_output import parse_llm_json
+
 try:
     import httpx
 except ImportError:
@@ -141,7 +143,7 @@ class ScoreAvaliacao(BaseModel):
     nivel: int = Field(description="1=WILL_SYSTEM_PROMPT, 2=RAG Qdrant, 3=SCORE_MAP keywords")
     regra: str = Field(description="Se nivel==1: regra ou exemplo a adicionar ao prompt")
 
-def call_judge(messages: list[dict], system: str) -> ScoreAvaliacao:
+def call_judge(messages: list[dict[str, str]], system: str) -> ScoreAvaliacao:
     """Usa OpenAI com Structured Outputs para garantir o retorno via Groq ou Qwen Local."""
     payload_msgs = [{"role": "system", "content": system}] + messages
     
@@ -153,10 +155,8 @@ def call_judge(messages: list[dict], system: str) -> ScoreAvaliacao:
             response_format={"type": "json_object"},
             temperature=0.2,
         )
-        content = response.choices[0].message.content
-        if content.startswith("```json"):
-            content = content.replace("```json", "", 1).replace("```", "").strip()
-        return ScoreAvaliacao.model_validate_json(content)
+        content = response.choices[0].message.content or ""
+        return parse_llm_json(content, ScoreAvaliacao)
 
     try:
         return _do_call(LOCAL_QWEN_BASE_URL, "sk-local", LOCAL_QWEN_MODEL)
@@ -249,10 +249,8 @@ Você deve responder com um JSON válido correspondente ao schema solicitado."""
             response_format={"type": "json_object"},
             temperature=0.7,
         )
-        content = response.choices[0].message.content
-        if content.startswith("```json"):
-            content = content.replace("```json", "", 1).replace("```", "").strip()
-        data = ListaCenarios.model_validate_json(content)
+        content = response.choices[0].message.content or ""
+        data = parse_llm_json(content, ListaCenarios)
         return [(c.msg, normalize_service(c.servico) or "?") for c in data.cenarios]
 
     try:

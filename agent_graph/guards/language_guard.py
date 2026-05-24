@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+import asyncio
 from typing import Awaitable, Callable, Final
 
 NON_LATIN_SCRIPTS: Final[set[str]] = {
@@ -173,7 +174,11 @@ class LanguageGuard:
                 "Proibido: caracteres chineses, japoneses, coreanos, arabes, cirilicos. "
                 "Escreva como o dono da empresa no WhatsApp, em pt-BR natural."
             )
-            response = await llm_callable(retry_prompt)
+            try:
+                response = await llm_callable(retry_prompt)
+            except Exception:
+                await asyncio.sleep(min(4.0, 0.5 * (2 ** (attempt - 1))))
+                continue
             is_valid, reason = self.validate(response)
             if is_valid:
                 return response

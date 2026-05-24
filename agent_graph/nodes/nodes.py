@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import os
-import json
+import asyncio
 import logging
 import hashlib
 import httpx
-from typing import Any
+from typing import Any, TypeGuard
 
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+
+from agent_graph.utils.context_window import (
+    LOCAL_REFRIMIX_SYSTEM_PROMPT,
+    ChatMessage,
+    fit_chat_messages,
+)
+from agent_graph.utils.llm_output import strip_llm_markup
+from agent_graph.utils.resilience import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitOpenError,
+    sleep_with_backoff,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,18 +132,96 @@ Para eu montar um orçamento preciso, me diz: 'onde fica o seu estabelecimento e
 # LLM Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-import re as _re
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
 
-def _strip_thinking_tags(text: str) -> str:
-    """Remove blocos <think>...</think> de modelos de raciocínio (MiniMax M2.x, DeepSeek-R1, etc)."""
-    text = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL)
-    return text.strip()
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(0.1, float(os.getenv(name, str(default))))
+    except ValueError:
+        return default
 
 
-async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 5) -> str:
+def _is_human_message(message: BaseMessage | Any) -> TypeGuard[HumanMessage]:
+    return isinstance(message, HumanMessage)
+
+
+def _is_ai_message(message: BaseMessage | Any) -> TypeGuard[AIMessage]:
+    return isinstance(message, AIMessage)
+
+
+def _message_text(message: BaseMessage | Any) -> str:
+    content = getattr(message, "content", message)
+    return content if isinstance(content, str) else str(content)
+
+
+def _breaker_config(prefix: str, default_threshold: int, default_timeout: float) -> CircuitBreakerConfig:
+    return CircuitBreakerConfig(
+        failure_threshold=_env_int(f"{prefix}_CIRCUIT_FAILURE_THRESHOLD", default_threshold),
+        recovery_timeout_seconds=_env_float(f"{prefix}_CIRCUIT_RECOVERY_SECONDS", default_timeout),
+        half_open_success_threshold=_env_int(f"{prefix}_CIRCUIT_HALF_OPEN_SUCCESSES", 1),
+    )
+
+
+_MINIMAX_SEMAPHORE = asyncio.Semaphore(_env_int("MINIMAX_CONCURRENCY", 4))
+_QWEN_SEMAPHORE = asyncio.Semaphore(_env_int("LOCAL_QWEN_CONCURRENCY", 1))
+_PTBR_SEMAPHORE = asyncio.Semaphore(_env_int("LOCAL_PTBR_CONCURRENCY", 1))
+
+_MINIMAX_BREAKER = CircuitBreaker("minimax", _breaker_config("MINIMAX", 4, 45.0))
+_QWEN_BREAKER = CircuitBreaker("local-qwen", _breaker_config("LOCAL_QWEN", 3, 30.0))
+_PTBR_BREAKER = CircuitBreaker("local-ptbr", _breaker_config("LOCAL_PTBR", 3, 30.0))
+
+
+def _extract_chat_content(data: dict[str, Any], provider: str) -> str:
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError(f"{provider} sem choices: {data}")
+
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise RuntimeError(f"{provider} choice inválida: {data}")
+
+    message = first.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str):
+            return strip_llm_markup(content)
+
+    text = first.get("text")
+    if isinstance(text, str):
+        return strip_llm_markup(text)
+
+    raise RuntimeError(f"{provider} sem content textual: {data}")
+
+
+def _fit_for_qwen(messages: list[ChatMessage], max_tokens: int, context_tokens: int) -> list[ChatMessage]:
+    window = fit_chat_messages(
+        messages,
+        max_context_tokens=context_tokens,
+        reserved_output_tokens=max_tokens,
+        safety_margin_tokens=_env_int("LOCAL_QWEN_CONTEXT_SAFETY_TOKENS", 192),
+        compact_system_prompt=LOCAL_REFRIMIX_SYSTEM_PROMPT,
+    )
+    if window.dropped_messages or window.compacted_system_prompt or window.trimmed_tokens < window.original_tokens:
+        logger.info(
+            "Qwen context window: %s -> %s tokens, dropped=%s, compacted_system=%s",
+            window.original_tokens,
+            window.trimmed_tokens,
+            window.dropped_messages,
+            window.compacted_system_prompt,
+        )
+    return window.messages
+
+
+async def _call_minimax(messages: list[ChatMessage], max_retries: int = 5) -> str:
     api_key = os.getenv("MINIMAX_API_KEY", "")
     base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
     model = os.getenv("MINIMAX_MODEL", "MiniMax-M2.7")
+    max_tokens = _env_int("MINIMAX_MAX_TOKENS", 400)
 
     if not api_key:
         raise RuntimeError("MINIMAX_API_KEY não configurado")
@@ -138,106 +229,120 @@ async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 5) ->
     last_error: Exception | None = None
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": model, "messages": messages, "max_tokens": 400},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if "error" in data:
-                    raise RuntimeError(f"MiniMax error: {data['error']}")
-                if not data.get("choices"):
-                    raise RuntimeError(f"MiniMax sem choices: {data}")
-                raw = data["choices"][0]["message"]["content"]
-                return _strip_thinking_tags(raw)
+            async def request() -> str:
+                async with _MINIMAX_SEMAPHORE:
+                    async with httpx.AsyncClient(timeout=_env_float("MINIMAX_TIMEOUT_SECONDS", 90.0)) as client:
+                        resp = await client.post(
+                            f"{base_url}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={"model": model, "messages": messages, "max_tokens": max_tokens},
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        if "error" in data:
+                            raise RuntimeError(f"MiniMax error: {data['error']}")
+                        return _extract_chat_content(data, "MiniMax")
+
+            return await _MINIMAX_BREAKER.call(request)
+        except CircuitOpenError:
+            raise
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(2 ** attempt + 1.0)
+                await sleep_with_backoff(attempt, base_seconds=1.0, cap_seconds=20.0)
     raise RuntimeError(f"MiniMax falhou após {max_retries} tentativas: {last_error}")
 
 
-async def _call_local_qwen(messages: list[dict[str, str]], max_retries: int = 1) -> str:
+async def _call_local_qwen(messages: list[ChatMessage], max_retries: int = 2) -> str:
     """Fallback local OpenAI-compatible via llama.cpp/Qwen2.5-VL."""
     base_url = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8011/v1").rstrip("/")
     model = os.getenv("LOCAL_QWEN_MODEL", "qwen2.5-vl-7b-instruct")
+    max_tokens = _env_int("LOCAL_QWEN_MAX_TOKENS", 300)
+    context_tokens = _env_int("LOCAL_QWEN_CONTEXT_TOKENS", 4096)
 
     last_error: Exception | None = None
     for attempt in range(max_retries):
+        effective_context_tokens = max(1024, int(context_tokens * (0.72**attempt)))
+        fitted_messages = _fit_for_qwen(messages, max_tokens, effective_context_tokens)
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "max_tokens": 300,
-                        "temperature": 0.2,
-                        "frequency_penalty": 0.5,
-                        "presence_penalty": 0.5,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("choices"):
-                    raise RuntimeError(f"Qwen local sem choices: {data}")
-                return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+            async def request() -> str:
+                async with _QWEN_SEMAPHORE:
+                    async with httpx.AsyncClient(timeout=_env_float("LOCAL_QWEN_TIMEOUT_SECONDS", 45.0)) as client:
+                        resp = await client.post(
+                            f"{base_url}/chat/completions",
+                            headers={"Content-Type": "application/json"},
+                            json={
+                                "model": model,
+                                "messages": fitted_messages,
+                                "max_tokens": max_tokens,
+                                "temperature": 0.2,
+                                "frequency_penalty": 0.5,
+                                "presence_penalty": 0.5,
+                            },
+                        )
+                        resp.raise_for_status()
+                        return _extract_chat_content(resp.json(), "Qwen local")
+
+            return await _QWEN_BREAKER.call(request)
         except httpx.HTTPStatusError as exc:
             last_error = exc
-            logger.error(f"Qwen HTTPStatusError 400: {exc.response.text}")
+            body = exc.response.text[:500]
+            logger.error("Qwen HTTPStatusError %s: %s", exc.response.status_code, body)
             if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(1)
+                await sleep_with_backoff(attempt, base_seconds=0.5, cap_seconds=4.0)
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(1)
+                await sleep_with_backoff(attempt, base_seconds=0.5, cap_seconds=4.0)
     raise RuntimeError(f"Qwen local falhou: {last_error}")
 
 
-async def _call_local_ptbr(messages: list[dict[str, str]], max_retries: int = 1) -> str:
+async def _call_local_ptbr(messages: list[ChatMessage], max_retries: int = 1) -> str:
     """Modelo local PT-BR opcional para polir linguagem sem depender de nuvem."""
     base_url = os.getenv("LOCAL_PTBR_BASE_URL", "").rstrip("/")
     model = os.getenv("LOCAL_PTBR_MODEL", "qwen2.5-7b-pt-br-instruct")
+    max_tokens = _env_int("LOCAL_PTBR_MAX_TOKENS", 240)
     if not base_url:
         raise RuntimeError("LOCAL_PTBR_BASE_URL não configurado")
 
     last_error: Exception | None = None
     for attempt in range(max_retries):
+        fitted_messages = fit_chat_messages(
+            messages,
+            max_context_tokens=_env_int("LOCAL_PTBR_CONTEXT_TOKENS", 4096),
+            reserved_output_tokens=max_tokens,
+            safety_margin_tokens=128,
+            compact_system_prompt=LOCAL_REFRIMIX_SYSTEM_PROMPT,
+        ).messages
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "max_tokens": 240,
-                        "temperature": 0.15,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("choices"):
-                    raise RuntimeError(f"PT-BR local sem choices: {data}")
-                return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+            async def request() -> str:
+                async with _PTBR_SEMAPHORE:
+                    async with httpx.AsyncClient(timeout=_env_float("LOCAL_PTBR_TIMEOUT_SECONDS", 45.0)) as client:
+                        resp = await client.post(
+                            f"{base_url}/chat/completions",
+                            headers={"Content-Type": "application/json"},
+                            json={
+                                "model": model,
+                                "messages": fitted_messages,
+                                "max_tokens": max_tokens,
+                                "temperature": 0.15,
+                            },
+                        )
+                        resp.raise_for_status()
+                        return _extract_chat_content(resp.json(), "PT-BR local")
+
+            return await _PTBR_BREAKER.call(request)
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(1)
+                await sleep_with_backoff(attempt, base_seconds=0.5, cap_seconds=4.0)
     raise RuntimeError(f"PT-BR local falhou: {last_error}")
 
 
-async def llm_chat(messages: list[dict[str, str]], max_retries: int = 2) -> str:
+async def llm_chat(messages: list[ChatMessage], max_retries: int = 2) -> str:
     """MiniMax principal, Qwen local como fallback automático."""
     minimax_key = os.getenv("MINIMAX_API_KEY", "")
     if minimax_key:
@@ -442,7 +547,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         return {"intent": None, "service": None, "outcome": None}
 
     last_message = messages[-1]
-    user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+    user_text = _message_text(last_message)
     text_lower = user_text.lower()
 
     # Triggers para escalar humano imediatamente
@@ -537,8 +642,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     top_score = sorted_scores[0] if sorted_scores else 0
     runner_up = sorted_scores[1] if len(sorted_scores) > 1 else 0
 
-    # LLM override: sempre consulta (para zero-score ou ambiguidade) — usa 70b para mais precisão
-    CLASSIFY_MODEL = os.getenv("GROQ_CLASSIFY_MODEL", "llama-3.3-70b-versatile")
+    # LLM override: consulta o classificador local para zero-score ou ambiguidade.
     try:
         prompt = (
             f"Classifique a mensagem do cliente entre: "
@@ -589,19 +693,20 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
         return {"rag_context": [], "messages": messages}
 
     last_message = messages[-1]
-    user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+    user_text = _message_text(last_message)
     recent_human = [
-        m.content for m in messages[-6:]
-        if isinstance(m, HumanMessage) and getattr(m, "content", "")
+        _message_text(m) for m in messages[-6:]
+        if _is_human_message(m) and _message_text(m)
     ]
     query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
 
     try:
-        rag_context = qdrant_search(query, service_name=service, top_k=5)
+        rag_context = await asyncio.to_thread(qdrant_search, query, service, 5)
         if len(rag_context) < 3:
             # Complementa com conhecimento geral de vendas, preço e políticas.
             seen = {ctx["id"] for ctx in rag_context}
-            for ctx in qdrant_search(user_text, service_name=None, top_k=5):
+            general_context = await asyncio.to_thread(qdrant_search, user_text, None, 5)
+            for ctx in general_context:
                 if ctx["id"] not in seen:
                     rag_context.append(ctx)
                     seen.add(ctx["id"])
@@ -627,9 +732,9 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         return {"messages": messages}
 
     last_message = messages[-1]
-    user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+    user_text = _message_text(last_message)
 
-    human_count = sum(1 for m in messages if isinstance(m, HumanMessage))
+    human_count = sum(1 for m in messages if _is_human_message(m))
     cache_key = _sales_cache_key(service, user_text)
     if human_count <= 2:
         try:
@@ -680,16 +785,16 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
 
     # ── Monta multi-turn com histórico de conversa ────────────────────────────
     # system + histórico alternado (user/assistant) + última mensagem com contexto RAG
-    llm_messages: list[dict[str, str]] = [
+    llm_messages: list[ChatMessage] = [
         {"role": "system", "content": WILL_SYSTEM_PROMPT},
     ]
 
     # Adiciona histórico (todas as mensagens exceto a última — que vira user_prompt abaixo)
     for msg in messages[:-1]:
-        if isinstance(msg, HumanMessage):
-            llm_messages.append({"role": "user", "content": msg.content})
-        elif isinstance(msg, AIMessage):
-            llm_messages.append({"role": "assistant", "content": msg.content})
+        if _is_human_message(msg):
+            llm_messages.append({"role": "user", "content": _message_text(msg)})
+        elif _is_ai_message(msg):
+            llm_messages.append({"role": "assistant", "content": _message_text(msg)})
 
     # Última mensagem do lead enriquecida com contexto RAG e CTA
     user_prompt = (
@@ -711,53 +816,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
-    tools_definition = [
-        {
-            "type": "function",
-            "function": {
-                "name": "emitir_orcamento_pdf",
-                "description": "Gera um orçamento PDF em tempo real e envia para o WhatsApp do cliente. Chame esta ferramenta SEMPRE que o cliente explicitamente concordar com os valores ou pedir um orçamento por escrito/PDF.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "cliente_nome": {
-                            "type": "string",
-                            "description": "Nome do cliente extraído da conversa ou 'Cliente Refrimix'."
-                        },
-                        "servico": {
-                            "type": "string",
-                            "description": "Tipo de serviço, ex: 'Instalação de Ar Condicionado', 'Higienização'."
-                        },
-                        "itens": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "descricao": {"type": "string"},
-                                    "valor": {"type": "number"}
-                                },
-                                "required": ["descricao", "valor"]
-                            },
-                            "description": "Lista de itens ou serviços a serem detalhados no orçamento."
-                        },
-                        "doc_type": {
-                            "type": "string",
-                            "enum": ["orcamento_mao_de_obra", "orcamento_material", "proposta", "contrato"],
-                            "description": "O tipo do documento a gerar."
-                        }
-                    },
-                    "required": ["cliente_nome", "servico", "itens", "doc_type"]
-                }
-            }
-        }
-    ]
-
     try:
-        try:
-            response = await _call_minimax(llm_messages)
-        except Exception as e:
-            logger.warning(f"MiniMax falhou, tentando Qwen local: {e}")
-            response = await _call_local_qwen(llm_messages)
+        response = await llm_chat(llm_messages, max_retries=2)
     except Exception as e:
         logger.warning(f"LLM falhou em generate_response: {e}")
         response = {
@@ -767,7 +827,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             ),
             "higienizacao_preventiva": (
                 "Ótimo! A higienização é fundamental pra qualidade do ar. "
-                "Me fala quantos aparelhos são e o endereço que eu já orçamento."
+                "Me fala quantos aparelhos são e o endereço que eu já calculo o orçamento."
             ),
             "reuniao_projeto": (
                 "Pra esse tipo de projeto, melhor a gente sentar e conversar com a planta em mãos. "
@@ -787,10 +847,7 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
         return {"messages": messages}
 
     last_message = messages[-1]
-    if not hasattr(last_message, "content"):
-        return {"messages": messages}
-
-    ai_response = last_message.content
+    ai_response = _message_text(last_message)
     rag_context = state.get("rag_context", [])
     service = state.get("service", "não classificado")
     outcome = state.get("outcome", "duvida")
@@ -802,7 +859,7 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
     ) or "Sem contexto."
 
     user_text = next(
-        (m.content for m in messages if isinstance(m, HumanMessage)),
+        (_message_text(m) for m in messages if _is_human_message(m)),
         "",
     )
 
@@ -816,8 +873,6 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
     from agent_graph.guards.language_guard import LanguageGuard
 
     guard = LanguageGuard(expected_lang="pt-BR", majority_threshold=0.50, max_retries=2)
-    intent = state.get("intent")
-    MINIMAX_INTENTS = {"pmoc", "consultoria", "projeto-central"}
 
     async def retry_llm(prompt: str) -> str:
         return await llm_chat([
@@ -825,12 +880,21 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
             {"role": "user", "content": prompt},
         ])
 
-    fixed_response = await guard.validate_and_fix(
-        ai_response,
-        retry_llm,
-        original_prompt,
-        groq_repair_callable=groq_repair,
-    )
+    try:
+        fixed_response = await guard.validate_and_fix(
+            ai_response,
+            retry_llm,
+            original_prompt,
+            groq_repair_callable=groq_repair,
+        )
+    except Exception as e:
+        logger.warning("LanguageGuard repair falhou; usando resposta original sanitizada: %s", e)
+        from agent_graph.guards.language_guard import sanitize_hard
+
+        fixed_response = sanitize_hard(ai_response) or (
+            "Tive uma instabilidade técnica aqui. Me manda o endereço e os detalhes do aparelho "
+            "que eu já te ajudo pelo WhatsApp."
+        )
 
     return {"messages": messages[:-1] + [AIMessage(content=fixed_response)]}
 
@@ -845,10 +909,7 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
         return {"messages": messages}
 
     last_message = messages[-1]
-    if not hasattr(last_message, "content"):
-        return {"messages": messages}
-
-    raw = last_message.content
+    raw = _message_text(last_message)
 
     # Remove markdown que não renderiza bem no WhatsApp
     formatted = raw
@@ -880,8 +941,8 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
     outcome = state.get("outcome")
     customer_data = state.get("customer_data", {})
 
-    user_message = next((m.content for m in messages if isinstance(m, HumanMessage)), None)
-    ai_message = next((m.content for m in reversed(messages) if isinstance(m, AIMessage)), None)
+    user_message = next((_message_text(m) for m in messages if _is_human_message(m)), None)
+    ai_message = next((_message_text(m) for m in reversed(messages) if _is_ai_message(m)), None)
 
     try:
         await prisma_save_interaction({
@@ -938,7 +999,7 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
             logger.info(f"STT transcript: {transcript[:80]!r}")
             # Substitui última HumanMessage pelo texto transcrito
             new_messages = list(messages)
-            if new_messages and isinstance(new_messages[-1], HumanMessage):
+            if new_messages and _is_human_message(new_messages[-1]):
                 new_messages[-1] = HumanMessage(content=transcript)
             else:
                 new_messages.append(HumanMessage(content=transcript))
@@ -952,8 +1013,8 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
             from agent_graph.services.vision import analyze_image
             # Caption já pode estar como última HumanMessage
             caption = ""
-            if messages and isinstance(messages[-1], HumanMessage):
-                caption = messages[-1].content or ""
+            if messages and _is_human_message(messages[-1]):
+                caption = _message_text(messages[-1]) or ""
             description = await analyze_image(media_url, caption, instance or None, msg_id, media_base64)
             logger.info(f"Vision description: {description[:80]!r}")
             # Prepend descrição ao texto do usuário
@@ -961,7 +1022,7 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
             if caption:
                 combined = f"[Imagem: {description}]\n{caption}"
             new_messages = list(messages)
-            if new_messages and isinstance(new_messages[-1], HumanMessage):
+            if new_messages and _is_human_message(new_messages[-1]):
                 new_messages[-1] = HumanMessage(content=combined)
             else:
                 new_messages.append(HumanMessage(content=combined))
@@ -991,7 +1052,7 @@ async def decide_response_modality(state: dict[str, Any]) -> dict[str, Any]:
     messages = state.get("messages", [])
 
     user_text = next(
-        (m.content for m in messages if isinstance(m, HumanMessage)),
+        (_message_text(m) for m in messages if _is_human_message(m)),
         "",
     )
 
@@ -1017,7 +1078,7 @@ async def tts_voice_clone(state: dict[str, Any]) -> dict[str, Any]:
     outcome = state.get("outcome")
 
     ai_text = next(
-        (m.content for m in reversed(messages) if isinstance(m, AIMessage)),
+        (_message_text(m) for m in reversed(messages) if _is_ai_message(m)),
         "",
     )
 
@@ -1062,7 +1123,7 @@ def _extract_appointment_data(messages: list, customer_data: dict, service: str 
     Retorna dict com {address, window} se detectar, ou None.
     """
     full_text = " ".join(
-        m.content.lower() for m in messages if isinstance(m, HumanMessage) and m.content
+        _message_text(m).lower() for m in messages if _is_human_message(m) and _message_text(m)
     )
 
     address = next((p for p in _ADDRESS_PATTERNS if p in full_text), None)
