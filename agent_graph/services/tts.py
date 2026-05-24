@@ -46,7 +46,7 @@ class TTSService:
         return os.path.join(self._voices_path, f"{name}.wav")
 
     async def _synthesize_omnivoice(self, text: str, voice_style: str) -> bytes | None:
-        voice = "willrefrimix-influencer"
+        voice = self._voice_name(voice_style)
         ssh_host = os.getenv("SSH_HOST_PC1", "will-zappro@192.168.15.83")
         
         remote_code = r"""
