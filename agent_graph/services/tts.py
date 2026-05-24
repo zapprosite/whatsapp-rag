@@ -185,9 +185,11 @@ def should_respond_with_audio(
         return False
 
     # Áudio para saudação / qualificação / agendamento
+    import re
     text_lower = user_text.lower()
-    if any(kw in text_lower for kw in _AUDIO_INTENT_KEYWORDS):
-        return True
+    for kw in _AUDIO_INTENT_KEYWORDS:
+        if re.search(r'\b' + re.escape(kw) + r'\b', text_lower):
+            return True
 
     return False
 
