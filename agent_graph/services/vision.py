@@ -97,6 +97,8 @@ class VisionService:
                     "model": model,
                     "messages": messages,
                     "max_tokens": 300,
+                    "temperature": 0.2,
+                    "frequency_penalty": 0.5,
                 },
             )
             resp.raise_for_status()

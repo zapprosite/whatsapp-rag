@@ -180,6 +180,8 @@ async def _call_local_qwen(messages: list[dict[str, str]], max_retries: int = 1)
                         "messages": messages,
                         "max_tokens": 300,
                         "temperature": 0.2,
+                        "frequency_penalty": 0.5,
+                        "presence_penalty": 0.5,
                     },
                 )
                 resp.raise_for_status()
@@ -313,8 +315,8 @@ async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
 
 
 async def groq_repair(prompt: str) -> str:
-    """Groq dedicado para repair de language guard — sempre Llama 70B."""
-    return await _call_groq(
+    """Fallback repair (agora redirecionado para o LLM principal)."""
+    return await llm_chat(
         [
             {"role": "system", "content": "Você é um tradutor/reescritor para português brasileiro."},
             {"role": "user", "content": prompt},
@@ -818,8 +820,7 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
     MINIMAX_INTENTS = {"pmoc", "consultoria", "projeto-central"}
 
     async def retry_llm(prompt: str) -> str:
-        llm_caller = llm_chat if intent in MINIMAX_INTENTS else _call_groq
-        return await llm_caller([
+        return await llm_chat([
             {"role": "system", "content": WILL_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ])
