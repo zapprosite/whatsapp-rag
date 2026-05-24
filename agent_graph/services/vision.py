@@ -70,61 +70,8 @@ class VisionService:
                 raise RuntimeError(f"Evolution API não retornou base64 de imagem: {data}")
             return b64
 
-    async def _analyze_groq(self, image_b64: str, caption: str) -> str:
-        """Análise via Groq llama-3.2-11b-vision-preview."""
-        user_content: list[dict] = [
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-            },
-        ]
-        if caption:
-            user_content.append({"type": "text", "text": f"Legenda do usuário: {caption}"})
-
-        max_retries = 5
-        last_error = None
-        for attempt in range(max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                    resp = await client.post(
-                        _GROQ_CHAT_URL,
-                        headers={
-                            "Authorization": f"Bearer {self._groq_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": _GROQ_VISION_MODEL,
-                            "messages": [
-                                {"role": "system", "content": _HVAC_VISION_PROMPT},
-                                {"role": "user", "content": user_content},
-                            ],
-                            "max_tokens": 300,
-                        },
-                    )
-                    if resp.status_code == 429:
-                        import asyncio
-                        wait_time = 2 ** attempt + 2.0
-                        logger.warning(f"Groq Vision 429 Rate Limit. Retrying in {wait_time}s...")
-                        await asyncio.sleep(wait_time)
-                        continue
-
-                    resp.raise_for_status()
-                    data = resp.json()
-                    if not data.get("choices"):
-                        raise RuntimeError(f"Groq Vision sem choices: {data}")
-                    return data["choices"][0]["message"]["content"].strip()
-            except Exception as e:
-                last_error = e
-                if attempt < max_retries - 1:
-                    import asyncio
-                    await asyncio.sleep(2 ** attempt + 1.0)
-                else:
-                    raise RuntimeError(f"Erro no Groq Vision após {max_retries} tentativas: {e}")
-        return ""
-
     async def _analyze_hf(self, image_b64: str, caption: str) -> str:
-        """Fallback: Qwen 2.5 VL via SSH no PC1."""
-        ssh_host = os.getenv("SSH_HOST_PC1", "will-zappro@192.168.15.83")
+        """Fallback: Qwen 2.5 VL."""
         base_url = "http://127.0.0.1:8011/v1"
         model = "qwen2.5-vl-7b-instruct"
         
@@ -142,51 +89,21 @@ class VisionService:
             }
         ]
 
-        remote_code = r"""
-import json
-import sys
-import requests
-
-data = json.load(sys.stdin)
-base_url = data.pop("_base_url").rstrip("/")
-timeout = float(data.pop("_timeout"))
-try:
-    response = requests.post(f"{base_url}/chat/completions", json=data, timeout=timeout)
-    response.raise_for_status()
-except requests.HTTPError as exc:
-    print(f"Vision request failed: {exc}; body={response.text[:500]}", file=sys.stderr)
-    sys.exit(1)
-except Exception as exc:
-    print(f"Vision request failed: {exc}", file=sys.stderr)
-    sys.exit(1)
-print(response.text)
-"""
-        import shlex
-        import json
-        import asyncio
-        payload = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": 300,
-            "_base_url": base_url,
-            "_timeout": 45.0
-        }
-        
-        proc = await asyncio.create_subprocess_exec(
-            "/usr/bin/ssh", "-o", "StrictHostKeyChecking=no", ssh_host, f"python3 -c {shlex.quote(remote_code)}",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate(input=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-        
-        if proc.returncode != 0:
-            raise RuntimeError(f"Vision SSH failed: {stderr.decode('utf-8', errors='replace')}")
-            
-        data = json.loads(stdout.decode("utf-8"))
-        if not data.get("choices"):
-            raise RuntimeError(f"Vision local sem choices: {data}")
-        return data["choices"][0]["message"]["content"].strip()
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": 300,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("choices"):
+                raise RuntimeError(f"Vision local sem choices: {data}")
+            return data["choices"][0]["message"]["content"].strip()
 
     async def analyze_image(
         self,
@@ -202,14 +119,6 @@ print(response.text)
         except Exception as e:
             logger.warning(f"Vision: falhou ao buscar imagem {image_url!r}: {e}")
             return caption or "Imagem não processada."
-
-        if self._groq_key:
-            try:
-                result = await self._analyze_groq(image_b64, caption)
-                logger.info(f"Vision (Groq): {result[:80]!r}")
-                return result
-            except Exception as e:
-                logger.warning(f"Vision Groq falhou, tentando HF: {e}")
 
         try:
             result = await self._analyze_hf(image_b64, caption)
