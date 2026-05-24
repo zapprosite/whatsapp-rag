@@ -28,7 +28,7 @@ REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO E VISÃO (MULTIMODAL):
 - VOCÊ É ESTRITAMENTE PROIBIDO DE INVENTAR PREÇOS, PRAZOS, SERVIÇOS OU PROCEDIMENTOS TÉCNICOS.
 - Baseie suas respostas ÚNICA E EXCLUSIVAMENTE no 'Contexto recuperado da Refrimix' fornecido na mensagem.
 - Se o cliente perguntar algo cujo preço ou detalhe não conste no contexto, responda de forma elegante que precisará analisar os detalhes ou calcular.
-- MULTIMODALIDADE: Você consegue analisar fotos! Sempre que um cliente relatar um problema físico (ex: "está pingando", "quebrou", "erro na tela") ou quiser orçar a instalação/manutenção, PEÇA PROATIVAMENTE PARA ELE MANDAR UMA FOTO da máquina ou da etiqueta. (ex: "Você consegue me mandar uma foto do aparelho para eu avaliar o modelo exato?").
+- MULTIMODALIDADE: Você consegue analisar fotos! Sempre que um cliente relatar um problema físico (ex: "está pingando", "quebrou", "erro na tela", "barulho estranho") ou quiser orçar a instalação/manutenção, PEÇA PROATIVAMENTE PARA ELE MANDAR UMA FOTO da máquina ou UM VÍDEO CURTO mostrando o problema. (ex: "Você consegue gravar um vídeo rápido com o som para eu avaliar antes da visita?").
 
 FLUXO DE ONBOARDING E CONDUÇÃO:
 1. Primeira interação: Cumprimente profissionalmente e pergunte como pode ajudar hoje.
@@ -47,6 +47,9 @@ Critério de sucesso: O cliente deve sentir que está falando com um profissiona
 
 # EXEMPLOS_VALIDADOS_START
 # Exemplos validados pelo Will — adicionados via refinar.py:
+
+Lead: "O ar tá com barulho"
+Will: "Oi! Sou o Will da Refrimix. Barulho estranho pode ser algo simples na turbina ou um problema de fixação no motor. Você consegue gravar um vídeo curto com o som ou mandar uma foto da máquina pra mim? Assim já consigo ter uma ideia do problema antes de marcarmos a visita técnica gratuita."
 
 Lead: "Qual a diferença de limpeza e higienização?"
 Will: "Ei! Sou o Will da Refrimix. A higienização é uma limpeza profunda com produto bacteriostático que mata ácaros, fungos e bactérias. Você precisa de quantos aparelhos para agendar? A higienização custa R$200 por unidade aqui no Guarujá e região. Qual a localização e qual a marca do aparelho?"
@@ -160,113 +163,36 @@ async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 5) ->
     raise RuntimeError(f"MiniMax falhou após {max_retries} tentativas: {last_error}")
 
 
-async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 5, model_override: str | None = None, tools: list[dict] | None = None) -> str | tuple[str, list[dict]]:
-    api_key = os.getenv("GROQ_API_KEY", "")
-    base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-    model = model_override or os.getenv("GROQ_FALLBACK_MODEL", os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
-
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY não configurado")
-
-    last_error: Exception | None = None
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                    payload = {"model": model, "messages": messages, "max_tokens": 512}
-                    if tools:
-                        payload["tools"] = tools
-
-                    resp = await client.post(
-                        f"{base_url}/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json=payload,
-                    )
-                    
-                    if resp.status_code == 429:
-                        import asyncio
-                        wait_time = 2 ** attempt + 2.0
-                        logger.warning(f"Groq 429 Rate Limit. Retrying in {wait_time}s...")
-                        await asyncio.sleep(wait_time)
-                        continue
-
-                    resp.raise_for_status()
-                    data = resp.json()
-                    if "error" in data:
-                        raise RuntimeError(f"Groq error: {data['error']}")
-                    if not data.get("choices"):
-                        raise RuntimeError(f"Groq sem choices: {data}")
-                    
-                    message_obj = data["choices"][0]["message"]
-                    if tools and "tool_calls" in message_obj:
-                        return message_obj.get("content") or "", message_obj["tool_calls"]
-                    return message_obj.get("content") or ""
-        except Exception as exc:
-            last_error = exc
-            if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(2 ** attempt + 1.0)
-    raise RuntimeError(f"Groq falhou após {max_retries} tentativas: {last_error}")
-
-
 async def _call_local_qwen(messages: list[dict[str, str]], max_retries: int = 1) -> str:
-    """Fallback local OpenAI-compatible via llama.cpp/Qwen2.5-VL no PC1 via SSH."""
+    """Fallback local OpenAI-compatible via llama.cpp/Qwen2.5-VL."""
     base_url = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8011/v1").rstrip("/")
     model = os.getenv("LOCAL_QWEN_MODEL", "qwen2.5-vl-7b-instruct")
-    ssh_host = os.getenv("SSH_HOST_PC1", "will-zappro@192.168.15.83")
-
-    remote_code = r"""
-import json
-import sys
-import requests
-
-data = json.load(sys.stdin)
-base_url = data.pop("_base_url").rstrip("/")
-timeout = float(data.pop("_timeout"))
-try:
-    response = requests.post(f"{base_url}/chat/completions", json=data, timeout=timeout)
-    response.raise_for_status()
-except requests.HTTPError as exc:
-    print(f"Qwen request failed: {exc}; body={response.text[:500]}", file=sys.stderr)
-    sys.exit(1)
-except Exception as exc:
-    print(f"Qwen request failed: {exc}", file=sys.stderr)
-    sys.exit(1)
-print(response.text)
-"""
 
     last_error: Exception | None = None
     for attempt in range(max_retries):
         try:
-            import shlex
-            import json
-            import asyncio
-            payload = {
-                "model": model,
-                "messages": messages,
-                "max_tokens": 300,
-                "temperature": 0.2,
-                "_base_url": base_url,
-                "_timeout": 45.0
-            }
-            
-            proc = await asyncio.create_subprocess_exec(
-                "/usr/bin/ssh", "-o", "StrictHostKeyChecking=no", ssh_host, f"python3 -c {shlex.quote(remote_code)}",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate(input=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-            
-            if proc.returncode != 0:
-                raise RuntimeError(f"SSH failed: {stderr.decode('utf-8', errors='replace')}")
-                
-            data = json.loads(stdout.decode("utf-8"))
-            if not data.get("choices"):
-                raise RuntimeError(f"Qwen local sem choices: {data}")
-            return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": 300,
+                        "temperature": 0.2,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("choices"):
+                    raise RuntimeError(f"Qwen local sem choices: {data}")
+                return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            logger.error(f"Qwen HTTPStatusError 400: {exc.response.text}")
+            if attempt < max_retries - 1:
+                import asyncio
+                await asyncio.sleep(1)
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
@@ -310,19 +236,15 @@ async def _call_local_ptbr(messages: list[dict[str, str]], max_retries: int = 1)
 
 
 async def llm_chat(messages: list[dict[str, str]], max_retries: int = 2) -> str:
-    """MiniMax principal, Groq como fallback automático."""
+    """MiniMax principal, Qwen local como fallback automático."""
     minimax_key = os.getenv("MINIMAX_API_KEY", "")
     if minimax_key:
         try:
             return await _call_minimax(messages, max_retries)
         except Exception as e:
-            logger.warning(f"MiniMax falhou, usando Groq: {e}")
+            logger.warning(f"MiniMax falhou, usando Qwen local: {e}")
 
-    try:
-        return await _call_groq(messages, max_retries)
-    except Exception as e:
-        logger.warning(f"Groq falhou, tentando Qwen local: {e}")
-        return await _call_local_qwen(messages)
+    return await _call_local_qwen(messages)
 
 
 def _normalize_text(text: str) -> str:
@@ -629,7 +551,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
             f"Mensagem: \"{user_text}\"\n"
             f"Responda apenas o nome da categoria, sem explicação."
         )
-        resp = await _call_groq([{"role": "user", "content": prompt}], model_override=CLASSIFY_MODEL)
+        resp = await _call_local_qwen([{"role": "user", "content": prompt}])
         intent_llm = resp.strip().lower().replace(" ", "-")
         if intent_llm == "hygienizacao":
             intent_llm = "higienizacao"
@@ -829,54 +751,11 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     ]
 
     try:
-        MINIMAX_INTENTS = {"pmoc", "consultoria", "projeto-central"}
-        if intent in {"onboarding", "human"}:
+        try:
+            response = await _call_minimax(llm_messages)
+        except Exception as e:
+            logger.warning(f"MiniMax falhou, tentando Qwen local: {e}")
             response = await _call_local_qwen(llm_messages)
-        elif intent not in MINIMAX_INTENTS:
-            try:
-                response = await _call_groq(llm_messages, tools=tools_definition)
-                
-                # Check for tool calls
-                if isinstance(response, tuple):
-                    text_resp, tool_calls = response
-                    response = text_resp or "Segue o orçamento solicitado. Estou à disposição para qualquer dúvida!"
-                    
-                    # Execute tool call
-                    for tc in tool_calls:
-                        if tc["function"]["name"] == "emitir_orcamento_pdf":
-                            try:
-                                import json
-                                from app.services.pdf_generator import generate_pdf, send_pdf_via_evolution
-                                args = json.loads(tc["function"]["arguments"])
-                                
-                                # Adapta para o formato esperado pelo generate_pdf
-                                context_data = {
-                                    "cliente": {"nome": args.get("cliente_nome", "Cliente")},
-                                    "documentos": [args.get("doc_type", "orcamento_mao_de_obra")],
-                                    "valores": {
-                                        "gestao_valor": sum(item.get("valor", 0) for item in args.get("itens", []))
-                                    },
-                                    "execucao": {
-                                        "resumo": args.get("servico", "Orçamento"),
-                                        "equipamentos": [item.get("descricao") for item in args.get("itens", [])]
-                                    }
-                                }
-                                
-                                pdf_bytes = generate_pdf(context_data)
-                                phone = customer_data.get("phone") or state.get("phone")
-                                if phone:
-                                    import asyncio
-                                    asyncio.create_task(send_pdf_via_evolution(phone, pdf_bytes, f"orcamento_{phone}.pdf"))
-                                    logger.info(f"Orçamento PDF gerado e enviado para {phone}")
-                                
-                            except Exception as e:
-                                logger.error(f"Erro ao executar tool call emitir_orcamento_pdf: {e}")
-                
-            except Exception as e:
-                logger.warning(f"Groq simples falhou, tentando Qwen local: {e}")
-                response = await _call_local_qwen(llm_messages)
-        else:
-            response = await llm_chat(llm_messages)
     except Exception as e:
         logger.warning(f"LLM falhou em generate_response: {e}")
         response = {

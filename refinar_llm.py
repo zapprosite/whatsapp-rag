@@ -143,24 +143,20 @@ class ScoreAvaliacao(BaseModel):
 
 def call_judge(messages: list[dict], system: str) -> ScoreAvaliacao:
     """Usa OpenAI com Structured Outputs para garantir o retorno via Groq ou Qwen Local."""
-    api_key = os.getenv("GROQ_API_KEY")
     payload_msgs = [{"role": "system", "content": system}] + messages
     
-    def _do_call(base_url, api_key, model):
-        client = OpenAI(base_url=base_url, api_key=api_key)
+    def _do_call(base_url, key, model):
+        client = OpenAI(base_url=base_url, api_key=key)
         response = client.chat.completions.create(
             model=model,
             messages=payload_msgs,
             response_format={"type": "json_object"},
             temperature=0.2,
         )
-        return ScoreAvaliacao.model_validate_json(response.choices[0].message.content)
-
-    if api_key:
-        try:
-            return _do_call("https://api.groq.com/openai/v1", api_key, JUDGE_MODEL_GROQ)
-        except Exception as e:
-            print(c(YL, f"  Groq falhou ({e}), usando Qwen local"))
+        content = response.choices[0].message.content
+        if content.startswith("```json"):
+            content = content.replace("```json", "", 1).replace("```", "").strip()
+        return ScoreAvaliacao.model_validate_json(content)
 
     try:
         return _do_call(LOCAL_QWEN_BASE_URL, "sk-local", LOCAL_QWEN_MODEL)
@@ -243,7 +239,6 @@ perguntas ambíguas, envio de fotos (use [IMG:url] para simular a foto),
 linguagem informal extrema.
 
 Você deve responder com um JSON válido correspondente ao schema solicitado."""
-    api_key = os.getenv("GROQ_API_KEY")
     payload = [{"role": "system", "content": system}, {"role": "user", "content": "Gera os cenários."}]
     
     def _do_call(base_url, key, model):
@@ -254,14 +249,11 @@ Você deve responder com um JSON válido correspondente ao schema solicitado."""
             response_format={"type": "json_object"},
             temperature=0.7,
         )
-        data = ListaCenarios.model_validate_json(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        if content.startswith("```json"):
+            content = content.replace("```json", "", 1).replace("```", "").strip()
+        data = ListaCenarios.model_validate_json(content)
         return [(c.msg, normalize_service(c.servico) or "?") for c in data.cenarios]
-
-    if api_key:
-        try:
-            return _do_call("https://api.groq.com/openai/v1", api_key, JUDGE_MODEL_GROQ)
-        except Exception as e:
-            print(c(YL, f"  Geração de cenários Groq falhou ({e}), tentando Qwen local"))
 
     try:
         return _do_call(LOCAL_QWEN_BASE_URL, "sk-local", LOCAL_QWEN_MODEL)
