@@ -547,7 +547,11 @@ async def test_loop(count: int = 3, interval: float = 5.0) -> dict[str, Any]:
 
 
 @app.post("/test/chat")
-async def test_chat(message: str = "Olá, preciso de instalação de ar split") -> dict[str, Any]:
+async def test_chat(
+    message: str = "Olá, preciso de instalação de ar split",
+    media_type: str = "conversation",
+    media_url: str = "",
+) -> dict[str, Any]:
     """
     Run a single message through the graph synchronously and return the AI response.
     Bypasses the Redis queue — directly invokes the graph.
@@ -569,8 +573,8 @@ async def test_chat(message: str = "Olá, preciso de instalação de ar split") 
         "customer_data": {"phone": phone},
         "is_human": False,
         "confidence": 1.0,
-        "message_type": "conversation",
-        "media_url": "",
+        "message_type": media_type,
+        "media_url": media_url,
         "instance": instance,
         "response_modality": None,
         "audio_bytes": None,

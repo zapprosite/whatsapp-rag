@@ -14,9 +14,14 @@ model Interaction {
   intent     String?
   service    String?
   response   String?
-  is_human   Boolean  @default(false)
-  created_at DateTime @default(now())
-  metadata   Json?
+  is_human        Boolean  @default(false)
+  created_at      DateTime @default(now())
+  metadata        Json?
+  media_type      String?
+  media_url       String?
+  transcription   String?
+  vision_analysis String?
+  tts_audio_url   String?
 
   @@index([phone])
   @@index([created_at])
@@ -35,4 +40,20 @@ model Lead {
 
   @@index([phone])
   @@map("leads")
+}
+
+model LLMEvaluation {
+  id              String   @id @default(uuid())
+  interaction_id  String?
+  cycle           Int
+  lead_msg        String
+  service         String
+  will_resp       String
+  score           Float
+  flaws           String[]
+  ideal_resp      String
+  created_at      DateTime @default(now())
+
+  @@index([created_at])
+  @@map("llm_evaluations")
 }

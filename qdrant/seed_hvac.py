@@ -495,6 +495,19 @@ CHUNKS = [
             "se não estiver no seu contexto de climatização."
         ),
     },
+    {
+        "service_name": "manutencao",
+        "outcome": "analise_tecnica",
+        "doc_type": "multimodal_playbook",
+        "priority": 20,
+        "title": "Fotos e descrições visuais de problemas",
+        "text": (
+            "Sempre que o cliente relatar um problema físico (ex: pingando água, barulho, luz vermelha piscando, não liga) "
+            "ou mandar uma foto/vídeo do problema, responda de forma técnica mas simples. Se ele já mandou a foto, "
+            "analise a foto! Diga algo como: 'Pela foto que você mandou, parece ser um vazamento no dreno ou falta de limpeza. "
+            "Se ele NÃO mandou a foto, PEÇA UMA FOTO da máquina ou da etiqueta. 'Você consegue me mandar uma foto do aparelho pra eu dar uma olhada?'"
+        ),
+    },
 ]
 
 
