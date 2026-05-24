@@ -1,0 +1,63 @@
+{
+  "assistente": "refrimix_tecnologia",
+  "cliente": {
+    "nome": "Condominio Costa do Sol",
+    "cnpj_cpf": "",
+    "local": "Guaruja - SP"
+  },
+  "execucao": {
+    "resumo": "Instalacao, infraestrutura e comissionamento de climatizacao HVAC-R para ambiente litoraneo.",
+    "escopo": [
+      "Infraestrutura frigorigena",
+      "Instalacao de equipamentos Daikin",
+      "Sistema de dutos e balanceamento",
+      "Teste de estanqueidade com nitrogenio",
+      "Vacuo tecnico",
+      "Comissionamento e entrega tecnica"
+    ],
+    "equipamentos": [
+      {
+        "modelo": "Daikin Cassete Inverter Premium",
+        "btu": "36.000 BTU",
+        "qtd": 2,
+        "tecnologia": "Inverter R32",
+        "valor": 12500.0
+      },
+      {
+        "modelo": "Daikin Multi Split",
+        "btu": "18.000 BTU",
+        "qtd": 1,
+        "tecnologia": "Inverter R32",
+        "valor": 6800.0
+      }
+    ],
+    "dutos_extras": [
+      {
+        "desc": "Exaustor de banheiro",
+        "valor": 2000.0
+      }
+    ]
+  },
+  "valores": {
+    "gestao_valor": 39938.06,
+    "materiais_valor": 25369.0,
+    "dutos_valor": 63150.0
+  },
+  "condicoes": {
+    "validade_proposta": "30 dias",
+    "garantia_instalacao": "12 meses",
+    "obra_prazo": "15 dias uteis"
+  },
+  "operacao": {
+    "tecnico_nome": "Equipe Refrimix",
+    "placa_veiculo": "LOG-1A80"
+  },
+  "documentos": [
+    "proposta",
+    "contrato",
+    "os",
+    "contrato_prestacao",
+    "orcamento_material",
+    "orcamento_mao_de_obra"
+  ]
+}

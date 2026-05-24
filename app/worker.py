@@ -107,6 +107,13 @@ async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "d
         return False
 
 
+async def notify_owner(lead_phone: str, lead_message: str, instance: str = "default") -> bool:
+    """Notifica o dono (Will) sobre handoff ou intenções de alto valor."""
+    owner_phone = "5513996659382"
+    text = f"🚨 *ALERTA DE HANDOFF* 🚨\nO lead {lead_phone} solicitou atendimento humano ou fechamento de alto valor.\nMensagem: {lead_message}\nAssuma a conversa no WhatsApp Web."
+    return await send_whatsapp_message(owner_phone, text, instance)
+
+
 _CONV_TTL = int(os.getenv("CONV_TTL_SECONDS", "1800"))  # 30 min de inatividade
 _CONV_MAX_TURNS = 6   # janela deslizante: últimos 6 turnos (12 msgs) passados ao LLM
                       # Histórico mais antigo é descartado — evita overflow de contexto
@@ -216,6 +223,10 @@ async def worker_loop() -> None:
             }
 
             result = await GRAPH.ainvoke(initial_state)
+            
+            outcome = result.get("outcome")
+            if outcome == "escalar_humano":
+                await notify_owner(phone, message_text, instance)
 
             # ── Extrai resposta do AI (última AIMessage do resultado) ──────────
             messages_out = result.get("messages", [])

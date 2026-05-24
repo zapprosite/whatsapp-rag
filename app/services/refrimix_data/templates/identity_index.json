@@ -1,0 +1,44 @@
+{
+  "version": "2026-05-23",
+  "security": {
+    "rule": "Never store CPF, secrets, cookies, tokens or auth headers here.",
+    "personal_document_source": "Use hermes-vault or direct user input at runtime only."
+  },
+  "assistants": {
+    "will_pessoal": {
+      "display_name": "Will",
+      "role": "Assistente pessoal do Will",
+      "document_id_kind": "CPF",
+      "document_id_value": "{SECRET:WILL_CPF}",
+      "document_id_storage": "hermes-vault",
+      "allowed_use": [
+        "personal reminders",
+        "personal documents explicitly requested by Will",
+        "runtime-only document filling"
+      ]
+    },
+    "refrimix_tecnologia": {
+      "display_name": "Refrimix Tecnologia",
+      "legal_name": "REFRIMIX TECNOLOGIA LTDA",
+      "role": "Assistente corporativo Refrimix",
+      "document_id_kind": "CNPJ",
+      "document_id_value": "37.308.021/0001-89",
+      "city": "Guaruja - SP",
+      "instagram": "@willrefrimix",
+      "logo_path": "/home/will/Imagens/Refrimix Tecnologia- Identiidade visual/logo.jpeg",
+      "allowed_use": [
+        "technical proposals",
+        "contracts",
+        "service orders",
+        "material budgets",
+        "labor budgets",
+        "Instagram and brand content"
+      ]
+    }
+  },
+  "routing": {
+    "default_for_pdf": "refrimix_tecnologia",
+    "default_for_personal_tasks": "will_pessoal",
+    "if_document_requires_cpf": "Ask for runtime value or use hermes-vault; do not persist in files."
+  }
+}

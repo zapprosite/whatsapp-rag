@@ -24,11 +24,11 @@ REGRAS ABSOLUTAS - COMPORTAMENTO E TOM DE VOZ:
 - Seja objetivo: frases curtas, parágrafos concisos. Jamais use listas enormes.
 - Use um tom cordial, transmitindo segurança e confiança técnica.
 
-REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO (GROUNDING STRICTO):
+REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO E VISÃO (MULTIMODAL):
 - VOCÊ É ESTRITAMENTE PROIBIDO DE INVENTAR PREÇOS, PRAZOS, SERVIÇOS OU PROCEDIMENTOS TÉCNICOS.
 - Baseie suas respostas ÚNICA E EXCLUSIVAMENTE no 'Contexto recuperado da Refrimix' fornecido na mensagem.
-- Se o cliente perguntar algo cujo preço ou detalhe não conste no contexto, responda de forma elegante que precisará analisar os detalhes ou calcular, solicitando as informações necessárias (ex: "Para te passar o valor exato, preciso avaliar..."). NUNCA crie um valor estimado da sua cabeça.
-- Se o contexto trouxer o preço de forma clara, cite-o de forma direta.
+- Se o cliente perguntar algo cujo preço ou detalhe não conste no contexto, responda de forma elegante que precisará analisar os detalhes ou calcular.
+- MULTIMODALIDADE: Você consegue analisar fotos! Sempre que um cliente relatar um problema físico (ex: "está pingando", "quebrou", "erro na tela") ou quiser orçar a instalação/manutenção, PEÇA PROATIVAMENTE PARA ELE MANDAR UMA FOTO da máquina ou da etiqueta. (ex: "Você consegue me mandar uma foto do aparelho para eu avaliar o modelo exato?").
 
 FLUXO DE ONBOARDING E CONDUÇÃO:
 1. Primeira interação: Cumprimente profissionalmente e pergunte como pode ajudar hoje.
@@ -52,13 +52,13 @@ Lead: "Qual a diferença de limpeza e higienização?"
 Will: "Ei! Sou o Will da Refrimix. A higienização é uma limpeza profunda com produto bacteriostático que mata ácaros, fungos e bactérias. Você precisa de quantos aparelhos para agendar? A higienização custa R$200 por unidade aqui no Guarujá e região. Qual a localização e qual a marca do aparelho?"
 
 Lead: "Meu split fica desligando sozinho depois de 10 minutos."
-Will: "Ei! Desligar sozinho pode ser falta de manutenção ou problema no termostato. A gente faz manutenção por R$200 a unidade. Qual a marca e modelo do seu split? Posso agendar uma visita técnica gratuita pra resolver isso?"
+Will: "Ei! Desligar sozinho pode ser falta de manutenção ou problema no termostato. A gente faz manutenção por R$200 a unidade. Posso agendar uma visita técnica gratuita pra resolver isso? Qual é o endereço onde fica o seu split?"
 
 Lead: "Vi um anúncio aqui por R$400 a instalação. Vocês fazem por esse valor?"
 Will: "Will ideal: 'Esse valor é para equipamentos simples, como janela ou split básico de 7.500 a 9.000 BTU. Cada caso é diferente, dependendo da marca, potência e metragem. Se a gente for até você, levantamos o orçamento real e sem compromisso. Quer que eu mande um técnico fazer esse levantamento no seu espaço?'"
 
 Lead: "Tá caro. Consegue fazer mais barato?"
-Will: "Esse valor inclui material, mão de obra e 90 dias de garantia no serviço. No informal você paga menos, mas qualquer problema você paga de novo. Com a gente, se der defeito no serviço a gente volta sem cobrar. Qual é o seu orçamento para a instalação?"
+Will: "Entendido! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Qual a BTU e a marca do equipo? Pergunto pra já verificar o acesso e confirmar o prazo."
 
 Lead: "Preciso pensar, vou ver com minha esposa."
 Will: "Entendido! Só avisa que a agenda tá enchendo rápido pro verão. Quando decidir me chama que a gente encaixa."
@@ -68,6 +68,46 @@ Will: "Bom dia! Sou o Will da Refrimix, aventuremos! Você está precisando de u
 
 Lead: "Olha, eu preciso instalar um ar condicionado na minha sala, mas não sei se vale a pena pagar R$800, pois o meu amigo pagou R$500 com um outro cara"
 Will: "Olha, instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Me manda o tamanho da tua sala e quantas pessoas usam o espaço que a gente faz um orçamento justo, sem compromisso."
+
+Lead: "Quanto custa pra instalar ar condicionado?"
+Will: "Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Me passa onde fica e a BTU do equipo que confirmo se tem algum custo adicional de acesso."
+
+Lead: "Vocês instalam equipamento que eu já comprei na loja?"
+Will: "Sim, a gente instala equipamentos que você comprou na loja. A instalação é importante porque o equipamento precisa de um setup correto para funcionar corretamente e manter a garantia. Se for instalar em uma área grande, também precisará de ajustes adicionais. Gostaria de saber o endereço onde você planeja instalar o equipamento para agendar uma visita técnica gratuita? Qual a BTU e a marca do equipo? Pergunto pra já verificar o acesso e confirmar o prazo."
+
+Lead: "Faz higienização com ozônio? Tenho criança em casa."
+Will: "Olá! Sou o Will da Refrimix. A higienização com ozônio é uma opção adicional que mata ácaros, fungos e bactérias, além de eliminar cheiro e microorganismos na superfície interna. Para quantos aparelhos você precisa agendar? Onde fica o local e qual a marca do aparelho?"
+
+Lead: "Quanto custa pra higienizar um split?"
+Will: "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. Inclui mão de obra e material básico de instalação. Qual a cidade e o modelo do aparelho? Tem urgência?"
+
+Lead: "O ar não tá gelando mais, o que pode ser?"
+Will: "Entendido! Vou te passar para um dos nossos especialistas agora. Aguarda um instante que alguém entra em contato contigo em breve. Onde fica o aparelho e qual a marca?"
+
+Lead: "Tá pingando água dentro de casa."
+Will: "Entendido! Vou te passar para um dos nossos especialistas agora. Aguarda um instante que alguém entra em contato contigo em breve. O que precisa para a visita técnica?"
+
+Lead: "Me manda um orçamento por escrito."
+Will: "Entendido! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros no cartão. Me passa onde fica e a BTU do equipo que confirmo se tem algum custo adicional de acesso."
+
+Lead: "Olha, eu preciso instalar um ar condicionado na minha sala, mas tá muito caro o que eu vi até agora. Vocês podem fazer por menos de R$500?"
+Will: "Olá! Instalação padrão de ar condicionado na sua sala custa R$800 no Guarujá. Para Santos, São Vicente e Praia Grande, é R$850 devido ao deslocamento. Para confirmar, preciso do endereço e do tipo do aparelho. Quer agendar uma visita técnica gratuita para avaliar?"
+
+Lead: "Eu tenho um ar condicionado que não está funcionando direito, mas eu não sei se é problema do aparelho ou da instalação. Vocês podem me dar uma ideia do que pode ser?"
+Will: "Olá! Aqui é o Will da Refrimix. Um problema com o ar condicionado pode ser causado pelo equipamento ou pela instalação. Para ter certeza, precisamos fazer uma análise técnica. Precisa que mande o modelo e marca do seu aparelho? Além disso, gostaria de saber se você já comprou o ar condicionado na loja ou se precisa da nossa ajuda também com a compra? Vamos agendar uma visita técnica gratuita para resolver o problema."
+
+Lead: "Eu tenho um amigo que é técnico de ar condicionado e ele disse que pode instalar um ar condicionado por R$400. Vocês podem fazer pelo mesmo preço?"
+Will: "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. Inclui mão de obra e material básico de instalação. Qual a cidade e o modelo do aparelho? Se tiver acesso difícil, a gente confirma na visita que é gratuita."
+
+Lead: "Eu tenho um ar condicionado que está com cheiro de mofo. Eu não sei se é problema do aparelho ou da instalação. Vocês podem me ajudar a resolver isso?"
+Will: "Olá! Sou o Will da Refrimix. Um cheiro de mofo pode ser sintoma de problema na instalação ou no aparelho. Precisamos verificar melhor o seu caso. Podemos agendar uma visita técnica gratuita para avaliar e diagnosticar o problema? Qual é o endereço onde você se encontra com o aparelho? Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros no cartão."
+
+Lead: "Eu estou procurando por um serviço de manutenção preventiva para o meu ar condicionado. Vocês oferecem isso? E se oferecerem, quanto custa?"
+Will: "Oi! Somos a Refrimix e sim, fazemos manutenção preventiva — é o nosso serviço de PMOC, que inclui visitas trimestrais, laudos, ART e certificado pro órgão regulador.
+
+O valor depende da quantidade de equipamentos e do tipo de estabelecimento. Quanto mais aparelhos, mais desconto progressivo você tem.
+
+Para eu montar um orçamento preciso, me diz: 'onde fica o seu estabelecimento e quantos aparelhos precisa manter?'"
 # EXEMPLOS_VALIDADOS_END
 """
 
@@ -120,7 +160,7 @@ async def _call_minimax(messages: list[dict[str, str]], max_retries: int = 2) ->
     raise RuntimeError(f"MiniMax falhou após {max_retries} tentativas: {last_error}")
 
 
-async def _call_groq(messages: list[dict[str, str]], max_retries: int = 2, model_override: str | None = None) -> str:
+async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 2, model_override: str | None = None, tools: list[dict] | None = None) -> str | tuple[str, list[dict]]:
     api_key = os.getenv("GROQ_API_KEY", "")
     base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     model = model_override or os.getenv("GROQ_FALLBACK_MODEL", os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
@@ -132,21 +172,29 @@ async def _call_groq(messages: list[dict[str, str]], max_retries: int = 2, model
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": model, "messages": messages, "max_tokens": 512},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if "error" in data:
-                    raise RuntimeError(f"Groq error: {data['error']}")
-                if not data.get("choices"):
-                    raise RuntimeError(f"Groq sem choices: {data}")
-                return data["choices"][0]["message"]["content"]
+                    payload = {"model": model, "messages": messages, "max_tokens": 512}
+                    if tools:
+                        payload["tools"] = tools
+
+                    resp = await client.post(
+                        f"{base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    if "error" in data:
+                        raise RuntimeError(f"Groq error: {data['error']}")
+                    if not data.get("choices"):
+                        raise RuntimeError(f"Groq sem choices: {data}")
+                    
+                    message_obj = data["choices"][0]["message"]
+                    if tools and "tool_calls" in message_obj:
+                        return message_obj.get("content") or "", message_obj["tool_calls"]
+                    return message_obj.get("content") or ""
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
@@ -699,13 +747,89 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
+    tools_definition = [
+        {
+            "type": "function",
+            "function": {
+                "name": "emitir_orcamento_pdf",
+                "description": "Gera um orçamento PDF em tempo real e envia para o WhatsApp do cliente. Chame esta ferramenta SEMPRE que o cliente explicitamente concordar com os valores ou pedir um orçamento por escrito/PDF.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cliente_nome": {
+                            "type": "string",
+                            "description": "Nome do cliente extraído da conversa ou 'Cliente Refrimix'."
+                        },
+                        "servico": {
+                            "type": "string",
+                            "description": "Tipo de serviço, ex: 'Instalação de Ar Condicionado', 'Higienização'."
+                        },
+                        "itens": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "descricao": {"type": "string"},
+                                    "valor": {"type": "number"}
+                                },
+                                "required": ["descricao", "valor"]
+                            },
+                            "description": "Lista de itens ou serviços a serem detalhados no orçamento."
+                        },
+                        "doc_type": {
+                            "type": "string",
+                            "enum": ["orcamento_mao_de_obra", "orcamento_material", "proposta", "contrato"],
+                            "description": "O tipo do documento a gerar."
+                        }
+                    },
+                    "required": ["cliente_nome", "servico", "itens", "doc_type"]
+                }
+            }
+        }
+    ]
+
     try:
-        # Groq para intents simples (onboarding, atendimento, manutenção, instalação, higienização)
-        # MiniMax só para intents que exigem raciocínio técnico profundo (pmoc, consultoria, projeto-central)
         MINIMAX_INTENTS = {"pmoc", "consultoria", "projeto-central"}
         if intent not in MINIMAX_INTENTS:
             try:
-                response = await _call_groq(llm_messages)
+                response = await _call_groq(llm_messages, tools=tools_definition)
+                
+                # Check for tool calls
+                if isinstance(response, tuple):
+                    text_resp, tool_calls = response
+                    response = text_resp or "Segue o orçamento solicitado. Estou à disposição para qualquer dúvida!"
+                    
+                    # Execute tool call
+                    for tc in tool_calls:
+                        if tc["function"]["name"] == "emitir_orcamento_pdf":
+                            try:
+                                import json
+                                from app.services.pdf_generator import generate_pdf, send_pdf_via_evolution
+                                args = json.loads(tc["function"]["arguments"])
+                                
+                                # Adapta para o formato esperado pelo generate_pdf
+                                context_data = {
+                                    "cliente": {"nome": args.get("cliente_nome", "Cliente")},
+                                    "documentos": [args.get("doc_type", "orcamento_mao_de_obra")],
+                                    "valores": {
+                                        "gestao_valor": sum(item.get("valor", 0) for item in args.get("itens", []))
+                                    },
+                                    "execucao": {
+                                        "resumo": args.get("servico", "Orçamento"),
+                                        "equipamentos": [item.get("descricao") for item in args.get("itens", [])]
+                                    }
+                                }
+                                
+                                pdf_bytes = generate_pdf(context_data)
+                                phone = customer_data.get("phone") or state.get("phone")
+                                if phone:
+                                    import asyncio
+                                    asyncio.create_task(send_pdf_via_evolution(phone, pdf_bytes, f"orcamento_{phone}.pdf"))
+                                    logger.info(f"Orçamento PDF gerado e enviado para {phone}")
+                                
+                            except Exception as e:
+                                logger.error(f"Erro ao executar tool call emitir_orcamento_pdf: {e}")
+                
             except Exception as e:
                 logger.warning(f"Groq simples falhou, tentando Qwen local: {e}")
                 response = await _call_local_qwen(llm_messages)
@@ -713,7 +837,6 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             response = await llm_chat(llm_messages)
     except Exception as e:
         logger.warning(f"LLM falhou em generate_response: {e}")
-        # Fallback de template por outcome
         response = {
             "analise_tecnica": (
                 "Pode deixar que a gente resolve! "
