@@ -1,0 +1,47 @@
+# Segredos — nunca versionados
+.env
+.env.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Prisma generated (regenerado no build)
+prisma/client/
+
+# Caches FastEmbed / Qdrant local
+.cache/
+*.onnx
+fastembed_cache/
+
+# Docker volumes e dados efêmeros
+volumes/
+data/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+
+# QR codes e imagens temporárias
+qrcode_*.png
+
+# Testes gerados
+.pytest_cache/
+htmlcov/
+.coverage

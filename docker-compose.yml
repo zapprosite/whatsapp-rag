@@ -1,0 +1,42 @@
+services:
+  evolution-api:
+    container_name: evolution_api
+    image: evoapicloud/evolution-api:homolog
+    restart: always
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - AUTHENTICATION_API_KEY=429683C4C977415CAAFCCE10F7D57E11
+      - DATABASE_URL=postgresql://evo_user:evo_secure_2026@192.168.15.83:5432/evolution_api
+      - DATABASE_PROVIDER=postgresql
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution-data:/evolution/data
+    networks:
+      - evo_network
+
+  fastapi-rag:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+      - REDIS_URL=redis://127.0.0.1:6379
+      - QDRANT_URL=http://127.0.0.1:6333
+      - QDRANT_COLLECTION=whatsapp_rag
+    env_file:
+      - .env
+    depends_on:
+      - evolution-api
+    restart: unless-stopped
+    network_mode: host
+
+volumes:
+  evolution_instances:
+  evolution-data:
+
+networks:
+  evo_network:
+    driver: bridge
