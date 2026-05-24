@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+import hashlib
 import httpx
 from typing import Any
 
@@ -11,50 +12,62 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# System prompt — voz do Will (Refrimix, São Vicente/SP)
+# System prompt — voz do Will (Refrimix, Guarujá/SP)
 # Injeta persona forte antes de qualquer geração para ancorar pt-BR e estilo
 # ──────────────────────────────────────────────────────────────────────────────
 
-WILL_SYSTEM_PROMPT = """Você é o Will, dono da Refrimix Tecnologia em São Vicente/SP.
-Atende leads no WhatsApp como um atendente humano — conduz o onboarding de forma natural, coleta informações progressivamente, nunca repete o que já foi dito.
+WILL_SYSTEM_PROMPT = """Você é o Will, proprietário e especialista técnico da Refrimix Tecnologia em Guarujá/SP.
+Estamos em Maio de 2026. Você atende clientes no WhatsApp de forma extremamente profissional, educada e ágil, mantendo a proximidade e empatia de um humano.
 
-REGRAS ABSOLUTAS:
-- Responda SEMPRE em português brasileiro coloquial. NUNCA em outro idioma.
-- PROIBIDO usar caracteres chineses, japoneses, coreanos, árabes, cirílicos ou hebraicos.
-- Escreva como quem está no WhatsApp: frases curtas, sem firula, sem listas com bullet points.
-- Não use "prezado cliente", "conforme solicitado" ou linguagem de e-mail corporativo.
-- Use "a gente" em vez de "nós". Use "pra", "pro", "tá", "tô" quando natural.
-- NUNCA repita informação que já foi dada no histórico da conversa.
-- Leia o histórico ANTES de responder — proibido fazer perguntas que já foram respondidas.
-- Cada mensagem deve avançar a conversa: coletar mais dados ou propor próximo passo.
+REGRAS ABSOLUTAS - COMPORTAMENTO E TOM DE VOZ:
+- Responda SEMPRE em português brasileiro (pt-BR) profissional, mas natural para o WhatsApp. Evite jargões corporativos robóticos (como "prezado cliente", "conforme solicitado"), mas mantenha total cortesia e autoridade técnica.
+- Seja objetivo: frases curtas, parágrafos concisos. Jamais use listas enormes.
+- Use um tom cordial, transmitindo segurança e confiança técnica.
 
-FLUXO DE ONBOARDING (siga esta ordem naturalmente):
-1. Primeira mensagem → cumprimente e pergunte o que precisam (ex: "Oi! Sou o Will da Refrimix. Como posso te ajudar?")
-2. Identificado o serviço → aprofunde o problema (marca, modelo, endereço geral)
-3. Problema claro → proponha visita técnica gratuita e peça endereço completo
-4. Endereço recebido → confirme e sugira janela de horário
+REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO (GROUNDING STRICTO):
+- VOCÊ É ESTRITAMENTE PROIBIDO DE INVENTAR PREÇOS, PRAZOS, SERVIÇOS OU PROCEDIMENTOS TÉCNICOS.
+- Baseie suas respostas ÚNICA E EXCLUSIVAMENTE no 'Contexto recuperado da Refrimix' fornecido na mensagem.
+- Se o cliente perguntar algo cujo preço ou detalhe não conste no contexto, responda de forma elegante que precisará analisar os detalhes ou calcular, solicitando as informações necessárias (ex: "Para te passar o valor exato, preciso avaliar..."). NUNCA crie um valor estimado da sua cabeça.
+- Se o contexto trouxer o preço de forma clara, cite-o de forma direta.
 
-EXEMPLOS DE TOM CORRETO:
-Lead: "Oi"
-Will: "Oi! Sou o Will da Refrimix. Trabalhamos com instalação, manutenção e PMOC de ar condicionado na Baixada Santista. Como posso te ajudar?"
+FLUXO DE ONBOARDING E CONDUÇÃO:
+1. Primeira interação: Cumprimente profissionalmente e pergunte como pode ajudar hoje.
+2. Identificação: Faça perguntas qualificadoras (marca, modelo, endereço) baseadas no problema relatado.
+3. Fechamento: Sempre conduza a conversa para o próximo passo lógico (agendar visita técnica, coletar informações adicionais ou orçamento). Aja proativamente.
 
-Lead: "O ar tá fazendo barulho"
-Will: "Barulho quase sempre é suporte do compressor com folga. Qual a marca e onde fica o aparelho?"
+EXEMPLOS DE TOM CORRETO E PROFISSIONAL:
+Lead: "Oi, o ar está pingando"
+Will: "Olá! Aqui é o Will da Refrimix. Esse problema geralmente está relacionado ao dreno ou o nível do aparelho. Qual a marca do seu ar condicionado e em qual bairro você está? Assim já consigo entender melhor para te ajudar."
 
-Lead: [depois de já informar a marca] "É um Springer Midea"
-Will: "Ok. E o barulho é mais de vibração, batida ou chiado? Isso me ajuda a já ir preparado."
+Lead: "Vocês fazem instalação? Quanto custa?"
+Will: "Fazemos sim! O valor da instalação depende do tipo de aparelho e da infraestrutura do local. Você poderia me confirmar quantos BTUs tem o equipamento e o endereço da instalação para eu te passar um orçamento preciso?"
+(Nota: Se o contexto trouxer o preço exato da instalação, o Will citará o preço. O exemplo acima se aplica quando o sistema requer mais dados para precificar).
 
-Lead: "Preciso de PMOC"
-Will: "Pra qual tipo de estabelecimento e quantos equipamentos? Com isso já monto o orçamento."
-
-Serviços da Refrimix: instalação, manutenção corretiva, PMOC, consultoria, higienização, projeto central.
-Região de atendimento: Baixada Santista (São Vicente, Santos, Praia Grande, Guarujá e região).
+Critério de sucesso: O cliente deve sentir que está falando com um profissional técnico de alto nível, mas não com um robô de telemarketing. Não repita perguntas já feitas no histórico da conversa.
 
 # EXEMPLOS_VALIDADOS_START
 # Exemplos validados pelo Will — adicionados via refinar.py:
 
-Lead: "Oi"
-Will: "Ei! Sou o Will da Refrimix — a gente cuida do seu ar aqui na Baixada. O que tá precisando?"
+Lead: "Qual a diferença de limpeza e higienização?"
+Will: "Ei! Sou o Will da Refrimix. A higienização é uma limpeza profunda com produto bacteriostático que mata ácaros, fungos e bactérias. Você precisa de quantos aparelhos para agendar? A higienização custa R$200 por unidade aqui no Guarujá e região. Qual a localização e qual a marca do aparelho?"
+
+Lead: "Meu split fica desligando sozinho depois de 10 minutos."
+Will: "Ei! Desligar sozinho pode ser falta de manutenção ou problema no termostato. A gente faz manutenção por R$200 a unidade. Qual a marca e modelo do seu split? Posso agendar uma visita técnica gratuita pra resolver isso?"
+
+Lead: "Vi um anúncio aqui por R$400 a instalação. Vocês fazem por esse valor?"
+Will: "Will ideal: 'Esse valor é para equipamentos simples, como janela ou split básico de 7.500 a 9.000 BTU. Cada caso é diferente, dependendo da marca, potência e metragem. Se a gente for até você, levantamos o orçamento real e sem compromisso. Quer que eu mande um técnico fazer esse levantamento no seu espaço?'"
+
+Lead: "Tá caro. Consegue fazer mais barato?"
+Will: "Esse valor inclui material, mão de obra e 90 dias de garantia no serviço. No informal você paga menos, mas qualquer problema você paga de novo. Com a gente, se der defeito no serviço a gente volta sem cobrar. Qual é o seu orçamento para a instalação?"
+
+Lead: "Preciso pensar, vou ver com minha esposa."
+Will: "Entendido! Só avisa que a agenda tá enchendo rápido pro verão. Quando decidir me chama que a gente encaixa."
+
+Lead: "Bom dia! Vocês atendem em Praia Grande?"
+Will: "Bom dia! Sou o Will da Refrimix, aventuremos! Você está precisando de um serviço relacionado a ar condicionado em Praia Grande? Qual o serviço exato que precisa?"
+
+Lead: "Olha, eu preciso instalar um ar condicionado na minha sala, mas não sei se vale a pena pagar R$800, pois o meu amigo pagou R$500 com um outro cara"
+Will: "Olha, instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Me manda o tamanho da tua sala e quantas pessoas usam o espaço que a gente faz um orçamento justo, sem compromisso."
 # EXEMPLOS_VALIDADOS_END
 """
 
@@ -142,6 +155,72 @@ async def _call_groq(messages: list[dict[str, str]], max_retries: int = 2, model
     raise RuntimeError(f"Groq falhou após {max_retries} tentativas: {last_error}")
 
 
+async def _call_local_qwen(messages: list[dict[str, str]], max_retries: int = 1) -> str:
+    """Fallback local OpenAI-compatible via llama.cpp/Qwen2.5-VL."""
+    base_url = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8010/v1").rstrip("/")
+    model = os.getenv("LOCAL_QWEN_MODEL", "qwen2.5-vl-7b-instruct")
+
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": 300,
+                        "temperature": 0.2,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("choices"):
+                    raise RuntimeError(f"Qwen local sem choices: {data}")
+                return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+        except Exception as exc:
+            last_error = exc
+            if attempt < max_retries - 1:
+                import asyncio
+                await asyncio.sleep(1)
+    raise RuntimeError(f"Qwen local falhou: {last_error}")
+
+
+async def _call_local_ptbr(messages: list[dict[str, str]], max_retries: int = 1) -> str:
+    """Modelo local PT-BR opcional para polir linguagem sem depender de nuvem."""
+    base_url = os.getenv("LOCAL_PTBR_BASE_URL", "").rstrip("/")
+    model = os.getenv("LOCAL_PTBR_MODEL", "qwen2.5-7b-pt-br-instruct")
+    if not base_url:
+        raise RuntimeError("LOCAL_PTBR_BASE_URL não configurado")
+
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": 240,
+                        "temperature": 0.15,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("choices"):
+                    raise RuntimeError(f"PT-BR local sem choices: {data}")
+                return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+        except Exception as exc:
+            last_error = exc
+            if attempt < max_retries - 1:
+                import asyncio
+                await asyncio.sleep(1)
+    raise RuntimeError(f"PT-BR local falhou: {last_error}")
+
+
 async def llm_chat(messages: list[dict[str, str]], max_retries: int = 2) -> str:
     """MiniMax principal, Groq como fallback automático."""
     minimax_key = os.getenv("MINIMAX_API_KEY", "")
@@ -151,7 +230,76 @@ async def llm_chat(messages: list[dict[str, str]], max_retries: int = 2) -> str:
         except Exception as e:
             logger.warning(f"MiniMax falhou, usando Groq: {e}")
 
-    return await _call_groq(messages, max_retries)
+    try:
+        return await _call_groq(messages, max_retries)
+    except Exception as e:
+        logger.warning(f"Groq falhou, tentando Qwen local: {e}")
+        return await _call_local_qwen(messages)
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join(text.lower().strip().split())
+
+
+def _normalize_service(service: str | None) -> str | None:
+    if service == "hygienizacao":
+        return "higienizacao"
+    return service
+
+
+def _sales_cache_key(service: str | None, text: str) -> str:
+    normalized = _normalize_text(text)
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+    return f"sales_reply:v1:{service or 'none'}:{digest}"
+
+
+def _looks_like_price_question(text: str) -> bool:
+    lowered = _normalize_text(text)
+    return any(term in lowered for term in ("quanto", "custa", "valor", "preço", "preco", "orçamento", "orcamento"))
+
+
+def _direct_price_response(service: str | None, text: str) -> str | None:
+    if not _looks_like_price_question(text):
+        return None
+    if service == "instalacao":
+        return (
+            "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. "
+            "Inclui mão de obra e material básico de instalação. "
+            "Qual a cidade e o modelo do aparelho?"
+        )
+    if service == "higienizacao":
+        return (
+            "Higienização de split fica R$200 por aparelho. "
+            "É limpeza profunda com produto bacteriostático, não só lavar filtro. "
+            "Quantos aparelhos são?"
+        )
+    return None
+
+
+async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
+    if os.getenv("PTBR_POLISH_ENABLED", "0") != "1":
+        return response
+    if not os.getenv("LOCAL_PTBR_BASE_URL"):
+        return response
+    try:
+        polished = await _call_local_ptbr([
+            {
+                "role": "system",
+                "content": (
+                    "Você reescreve respostas de WhatsApp em português brasileiro natural do Guarujá. "
+                    "Preserve todos os preços, nomes de cidade, fatos técnicos e perguntas. "
+                    "Não adicione informação nova. Não use lista. Responda só com a versão final."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Lead: {user_text}\nResposta original: {response}",
+            },
+        ])
+        return polished.strip() or response
+    except Exception as e:
+        logger.warning(f"Polidor PT-BR local ignorado: {e}")
+        return response
 
 
 async def groq_repair(prompt: str) -> str:
@@ -198,13 +346,14 @@ def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[
     from fastembed import TextEmbedding
 
     qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
-    collection = os.getenv("QDRANT_COLLECTION", "whatsapp_rag")
+    collection = os.getenv("QDRANT_COLLECTION", "hermes_hvac_rag_service_staging")
     client = QdrantClient(url=qdrant_url)
+    service_name = _normalize_service(service_name)
 
     try:
         model = TextEmbedding(
-            model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            max_length=256,
+            model="nomic-ai/nomic-embed-text-v1.5",
+            max_length=512,
         )
         query_embedding = next(model.embed([query]))
     except Exception:
@@ -226,7 +375,16 @@ def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[
         with_payload=True,
         with_vectors=False,
     )
-    return [{"id": r.id, "score": r.score, "payload": r.payload} for r in results.points]
+    min_score = float(os.getenv("RAG_MIN_SCORE", "0.35"))
+    ranked = []
+    for r in results.points:
+        if r.score is not None and r.score < min_score:
+            continue
+        payload = r.payload or {}
+        priority = int(payload.get("priority", 50))
+        ranked.append({"id": r.id, "score": r.score, "priority": priority, "payload": payload})
+
+    return sorted(ranked, key=lambda x: (x["priority"], -(x["score"] or 0)))[:top_k]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -260,7 +418,7 @@ _OUTCOME_MAP: dict[str, str] = {
     "manutencao":      "analise_tecnica",
     "pmoc":            "analise_tecnica",
     "consultoria":     "reuniao_projeto",
-    "hygienizacao":    "higienizacao_preventiva",
+    "higienizacao":    "higienizacao_preventiva",
     "projeto-central": "reuniao_projeto",
 }
 
@@ -295,6 +453,10 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
     # Scoring por keywords
     SCORE_MAP: dict[tuple[str, int], str] = {
+        ("quanto custa instalar", 8): "instalacao",
+        ("custa instalar", 7): "instalacao",
+        ("preço pra instalar", 7): "instalacao",
+        ("preço de instalação", 7): "instalacao",
         ("vocês instalam", 6): "instalacao",
         ("instalação de", 3): "instalacao",
         ("instalar", 1): "instalacao",
@@ -317,14 +479,14 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("laudo pmoc", 5): "pmoc",
         ("manutenção preventiva", 2): "pmoc",
         ("alvará do bombeiros", 4): "pmoc",
-        ("higienização", 5): "hygienizacao",
-        ("higienizacao", 5): "hygienizacao",
-        ("ozônio", 4): "hygienizacao",
-        ("ácaros", 4): "hygienizacao",
-        ("fungos", 3): "hygienizacao",
-        ("sanitização", 3): "hygienizacao",
-        ("limpeza do ar", 3): "hygienizacao",
-        ("cheiro", 1): "hygienizacao",
+        ("higienização", 5): "higienizacao",
+        ("higienizacao", 5): "higienizacao",
+        ("ozônio", 4): "higienizacao",
+        ("ácaros", 4): "higienizacao",
+        ("fungos", 3): "higienizacao",
+        ("sanitização", 3): "higienizacao",
+        ("limpeza do ar", 3): "higienizacao",
+        ("cheiro", 1): "higienizacao",
         ("projeto de climatização", 4): "consultoria",
         ("projeto de ar", 4): "consultoria",
         ("consultoria", 3): "consultoria",
@@ -368,20 +530,22 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     try:
         prompt = (
             f"Classifique a mensagem do cliente entre: "
-            f"instalacao, consultoria, manutencao, pmoc, projeto-central, hygienizacao, human\n"
+            f"instalacao, consultoria, manutencao, pmoc, projeto-central, higienizacao, human\n"
             f"'instalacao' = instalar aparelho novo\n"
             f"'manutencao' = consertar/reparar aparelho existente\n"
             f"'pmoc' = plano preventivo obrigatório/laudo técnico\n"
             f"'consultoria' = dúvida técnica, assessoria, qual equipamento escolher, projeto de obra\n"
             f"'projeto-central' = sistema central, multisplit, vários ambientes, carga térmica\n"
-            f"'hygienizacao' = limpeza, higienização, cheiro, ácaros\n"
+            f"'higienizacao' = limpeza, higienização, cheiro, ácaros\n"
             f"'human' = pede atendente, reclamação, cancelamento ou completamente fora dos serviços\n"
             f"Mensagem: \"{user_text}\"\n"
             f"Responda apenas o nome da categoria, sem explicação."
         )
         resp = await _call_groq([{"role": "user", "content": prompt}], model_override=CLASSIFY_MODEL)
         intent_llm = resp.strip().lower().replace(" ", "-")
-        VALID = {"instalacao", "consultoria", "manutencao", "pmoc", "projeto-central", "hygienizacao", "human"}
+        if intent_llm == "hygienizacao":
+            intent_llm = "higienizacao"
+        VALID = {"instalacao", "consultoria", "manutencao", "pmoc", "projeto-central", "higienizacao", "human"}
         if intent_llm in VALID:
             if not scores:
                 # Sem keyword match — confia no LLM
@@ -397,6 +561,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     if intent is None:
         return {"intent": "human", "service": None, "outcome": "duvida", "messages": messages}
 
+    intent = _normalize_service(intent)
     service = None if intent == "human" else intent
     outcome = _OUTCOME_MAP.get(intent, "duvida") if intent != "human" else "escalar_humano"
 
@@ -404,18 +569,32 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
 
 async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
-    """Busca contexto RAG no Qdrant com FastEmbed."""
+    """Busca contexto técnico e comercial no Qdrant com FastEmbed."""
     messages = state.get("messages", [])
-    service = state.get("service")
+    service = _normalize_service(state.get("service"))
 
     if not messages:
         return {"rag_context": [], "messages": messages}
 
     last_message = messages[-1]
     user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+    recent_human = [
+        m.content for m in messages[-6:]
+        if isinstance(m, HumanMessage) and getattr(m, "content", "")
+    ]
+    query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
 
     try:
-        rag_context = qdrant_search(user_text, service_name=service, top_k=3)
+        rag_context = qdrant_search(query, service_name=service, top_k=5)
+        if len(rag_context) < 3:
+            # Complementa com conhecimento geral de vendas, preço e políticas.
+            seen = {ctx["id"] for ctx in rag_context}
+            for ctx in qdrant_search(user_text, service_name=None, top_k=5):
+                if ctx["id"] not in seen:
+                    rag_context.append(ctx)
+                    seen.add(ctx["id"])
+                if len(rag_context) >= 5:
+                    break
     except Exception as e:
         logger.warning(f"Qdrant search falhou: {e}")
         rag_context = []
@@ -427,8 +606,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     """Gera resposta na voz do Will usando RAG + MiniMax (Groq fallback)."""
     messages = state.get("messages", [])
     rag_context = state.get("rag_context", [])
-    service = state.get("service")
-    intent = state.get("intent")
+    service = _normalize_service(state.get("service"))
+    intent = _normalize_service(state.get("intent"))
     outcome = state.get("outcome", "duvida")
     customer_data = state.get("customer_data", {})
 
@@ -438,11 +617,44 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     last_message = messages[-1]
     user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
 
-    context_str = "\n---\n".join(
-        ctx["payload"].get("text", "")
-        for ctx in rag_context
-        if ctx.get("payload", {}).get("text")
-    ) or ""
+    human_count = sum(1 for m in messages if isinstance(m, HumanMessage))
+    cache_key = _sales_cache_key(service, user_text)
+    if human_count <= 2:
+        try:
+            cached = await redis_get(cache_key)
+            if cached:
+                logger.info(f"Resposta validada via Redis cache: {cache_key}")
+                ai_message = AIMessage(content=cached)
+                return {
+                    "messages": messages + [ai_message],
+                    "rag_context": rag_context,
+                    "service": service,
+                    "outcome": outcome,
+                }
+        except Exception as e:
+            logger.warning(f"Redis sales cache falhou: {e}")
+
+    direct_response = _direct_price_response(service, user_text)
+    if direct_response:
+        direct_response = await _polish_ptbr_if_enabled(direct_response, user_text)
+        ai_message = AIMessage(content=direct_response)
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service,
+            "outcome": outcome,
+        }
+
+    context_parts = []
+    for ctx in rag_context:
+        payload = ctx.get("payload", {})
+        text = payload.get("text")
+        if not text:
+            continue
+        doc_type = payload.get("doc_type", "technical")
+        title = payload.get("title", "contexto")
+        context_parts.append(f"[{doc_type} | {title}]\n{text}")
+    context_str = "\n---\n".join(context_parts) or ""
 
     # CTA por outcome — guia o Will a conduzir o lead pro próximo passo certo
     outcome_cta = {
@@ -469,11 +681,21 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
 
     # Última mensagem do lead enriquecida com contexto RAG e CTA
     user_prompt = (
+        f"==========================================================\n"
+        f"[INÍCIO DO CONTEXTO RECUPERADO DA REFRIMIX - USE APENAS ISSO COMO BASE TÉCNICA E COMERCIAL]\n"
+        f"{context_str or 'Nenhum contexto recuperado. Você NÃO DEVE inventar preços ou informações técnicas. Peça mais detalhes ao cliente.'}\n"
+        f"[FIM DO CONTEXTO RECUPERADO]\n"
+        f"==========================================================\n\n"
+        f"Objetivo do Atendimento: Resolver a dúvida e avançar na qualificação do lead.\n"
         f"Serviço identificado: {service or 'não classificado'}\n"
-        f"Contexto da Refrimix:\n{context_str or 'Use seu conhecimento sobre climatização HVAC.'}\n\n"
-        f"Mensagem do lead: {user_text}\n\n"
-        f"Instruções: {outcome_cta}\n"
-        f"IMPORTANTE: leia o histórico acima antes de responder — não repita perguntas já feitas."
+        f"Meta para esta mensagem específica: {outcome_cta}\n\n"
+        f"MENSAGEM ATUAL DO CLIENTE:\n"
+        f"\"{user_text}\"\n\n"
+        f"CONTRATO DE GERAÇÃO DA RESPOSTA (OBRIGATÓRIO):\n"
+        f"1. Responda de forma profissional e direta, em no máximo 4 frases.\n"
+        f"2. ATENÇÃO MÁXIMA: Se o cliente perguntar preço/prazo/detalhe que NÃO está explícito no bloco de contexto acima, VOCÊ NÃO PODE INVENTAR. Responda elegantemente que precisa calcular ou avaliar os detalhes.\n"
+        f"3. Faça no máximo UMA pergunta ao final para avançar a conversa.\n"
+        f"4. Não repita informações ou perguntas que já constam no histórico da conversa."
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
@@ -482,7 +704,11 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         # MiniMax só para intents que exigem raciocínio técnico profundo (pmoc, consultoria, projeto-central)
         MINIMAX_INTENTS = {"pmoc", "consultoria", "projeto-central"}
         if intent not in MINIMAX_INTENTS:
-            response = await _call_groq(llm_messages)
+            try:
+                response = await _call_groq(llm_messages)
+            except Exception as e:
+                logger.warning(f"Groq simples falhou, tentando Qwen local: {e}")
+                response = await _call_local_qwen(llm_messages)
         else:
             response = await llm_chat(llm_messages)
     except Exception as e:
@@ -503,6 +729,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             ),
         }.get(outcome or "", "Me manda mais detalhes que eu te ajudo!")
 
+    response = await _polish_ptbr_if_enabled(response, user_text)
     ai_message = AIMessage(content=response)
     return {"messages": messages + [ai_message], "rag_context": rag_context, "service": service, "outcome": outcome}
 
@@ -582,6 +809,8 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     formatted = raw
     formatted = formatted.replace("**", "*")   # bold MD → WhatsApp bold
     formatted = formatted.replace("__", "_")    # italic
+    if len(formatted) >= 2 and formatted[0] == formatted[-1] and formatted[0] in ("'", '"'):
+        formatted = formatted[1:-1].strip()
     # Remove headers markdown
     import re
     formatted = re.sub(r"^#{1,6}\s+", "", formatted, flags=re.MULTILINE)

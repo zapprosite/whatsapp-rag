@@ -16,9 +16,9 @@ from qdrant_client.http import models
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-COLLECTION = "whatsapp_rag"
+COLLECTION = "hermes_hvac_rag_service_staging"
 VECTOR_DIM = 384
-EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 
 # ─── Knowledge base na voz do Will ────────────────────────────────────────────
 # outcome: analise_tecnica | higienizacao_preventiva | reuniao_projeto | duvida
@@ -172,7 +172,7 @@ CHUNKS = [
             "Pra alvará do corpo de bombeiros, o PMOC precisa ter laudo técnico, certificado de execução "
             "e ART do engenheiro responsável — a gente emite tudo isso. "
             "O documento cobre as exigências da ABNT NBR 16001 e das legislações estaduais e municipais. "
-            "Já ajudamos muita empresa aqui na Baixada Santista a regularizar a situação. "
+            "Já ajudamos muita empresa no Guarujá e região a regularizar a situação. "
             "Me manda o CNPJ e endereço do estabelecimento que eu verifico o que você precisa exatamente."
         ),
     },
@@ -284,7 +284,7 @@ CHUNKS = [
     },
     # ── HIGIENIZAÇÃO ─────────────────────────────────────────────────────────
     {
-        "service_name": "hygienizacao",
+        "service_name": "higienizacao",
         "outcome": "higienizacao_preventiva",
         "title": "Diferença entre limpeza e higienização",
         "text": (
@@ -297,7 +297,7 @@ CHUNKS = [
         ),
     },
     {
-        "service_name": "hygienizacao",
+        "service_name": "higienizacao",
         "outcome": "higienizacao_preventiva",
         "title": "Higienização com ozônio para eliminar cheiro",
         "text": (
@@ -310,7 +310,7 @@ CHUNKS = [
         ),
     },
     {
-        "service_name": "hygienizacao",
+        "service_name": "higienizacao",
         "outcome": "higienizacao_preventiva",
         "title": "Com que frequência fazer higienização",
         "text": (
@@ -324,7 +324,7 @@ CHUNKS = [
         ),
     },
     {
-        "service_name": "hygienizacao",
+        "service_name": "higienizacao",
         "outcome": "higienizacao_preventiva",
         "title": "Higienização de dutos — remove ácaros e fungos",
         "text": (
@@ -337,7 +337,7 @@ CHUNKS = [
         ),
     },
     {
-        "service_name": "hygienizacao",
+        "service_name": "higienizacao",
         "outcome": "higienizacao_preventiva",
         "title": "Certificado de higienização após o serviço",
         "text": (
@@ -417,12 +417,90 @@ CHUNKS = [
             "Posso marcar uma reunião técnica sem compromisso?"
         ),
     },
+    # ── PLAYBOOK COMERCIAL / PREÇOS ─────────────────────────────────────────
+    {
+        "service_name": "instalacao",
+        "outcome": "analise_tecnica",
+        "doc_type": "pricing",
+        "priority": 5,
+        "title": "Preço de instalação de split",
+        "text": (
+            "Quando o lead pergunta preço de instalação de split, responda direto: "
+            "instalação padrão no Guarujá fica R$800. Para Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. "
+            "Inclui mão de obra e material básico de instalação. Depois peça cidade, tipo do aparelho e endereço "
+            "pra confirmar se é instalação padrão ou se precisa visita técnica gratuita."
+        ),
+    },
+    {
+        "service_name": "higienizacao",
+        "outcome": "higienizacao_preventiva",
+        "doc_type": "pricing",
+        "priority": 5,
+        "title": "Preço de higienização de split",
+        "text": (
+            "Quando o lead pergunta preço de higienização, responda direto: higienização de split fica R$200 por aparelho. "
+            "Explique em uma frase que é limpeza profunda com produto bacteriostático, não só lavar filtro. "
+            "Depois pergunte quantos aparelhos são. A cidade fica para a próxima mensagem se ainda faltar."
+        ),
+    },
+    {
+        "service_name": "instalacao",
+        "outcome": "analise_tecnica",
+        "doc_type": "objection",
+        "priority": 10,
+        "title": "Objeção de preço baixo do concorrente",
+        "text": (
+            "Se o lead compara com instalação muito barata, não ataque o concorrente. "
+            "Diga que entende, mas instalação de ar precisa de cobre, dreno, suporte, vácuo e teste de pressão. "
+            "Preço muito baixo costuma cortar etapa que depois vira vazamento ou perda de garantia. "
+            "Finalize oferecendo confirmar o caso por foto/endereço."
+        ),
+    },
+    {
+        "service_name": None,
+        "outcome": "onboarding",
+        "doc_type": "sales_playbook",
+        "priority": 15,
+        "title": "Estilo de atendimento WhatsApp",
+        "text": (
+            "O Will deve responder como dono prestativo no WhatsApp: curto, humano e prático. "
+            "Evite lista, texto grande e frase de call center. Cada resposta deve resolver a dúvida principal "
+            "e fazer uma pergunta que leve para orçamento, visita técnica, endereço, quantidade de aparelhos ou reunião."
+        ),
+    },
+    {
+        "service_name": "pmoc",
+        "outcome": "analise_tecnica",
+        "doc_type": "sales_playbook",
+        "priority": 10,
+        "title": "Qualificação de PMOC",
+        "text": (
+            "Para PMOC, qualifique tipo de estabelecimento, cidade, quantidade de aparelhos e BTU aproximado. "
+            "Se o lead citar clínica, restaurante, empresa ou alvará, trate como lead quente. "
+            "Explique que a proposta depende do levantamento, laudos e ART, e conduza para visita/reunião técnica."
+        ),
+    },
+    {
+        "service_name": None,
+        "outcome": "duvida",
+        "doc_type": "sales_playbook",
+        "priority": 100,
+        "title": "Regra Anti-Alucinação: Como lidar com preços e serviços não tabelados",
+        "text": (
+            "Se o cliente perguntar o preço de um serviço que não consta explicitamente no seu conhecimento atual "
+            "(exemplo: conserto de placa, carga de gás específica, instalação complexa), VOCÊ NÃO PODE INVENTAR UM VALOR. "
+            "Responda profissionalmente: 'Para te passar o valor exato desse serviço, vou precisar avaliar melhor os detalhes. "
+            "Você consegue me mandar uma foto ou confirmar o modelo do aparelho? Assim eu calculo e te envio o orçamento correto.' "
+            "Nunca invente preços, nunca prometa prazos e nunca diga que fazemos serviços de linha branca (como geladeira ou máquina de lavar) "
+            "se não estiver no seu contexto de climatização."
+        ),
+    },
 ]
 
 
 def main() -> None:
     logger.info(f"Modelo de embedding: {EMBEDDING_MODEL}")
-    model = TextEmbedding(model=EMBEDDING_MODEL, max_length=256)
+    model = TextEmbedding(model=EMBEDDING_MODEL, max_length=512)
 
     logger.info("Gerando embeddings...")
     texts = [c["text"] for c in CHUNKS]
@@ -447,9 +525,12 @@ def main() -> None:
                 id=i + 1,
                 vector=embedding.tolist(),
                 payload={
-                    "service_name": chunk["service_name"],
+                    "service_name": chunk.get("service_name"),
                     "outcome": chunk["outcome"],
                     "title": chunk["title"],
+                    "doc_type": chunk.get("doc_type", "technical"),
+                    "priority": chunk.get("priority", 50),
+                    "source": "seed_hvac.py",
                     "text": chunk["text"],
                 },
             )

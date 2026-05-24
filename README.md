@@ -216,7 +216,7 @@ Adicione exemplos na seção `EXEMPLOS_VALIDADOS_START`:
 ```python
 # EXEMPLOS_VALIDADOS_START
 Lead: "Oi"
-Will: "Ei! Sou o Will da Refrimix — cuida do seu ar aqui na Baixada. O que tá precisando?"
+Will: "Ei! Sou o Will da Refrimix — cuida do seu ar aqui no Guarujá e região. O que tá precisando?"
 # EXEMPLOS_VALIDADOS_END
 ```
 

@@ -6,9 +6,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Coqui XTTS v2 rodando local em :8020
-# Path dos samples de voz do Will (montados no PC1)
+# TTS local/PC1. OmniVoice usa API OpenAI-compatible; XTTS fica como legado.
 _XTTS_URL = "http://localhost:8020"
+_OMNIVOICE_URL = "http://127.0.0.1:8202"
 _TTS_TIMEOUT = 30.0
 
 # Estilos de voz mapeados para samples WAV no PC1
@@ -30,28 +30,48 @@ _AUDIO_INTENT_KEYWORDS = frozenset([
 
 
 class TTSService:
-    """Síntese de voz via Coqui XTTS v2 local com voice clone do Will."""
+    """Síntese de voz com clone do Will via OmniVoice ou XTTS legado."""
 
     def __init__(self) -> None:
+        self._engine = os.getenv("TTS_ENGINE", "omnivoice").lower().strip()
         self._xtts_url = os.getenv("XTTS_URL", _XTTS_URL)
+        self._omnivoice_url = os.getenv("OMNIVOICE_URL", _OMNIVOICE_URL)
         self._voices_path = os.getenv("TTS_VOICES_PATH", "/srv/data/tts/voices")
 
+    def _voice_name(self, style: str) -> str:
+        return _VOICE_STYLES.get(style, _VOICE_STYLES[_DEFAULT_STYLE])
+
     def _speaker_wav_path(self, style: str) -> str:
-        name = _VOICE_STYLES.get(style, _VOICE_STYLES[_DEFAULT_STYLE])
+        name = self._voice_name(style)
         return os.path.join(self._voices_path, f"{name}.wav")
 
-    async def synthesize(
-        self,
-        text: str,
-        voice_style: str = _DEFAULT_STYLE,
-    ) -> bytes | None:
-        """
-        Sintetiza texto com voz clonada do Will via XTTS.
-        Retorna WAV bytes ou None se XTTS indisponível.
-        """
+    async def _synthesize_omnivoice(self, text: str, voice_style: str) -> bytes | None:
+        voice = self._voice_name(voice_style)
+        try:
+            async with httpx.AsyncClient(timeout=_TTS_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self._omnivoice_url}/v1/audio/speech",
+                    json={
+                        "model": "omnivoice",
+                        "input": text,
+                        "voice": voice,
+                        "language": "pt-BR",
+                        "response_format": "wav",
+                    },
+                )
+                if resp.status_code == 200 and len(resp.content) > 512:
+                    logger.info(f"OmniVoice OK: {len(resp.content)} bytes (voice={voice})")
+                    return resp.content
+                logger.warning(f"OmniVoice retornou {resp.status_code}: {resp.text[:160]}")
+        except httpx.ConnectError:
+            logger.warning(f"OmniVoice indisponível em {self._omnivoice_url} — tentando fallback")
+        except Exception as e:
+            logger.error(f"OmniVoice erro: {e}")
+        return None
+
+    async def _synthesize_xtts(self, text: str, voice_style: str) -> bytes | None:
         speaker_wav = self._speaker_wav_path(voice_style)
 
-        # Tenta endpoint /tts (XTTS API server padrão)
         try:
             async with httpx.AsyncClient(timeout=_TTS_TIMEOUT) as client:
                 resp = await client.post(
@@ -63,21 +83,44 @@ class TTSService:
                     },
                 )
                 if resp.status_code == 200 and len(resp.content) > 512:
-                    logger.info(f"TTS OK: {len(resp.content)} bytes (style={voice_style})")
+                    logger.info(f"XTTS OK: {len(resp.content)} bytes (style={voice_style})")
                     return resp.content
                 logger.warning(f"XTTS /tts retornou {resp.status_code}: {resp.text[:100]}")
         except httpx.ConnectError:
             logger.warning(f"XTTS indisponível em {self._xtts_url} — resposta será texto")
         except Exception as e:
             logger.error(f"XTTS erro: {e}")
+        return None
 
+    async def synthesize(
+        self,
+        text: str,
+        voice_style: str = _DEFAULT_STYLE,
+    ) -> bytes | None:
+        """
+        Sintetiza texto com voz clonada do Will.
+        Retorna WAV bytes ou None se os engines estiverem indisponíveis.
+        """
+        if self._engine == "omnivoice":
+            audio = await self._synthesize_omnivoice(text, voice_style)
+            if audio:
+                return audio
+            return await self._synthesize_xtts(text, voice_style)
+        if self._engine == "xtts":
+            audio = await self._synthesize_xtts(text, voice_style)
+            if audio:
+                return audio
+            return await self._synthesize_omnivoice(text, voice_style)
+
+        logger.warning(f"TTS_ENGINE inválido: {self._engine}")
         return None
 
     async def health(self) -> bool:
-        """Verifica se o servidor XTTS está acessível."""
+        """Verifica se o servidor TTS primário está acessível."""
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{self._xtts_url}/health")
+                base_url = self._omnivoice_url if self._engine == "omnivoice" else self._xtts_url
+                resp = await client.get(f"{base_url}/health")
                 return resp.status_code == 200
         except Exception:
             return False
