@@ -37,6 +37,9 @@ class AgentState(TypedDict):
     intent: str | None
     service: str | None
     outcome: str | None
+    handoff_mode: Literal["none", "soft_alert", "hard_transfer"] | None
+    handoff_reason: str | None
+    handoff_already_notified: bool
     rag_context: list[RagContextItem]
     customer_data: CustomerData
     is_human: bool
@@ -53,8 +56,9 @@ class AgentState(TypedDict):
 
 
 def route_after_classify(state: AgentState) -> str:
+    handoff_mode = state.get("handoff_mode")
     intent = state.get("intent")
-    if intent == "human":
+    if handoff_mode == "hard_transfer":
         return "route_human"
     if intent == "onboarding":
         # Saudação — pula RAG, vai direto pra geração (resposta de apresentação)
@@ -117,6 +121,6 @@ def build_graph() -> StateGraph:
     workflow.add_edge("tts_voice_clone",            "dispatch_appointment_alert")
     workflow.add_edge("dispatch_appointment_alert", "save_interaction")
     workflow.add_edge("save_interaction",           END)
-    workflow.add_edge("route_human",                END)
+    workflow.add_edge("route_human",                "save_interaction")
 
     return workflow.compile()

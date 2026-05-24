@@ -38,6 +38,7 @@ _MAX_ATTEMPTS = max(1, int(os.getenv("WORKER_MAX_ATTEMPTS", "3")))
 _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
 _LOCK_REQUEUE_DELAY = float(os.getenv("CONV_LOCK_REQUEUE_DELAY_SECONDS", "0.4"))
+_HANDOFF_ALERT_TTL = int(os.getenv("HANDOFF_ALERT_TTL_SECONDS", "21600"))
 
 _BOT_OFF_MSG = os.getenv(
     "BOT_OFF_MESSAGE",
@@ -208,16 +209,86 @@ async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "d
         return False
 
 
-async def notify_owner(lead_phone: str, lead_message: str, instance: str = "default") -> bool:
-    """Notifica o dono (Will) sobre handoff ou intenções de alto valor."""
-    owner_phone = "5513996659382"
+async def notify_owner(
+    lead_phone: str,
+    lead_message: str,
+    instance: str = "default",
+    *,
+    handoff_mode: str = "hard_transfer",
+    reason: str = "",
+    conversation_summary: str = "",
+    next_step: str = "",
+) -> bool:
+    """Notifica o dono (Will) sobre handoff real ou alerta soft de alto valor."""
+    owner_phone = os.getenv("OWNER_PHONE", "5513996659382")
+    title = "ALERTA DE HANDOFF" if handoff_mode == "hard_transfer" else "ALERTA DE LEAD ALTO VALOR"
     text = (
-        "🚨 *ALERTA DE HANDOFF* 🚨\n"
-        f"O lead {lead_phone} solicitou atendimento humano ou fechamento de alto valor.\n"
-        f"Mensagem: {lead_message}\n"
-        "Assuma a conversa no WhatsApp Web."
+        f"🚨 *{title}* 🚨\n\n"
+        f"Telefone: {lead_phone}\n"
+        f"Motivo: {reason or 'não informado'}\n"
+        f"Último pedido: {lead_message}\n"
+        f"Resumo: {conversation_summary or 'sem histórico anterior'}\n"
+        f"Próximo passo recomendado: {next_step or 'acompanhar pelo WhatsApp Web'}"
     )
     return await send_whatsapp_message(owner_phone, text, instance)
+
+
+def _summarize_conversation(messages: list[BaseMessage]) -> str:
+    turns: list[str] = []
+    for message in messages[-8:]:
+        content = _message_text(message).strip()
+        if not content:
+            continue
+        role = "Cliente" if isinstance(message, HumanMessage) else "Will"
+        compact = re.sub(r"\s+", " ", content)
+        turns.append(f"{role}: {compact[:140]}")
+    return " | ".join(turns)[-900:]
+
+
+def _handoff_next_step(handoff_mode: str, reason: str) -> str:
+    if handoff_mode == "hard_transfer":
+        if reason == "sensitive_complaint":
+            return "Assumir a conversa, pedir dados do orçamento/serviço e dar retorno claro."
+        return "Assumir a conversa no WhatsApp Web; o bot já pediu serviço e cidade para adiantar."
+    if reason == "light_complaint":
+        return "Acompanhar em paralelo; o bot pediu detalhes para adiantar a análise."
+    return "Acompanhar sem interromper o bot; revisar dados de qualificação e entrar se fizer sentido."
+
+
+async def maybe_notify_owner_from_result(
+    r: redis.Redis,
+    *,
+    phone: str,
+    message_text: str,
+    result: dict[str, Any],
+    instance: str,
+) -> bool:
+    mode = result.get("handoff_mode") or "none"
+    if mode == "none":
+        return False
+
+    reason = result.get("handoff_reason") or result.get("outcome") or "sem_motivo"
+    if mode == "hard_transfer" and result.get("handoff_already_notified"):
+        return False
+
+    if mode == "soft_alert":
+        alert_key = f"handoff_alert:{_safe_key(phone)}:{_safe_key(reason)}"
+        should_alert = await r.set(alert_key, "1", nx=True, ex=_HANDOFF_ALERT_TTL)
+        if not should_alert:
+            logger.info("Alerta soft deduplicado para %s (%s)", phone, reason)
+            return False
+
+    messages_out = result.get("messages", [])
+    summary = _summarize_conversation(messages_out if isinstance(messages_out, list) else [])
+    return await notify_owner(
+        phone,
+        message_text,
+        instance,
+        handoff_mode=mode,
+        reason=reason,
+        conversation_summary=summary,
+        next_step=_handoff_next_step(mode, reason),
+    )
 
 
 async def load_history(phone: str, client: redis.Redis | None = None) -> list[BaseMessage]:
@@ -363,6 +434,9 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             "intent": None,
             "service": None,
             "outcome": None,
+            "handoff_mode": "none",
+            "handoff_reason": None,
+            "handoff_already_notified": False,
             "rag_context": [],
             "customer_data": {"phone": phone, "is_first_message": is_first_message},
             "is_human": False,
@@ -378,9 +452,13 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
 
         result = await GRAPH.ainvoke(initial_state)
 
-        outcome = result.get("outcome")
-        if outcome == "escalar_humano":
-            await notify_owner(phone, message_text, instance)
+        await maybe_notify_owner_from_result(
+            r,
+            phone=phone,
+            message_text=message_text,
+            result=result,
+            instance=instance,
+        )
 
         messages_out = result.get("messages", [])
         ai_message = next(

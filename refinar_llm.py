@@ -31,7 +31,7 @@ BASE_URL     = "http://localhost:8000"
 PLAYBOOK     = Path(__file__).parent / ".context/docs/playbook_vendas.md"
 NODES_FILE   = Path(__file__).parent / "agent_graph/nodes/nodes.py"
 LOG_FILE     = Path(__file__).parent / ".context/refinamento_log.jsonl"
-SCORE_META   = 8.0   # meta de score médio para convergência
+SCORE_META   = 8.5   # meta de score médio para convergência
 MARKER_START = "# EXEMPLOS_VALIDADOS_START"
 MARKER_END   = "# EXEMPLOS_VALIDADOS_END"
 
@@ -65,7 +65,7 @@ def call_will(message: str, media_type: str = "conversation", media_url: str = "
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        return {"error": str(e), "response": "", "intent": "?"}
+        return {"error": str(e), "response": "", "intent": "?", "handoff_mode": "none"}
 
 
 def normalize_service(service: str | None) -> str | None:
@@ -142,6 +142,9 @@ class ScoreAvaliacao(BaseModel):
     ideal: str = Field(description="A resposta exata que o Will deveria ter enviado")
     nivel: int = Field(description="1=WILL_SYSTEM_PROMPT, 2=RAG Qdrant, 3=SCORE_MAP keywords")
     regra: str = Field(description="Se nivel==1: regra ou exemplo a adicionar ao prompt")
+    handoff_indevido: bool = Field(default=False, description="True se escalou para humano sem pedido explícito ou situação sensível")
+    resposta_natural_ptbr: float = Field(default=0.0, description="Nota 0-10 de naturalidade WhatsApp pt-BR Refrimix")
+    proxima_pergunta_util: float = Field(default=0.0, description="Nota 0-10 se a pergunta final avança a venda")
 
 def call_judge(messages: list[dict[str, str]], system: str) -> ScoreAvaliacao:
     """Usa OpenAI com Structured Outputs para garantir o retorno via Groq ou Qwen Local."""
@@ -186,6 +189,11 @@ CRITÉRIOS DE AVALIAÇÃO (peso igual):
 4. PREÇO: citou preço quando relevante? sem rodeios?
 5. MULTIMODAL/VISÃO: Se o cliente relatou defeito físico, o Will pediu foto proativamente? Se o cliente enviou foto, o Will avaliou a imagem?
 6. CONCISÃO PARA ÁUDIO: O texto é direto o suficiente para virar um áudio de TTS curto sem parecer que está lendo uma bula? Evita listas e formatações markdown?
+7. HANDOFF INDEVIDO: penalize fortemente se o Will disse que vai passar para humano/especialista sem pedido explícito, cancelamento, reembolso ou reclamação sensível. Dúvida vaga deve receber hipótese + pergunta objetiva.
+8. PT-BR NATURAL: preencha resposta_natural_ptbr com nota de tom WhatsApp Refrimix.
+9. PRÓXIMA PERGUNTA ÚTIL: preencha proxima_pergunta_util com nota da pergunta final para avançar venda/qualificação.
+
+Se handoff_indevido=true, a nota máxima é 5.0, exceto quando o cliente pediu humano explicitamente ou trouxe situação sensível.
 
 Responda usando o schema JSON estruturado e garanta que o output seja um JSON válido."""
 
@@ -217,12 +225,20 @@ CENARIOS_BASE = [
     ("Oi, quero informação sobre ar condicionado.", "onboarding"),
     ("Bom dia! Vocês atendem em Praia Grande?", "onboarding"),
     ("Tenho uma empresa com 8 aparelhos, preciso de manutenção.", "manutencao"),
+    # Recovery / handoff policy
+    ("não sei explicar, meu ar tá estranho", "unknown"),
+    ("áudio ficou ruim mas preciso ver esse negócio aí", "unknown"),
+    ("quanto fica?", "unknown"),
+    ("Quero falar com atendente humano", "explicit_handoff"),
+    ("Fiz orçamento e ninguém retornou", "sensitive_complaint"),
+    ("Tenho 12 aparelhos e preciso de PMOC", "pmoc"),
+    ("Restaurante com sistema central para climatizar", "projeto-central"),
 ]
 
 
 class CenarioDeTeste(BaseModel):
     msg: str = Field(description="Mensagem do lead, pode simular anexo tipo [IMG:url]")
-    servico: str = Field(description="instalacao|higienizacao|manutencao|pmoc|onboarding")
+    servico: str = Field(description="instalacao|higienizacao|manutencao|pmoc|projeto-central|consultoria|onboarding|unknown|explicit_handoff|sensitive_complaint")
 
 class ListaCenarios(BaseModel):
     cenarios: list[CenarioDeTeste]
@@ -236,7 +252,9 @@ PLAYBOOK:
 Gere {n} mensagens DIFÍCEIS que um lead real mandaria no WhatsApp — situações
 que um bot genérico erraria: objeções de preço, comparação com concorrente,
 perguntas ambíguas, envio de fotos (use [IMG:url] para simular a foto),
-linguagem informal extrema.
+linguagem informal extrema, áudio transcrito ruim, reclamação leve, pedido
+explícito de humano, reclamação sensível e casos de alto valor que devem gerar
+alerta sem parar o bot.
 
 Você deve responder com um JSON válido correspondente ao schema solicitado."""
     payload = [{"role": "system", "content": system}, {"role": "user", "content": "Gera os cenários."}]
@@ -342,8 +360,18 @@ def aplicar_melhoria(lead_msg: str, ideal: str, nivel: int, regra: str):
 
 # ── Log de resultados ─────────────────────────────────────────────────────────
 
-def salvar_log(ciclo: int, msg: str, servico: str, will_resp: str,
-               score: float, falhas: list, ideal: str):
+def salvar_log(
+    ciclo: int,
+    msg: str,
+    servico: str,
+    will_resp: str,
+    score: float,
+    falhas: list,
+    ideal: str,
+    handoff_indevido: bool = False,
+    resposta_natural_ptbr: float = 0.0,
+    proxima_pergunta_util: float = 0.0,
+):
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "ciclo": ciclo,
@@ -353,6 +381,9 @@ def salvar_log(ciclo: int, msg: str, servico: str, will_resp: str,
         "score": score,
         "falhas": falhas,
         "ideal": ideal,
+        "handoff_indevido": handoff_indevido,
+        "resposta_natural_ptbr": resposta_natural_ptbr,
+        "proxima_pergunta_util": proxima_pergunta_util,
     }
     with open(LOG_FILE, "a") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -385,6 +416,8 @@ def avaliar_cenario(lead_msg: str, servico: str, playbook: str,
     data = call_will(clean_msg, media_type, media_url)
     will_resp = data.get("response") or data.get("error") or ""
     intent    = data.get("intent", "?")
+    handoff_mode = data.get("handoff_mode", "none")
+    handoff_reason = data.get("handoff_reason")
 
     if not will_resp:
         print(c(RD, "  ✗ Will sem resposta"))
@@ -397,6 +430,8 @@ def avaliar_cenario(lead_msg: str, servico: str, playbook: str,
 Lead enviou: "{lead_msg}"
 Serviço esperado: {servico}
 Intent classificado: {intent}
+Handoff mode: {handoff_mode}
+Handoff reason: {handoff_reason or "nenhum"}
 Will respondeu: "{will_resp}"
 
 Retorne o JSON de avaliação."""
@@ -421,6 +456,13 @@ Retorne o JSON de avaliação."""
         print(f"  {c(DIM,'Falhas:')} {' | '.join(falhas[:2])}")
     else:
         print()
+    if resultado.handoff_indevido:
+        print(c(RD, "  ✗ Handoff indevido detectado"))
+    if resultado.resposta_natural_ptbr or resultado.proxima_pergunta_util:
+        print(
+            f"  {c(DIM,'PT-BR:')} {resultado.resposta_natural_ptbr:.1f}/10 "
+            f"{c(DIM,'Pergunta útil:')} {resultado.proxima_pergunta_util:.1f}/10"
+        )
     if ideal and score < SCORE_META:
         print(f"  {c(CY,'Ideal:')} {ideal[:120]}")
 
@@ -432,7 +474,18 @@ Retorne o JSON de avaliação."""
         upsert_validated_reply_qdrant(lead_msg, servico, ideal)
         aplicar_melhoria(lead_msg, ideal, nivel, regra)
 
-    salvar_log(ciclo, lead_msg, servico, will_resp, score, falhas, ideal)
+    salvar_log(
+        ciclo,
+        lead_msg,
+        servico,
+        will_resp,
+        score,
+        falhas,
+        ideal,
+        resultado.handoff_indevido,
+        resultado.resposta_natural_ptbr,
+        resultado.proxima_pergunta_util,
+    )
     print()
     return score
 

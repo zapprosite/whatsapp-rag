@@ -4,6 +4,9 @@ import os
 import asyncio
 import logging
 import hashlib
+import json
+import re
+import unicodedata
 import httpx
 from typing import Any, TypeGuard
 
@@ -47,6 +50,13 @@ FLUXO DE ONBOARDING E CONDUÇÃO:
 1. Primeira interação: Cumprimente profissionalmente e pergunte como pode ajudar hoje.
 2. Identificação: Faça perguntas qualificadoras (marca, modelo, endereço) baseadas no problema relatado.
 3. Fechamento: Sempre conduza a conversa para o próximo passo lógico (agendar visita técnica, coletar informações adicionais ou orçamento). Aja proativamente.
+
+CONVERSATION RECOVERY PLAYBOOK:
+- Quando não entender a intenção, NÃO faça handoff. Responda com uma hipótese simples e uma pergunta objetiva para classificar o caso.
+- Para mensagens vagas, gírias, áudio transcrito ruim ou preço sem contexto, conduza assim: "Entendi. Pra eu te orientar certinho: isso é instalação, manutenção ou higienização?"
+- Para reclamação leve, acolha, peça o detalhe que falta e continue ajudando. Só fale em passagem humana quando o cliente pedir explicitamente ou houver reclamação sensível.
+- Para alto valor (PMOC, consultoria, empresa, condomínio, restaurante, galpão, laudo, ART, vários aparelhos), continue conduzindo tecnicamente e peça dados de qualificação. O Will pode ser sinalizado em paralelo, mas a conversa não deve parar.
+- Evite frases genéricas como "vou passar para um especialista" quando você ainda pode coletar dados úteis.
 
 EXEMPLOS DE TOM CORRETO E PROFISSIONAL:
 Lead: "Oi, o ar está pingando"
@@ -98,10 +108,10 @@ Lead: "Quanto custa pra higienizar um split?"
 Will: "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. Inclui mão de obra e material básico de instalação. Qual a cidade e o modelo do aparelho? Tem urgência?"
 
 Lead: "O ar não tá gelando mais, o que pode ser?"
-Will: "Entendido! Vou te passar para um dos nossos especialistas agora. Aguarda um instante que alguém entra em contato contigo em breve. Onde fica o aparelho e qual a marca?"
+Will: "Entendi. Quando o ar não gela, pode ser falta de limpeza, gás baixo ou falha em componente, mas preciso ver melhor. Me fala a marca do aparelho e em qual cidade/bairro ele está?"
 
 Lead: "Tá pingando água dentro de casa."
-Will: "Entendido! Vou te passar para um dos nossos especialistas agora. Aguarda um instante que alguém entra em contato contigo em breve. O que precisa para a visita técnica?"
+Will: "Entendi. Pingando dentro de casa costuma ter relação com dreno ou nivelamento do aparelho. Você consegue me mandar uma foto ou vídeo curto do vazamento e dizer em qual bairro fica?"
 
 Lead: "Me manda um orçamento por escrito."
 Will: "Entendido! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros no cartão. Me passa onde fica e a BTU do equipo que confirmo se tem algum custo adicional de acesso."
@@ -539,25 +549,210 @@ _OUTCOME_MAP: dict[str, str] = {
     "projeto-central": "reuniao_projeto",
 }
 
+_SERVICE_INTENTS = {
+    "instalacao",
+    "consultoria",
+    "manutencao",
+    "pmoc",
+    "projeto-central",
+    "higienizacao",
+}
+
+_EXPLICIT_HANDOFF_TRIGGERS = (
+    "atendente humano",
+    "falar com pessoa",
+    "falar com atendente",
+    "pessoa real",
+    "humano",
+    "atendente",
+    "alguem de verdade",
+    "quero ligar",
+)
+
+_SENSITIVE_COMPLAINT_TRIGGERS = (
+    "ninguem responde",
+    "ninguem retornou",
+    "nao retornou",
+    "nao retornaram",
+    "nao me retornaram",
+    "sem retorno",
+    "cancelamento",
+    "cancelar",
+    "reembolso",
+    "refund",
+    "devolucao",
+    "liguei varias vezes",
+    "procon",
+    "processo",
+    "reclamacao no google",
+    "vou denunciar",
+    "pessimo atendimento",
+)
+
+_LIGHT_COMPLAINT_TRIGGERS = (
+    "nao gostei",
+    "nao resolveu",
+    "continua com problema",
+    "continua ruim",
+    "ficou ruim",
+    "nao ficou bom",
+    "ta demorando",
+    "esta demorando",
+    "atrasou",
+    "atrasado",
+    "preciso que volte",
+)
+
+_HIGH_VALUE_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("pmoc", "high_value_pmoc"),
+    ("laudo", "high_value_laudo"),
+    ("art", "high_value_art"),
+    ("consultoria", "high_value_consultoria"),
+    ("projeto", "high_value_projeto"),
+    ("sistema central", "high_value_projeto_central"),
+    ("central de climatizacao", "high_value_projeto_central"),
+    ("empresa", "high_value_empresa"),
+    ("condominio", "high_value_condominio"),
+    ("restaurante", "high_value_restaurante"),
+    ("galpao", "high_value_galpao"),
+    ("galpao industrial", "high_value_galpao"),
+    ("orcamento grande", "high_value_orcamento_grande"),
+    ("contrato", "high_value_contrato"),
+)
+
+_HANDOFF_STATE_TTL = _env_int("HANDOFF_STATE_TTL_SECONDS", 7200)
+
+
+def _fold_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    without_accents = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(without_accents.split())
+
+
+def _contains_any(text: str, triggers: tuple[str, ...] | list[str]) -> bool:
+    return any(_fold_text(trigger) in text for trigger in triggers)
+
+
+def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
+    if intent in ("pmoc", "consultoria", "projeto-central"):
+        return f"high_value_{intent.replace('-', '_')}"
+
+    for keyword, reason in _HIGH_VALUE_KEYWORDS:
+        if _fold_text(keyword) in text:
+            return reason
+
+    multiple_devices = re.search(
+        r"\b([2-9]|[1-9][0-9])\s*(aparelhos?|equipamentos?|equipos?|splits?|maquinas?|evaporadoras?)\b",
+        text,
+    )
+    if multiple_devices:
+        return "high_value_multiplos_aparelhos"
+
+    if any(term in text for term in ("varios aparelhos", "varias maquinas", "muitos aparelhos")):
+        return "high_value_multiplos_aparelhos"
+
+    return None
+
+
+def _fallback_service_for_high_value(text: str) -> str | None:
+    if any(term in text for term in ("pmoc", "laudo", "art", "preventiva")):
+        return "pmoc"
+    if any(term in text for term in ("restaurante", "galpao", "sistema central", "multi split", "multisplit")):
+        return "projeto-central"
+    if any(term in text for term in ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
+        return "consultoria"
+    return None
+
+
+def _handoff_state_key(phone: str) -> str:
+    safe_phone = re.sub(r"[^0-9A-Za-z_:+@.-]", "_", phone.strip())[:160] or "unknown"
+    return f"handoff_state:{safe_phone}"
+
+
+def _handoff_initial_response(reason: str | None) -> str:
+    if reason == "sensitive_complaint":
+        return (
+            "Poxa, sinto muito por isso. Já vou sinalizar o Will pra olhar pessoalmente por aqui. "
+            "Enquanto ele entra, me passa o número do orçamento ou serviço e o melhor horário pra retorno?"
+        )
+    return (
+        "Entendido. Já vou sinalizar o Will pra assumir por aqui. "
+        "Enquanto ele entra, me passa qual serviço você precisa e em qual cidade?"
+    )
+
+
+def _handoff_followup_response(reason: str | None) -> str:
+    if reason == "sensitive_complaint":
+        return (
+            "Já deixei isso sinalizado aqui. Enquanto isso, me passa o número do orçamento ou serviço "
+            "e o melhor horário pra retorno que eu adianto pra ele."
+        )
+    return (
+        "Já deixei isso sinalizado aqui. Enquanto isso, me passa qual serviço você precisa, "
+        "a cidade e um resumo do caso pra eu adiantar."
+    )
+
+
+def _unknown_recovery_response(user_text: str) -> str:
+    text = _fold_text(user_text)
+    if "ar" in text and any(term in text for term in ("estranho", "problema", "ruim", "esquisito")):
+        return (
+            "Entendi. Quando você fala que o ar tá estranho, ele não gela, pinga, faz barulho ou tem cheiro? "
+            "Se puder, me manda uma foto ou vídeo curto também."
+        )
+    if _looks_like_price_question(user_text):
+        return (
+            "Entendi. Pra eu te passar um valor certo, preciso saber qual serviço você quer: "
+            "instalação, manutenção ou higienização?"
+        )
+    return "Entendi. Pra eu te orientar certinho: isso é instalação, manutenção ou higienização?"
+
+
+def _light_complaint_response(user_text: str) -> str:
+    return (
+        "Entendi, sinto muito pelo transtorno. Me passa o que aconteceu e, se tiver, o número do orçamento "
+        "ou uma foto/vídeo do problema pra eu conseguir adiantar a análise por aqui."
+    )
+
 
 async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
-    """Classifica intent do lead entre 6 serviços Refrimix + outcome comercial."""
+    """Classifica serviço e política de handoff sem transformar dúvida em humano."""
     messages = state.get("messages", [])
     if not messages:
-        return {"intent": None, "service": None, "outcome": None}
+        return {
+            "intent": None,
+            "service": None,
+            "outcome": None,
+            "handoff_mode": "none",
+            "handoff_reason": None,
+            "handoff_already_notified": False,
+        }
 
     last_message = messages[-1]
     user_text = _message_text(last_message)
-    text_lower = user_text.lower()
+    text_lower = _fold_text(user_text)
 
-    # Triggers para escalar humano imediatamente
-    HUMAN_TRIGGERS = [
-        "atendente humano", "falar com pessoa", "falar com atendente", "pessoa real",
-        "ninguém responde", "não retornaram", "cancelamento",
-        "reembolso", "refund", "devolução", "liguei várias vezes",
-    ]
-    if any(t in text_lower for t in HUMAN_TRIGGERS):
-        return {"intent": "human", "service": None, "outcome": "escalar_humano", "messages": messages}
+    if _contains_any(text_lower, _EXPLICIT_HANDOFF_TRIGGERS):
+        return {
+            "intent": "explicit_handoff",
+            "service": None,
+            "outcome": "escalar_humano",
+            "messages": messages,
+            "handoff_mode": "hard_transfer",
+            "handoff_reason": "explicit_handoff",
+            "handoff_already_notified": False,
+        }
+
+    if _contains_any(text_lower, _SENSITIVE_COMPLAINT_TRIGGERS):
+        return {
+            "intent": "sensitive_complaint",
+            "service": None,
+            "outcome": "escalar_humano",
+            "messages": messages,
+            "handoff_mode": "hard_transfer",
+            "handoff_reason": "sensitive_complaint",
+            "handoff_already_notified": False,
+        }
 
     # Saudações e mensagens curtas sem serviço → onboarding (não escalar humano)
     GREETING_WORDS = [
@@ -565,8 +760,16 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         "e aí", "eai", "e ai", "tudo bem", "tudo bom", "como vai",
         "alguém", "alguem", "tem alguém", "quero informação", "quero informacao",
     ]
-    if any(g in text_lower for g in GREETING_WORDS) and len(text_lower.split()) <= 8:
-        return {"intent": "onboarding", "service": None, "outcome": "onboarding", "messages": messages}
+    if _contains_any(text_lower, GREETING_WORDS) and len(text_lower.split()) <= 8:
+        return {
+            "intent": "onboarding",
+            "service": None,
+            "outcome": "onboarding",
+            "messages": messages,
+            "handoff_mode": "none",
+            "handoff_reason": None,
+            "handoff_already_notified": False,
+        }
 
     # Scoring por keywords
     SCORE_MAP: dict[tuple[str, int], str] = {
@@ -634,7 +837,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
     scores: dict[str, int] = {}
     for (keyword, weight), svc in SCORE_MAP.items():
-        if keyword in text_lower:
+        if _fold_text(keyword) in text_lower:
             scores[svc] = scores.get(svc, 0) + weight
 
     intent = max(scores, key=lambda k: scores[k]) if scores else None
@@ -646,14 +849,16 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     try:
         prompt = (
             f"Classifique a mensagem do cliente entre: "
-            f"instalacao, consultoria, manutencao, pmoc, projeto-central, higienizacao, human\n"
+            f"instalacao, consultoria, manutencao, pmoc, projeto-central, higienizacao, unknown, explicit_handoff, sensitive_complaint\n"
             f"'instalacao' = instalar aparelho novo\n"
             f"'manutencao' = consertar/reparar aparelho existente\n"
             f"'pmoc' = plano preventivo obrigatório/laudo técnico\n"
             f"'consultoria' = dúvida técnica, assessoria, qual equipamento escolher, projeto de obra\n"
             f"'projeto-central' = sistema central, multisplit, vários ambientes, carga térmica\n"
             f"'higienizacao' = limpeza, higienização, cheiro, ácaros\n"
-            f"'human' = pede atendente, reclamação, cancelamento ou completamente fora dos serviços\n"
+            f"'explicit_handoff' = cliente pede claramente humano/atendente/pessoa real\n"
+            f"'sensitive_complaint' = cancelamento, reembolso, ameaça pública/legal ou reclamação forte de falta de retorno\n"
+            f"'unknown' = mensagem vaga, gíria, áudio ruim, fora de domínio ou intenção incerta. Nunca use handoff para dúvida incerta.\n"
             f"Mensagem: \"{user_text}\"\n"
             f"Responda apenas o nome da categoria, sem explicação."
         )
@@ -661,7 +866,11 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         intent_llm = resp.strip().lower().replace(" ", "-")
         if intent_llm == "hygienizacao":
             intent_llm = "higienizacao"
-        VALID = {"instalacao", "consultoria", "manutencao", "pmoc", "projeto-central", "higienizacao", "human"}
+        if intent_llm in ("human", "handoff"):
+            intent_llm = "explicit_handoff"
+        if intent_llm in ("duvida", "dúvida", "fora-de-dominio", "fora-do-dominio"):
+            intent_llm = "unknown"
+        VALID = _SERVICE_INTENTS | {"unknown", "explicit_handoff", "sensitive_complaint"}
         if intent_llm in VALID:
             if not scores:
                 # Sem keyword match — confia no LLM
@@ -673,15 +882,46 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"LLM classify falhou, mantendo keyword: {e}")
 
-    # Se intent ainda None (sem keywords e LLM falhou) → escala humano
+    # Se intent ainda None (sem keywords e LLM falhou) → recuperação conversacional, não handoff.
     if intent is None:
-        return {"intent": "human", "service": None, "outcome": "duvida", "messages": messages}
+        intent = _fallback_service_for_high_value(text_lower) or "unknown"
 
     intent = _normalize_service(intent)
-    service = None if intent == "human" else intent
-    outcome = _OUTCOME_MAP.get(intent, "duvida") if intent != "human" else "escalar_humano"
+    if intent in ("explicit_handoff", "sensitive_complaint"):
+        return {
+            "intent": intent,
+            "service": None,
+            "outcome": "escalar_humano",
+            "messages": messages,
+            "handoff_mode": "hard_transfer",
+            "handoff_reason": intent,
+            "handoff_already_notified": False,
+        }
 
-    return {"intent": intent, "service": service, "outcome": outcome, "messages": messages}
+    service = intent if intent in _SERVICE_INTENTS else None
+    outcome = _OUTCOME_MAP.get(intent, "duvida")
+    handoff_mode = "none"
+    handoff_reason = None
+
+    high_value_reason = _detect_high_value_reason(text_lower, intent)
+    if high_value_reason:
+        handoff_mode = "soft_alert"
+        handoff_reason = high_value_reason
+    elif _contains_any(text_lower, _LIGHT_COMPLAINT_TRIGGERS):
+        handoff_mode = "soft_alert"
+        handoff_reason = "light_complaint"
+        if intent == "unknown":
+            outcome = "duvida"
+
+    return {
+        "intent": intent,
+        "service": service,
+        "outcome": outcome,
+        "messages": messages,
+        "handoff_mode": handoff_mode,
+        "handoff_reason": handoff_reason,
+        "handoff_already_notified": False,
+    }
 
 
 async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
@@ -726,13 +966,32 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     service = _normalize_service(state.get("service"))
     intent = _normalize_service(state.get("intent"))
     outcome = state.get("outcome", "duvida")
-    customer_data = state.get("customer_data", {})
+    handoff_mode = state.get("handoff_mode", "none")
+    handoff_reason = state.get("handoff_reason")
 
     if not messages:
         return {"messages": messages}
 
     last_message = messages[-1]
     user_text = _message_text(last_message)
+
+    if handoff_reason == "light_complaint":
+        ai_message = AIMessage(content=_light_complaint_response(user_text))
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service,
+            "outcome": outcome,
+        }
+
+    if intent == "unknown":
+        ai_message = AIMessage(content=_unknown_recovery_response(user_text))
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service,
+            "outcome": outcome,
+        }
 
     human_count = sum(1 for m in messages if _is_human_message(m))
     cache_key = _sales_cache_key(service, user_text)
@@ -783,6 +1042,12 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         "escalar_humano":          "Informe com empatia que um especialista da equipe (ou você mesmo em breve) vai assumir o atendimento.",
     }.get(outcome, "Avance a conversa fazendo uma pergunta técnica simples para qualificar o problema do cliente.")
 
+    if handoff_mode == "soft_alert":
+        outcome_cta = (
+            "Caso de alto valor ou risco comercial: responda normalmente, sem dizer que vai passar para humano. "
+            "Peça dados de qualificação como cidade/bairro, quantidade de aparelhos, tipo de estabelecimento e urgência."
+        )
+
     # ── Monta multi-turn com histórico de conversa ────────────────────────────
     # system + histórico alternado (user/assistant) + última mensagem com contexto RAG
     llm_messages: list[ChatMessage] = [
@@ -805,6 +1070,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"==========================================================\n\n"
         f"Objetivo do Atendimento: Resolver a dúvida e avançar na qualificação do lead.\n"
         f"Serviço identificado: {service or 'não classificado'}\n"
+        f"Modo de handoff: {handoff_mode}; motivo: {handoff_reason or 'nenhum'}.\n"
         f"Meta para esta mensagem específica: {outcome_cta}\n\n"
         f"MENSAGEM ATUAL DO CLIENTE:\n"
         f"\"{user_text}\"\n\n"
@@ -812,7 +1078,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"1. Responda de forma profissional e direta, em no máximo 4 frases.\n"
         f"2. ATENÇÃO MÁXIMA: Se o cliente perguntar preço/prazo/detalhe que NÃO está explícito no bloco de contexto acima, VOCÊ NÃO PODE INVENTAR. Responda elegantemente que precisa calcular ou avaliar os detalhes.\n"
         f"3. Faça no máximo UMA pergunta ao final para avançar a conversa.\n"
-        f"4. Não repita informações ou perguntas que já constam no histórico da conversa."
+        f"4. Não repita informações ou perguntas que já constam no histórico da conversa.\n"
+        f"5. Não ofereça handoff humano, especialista ou atendimento manual quando o modo de handoff for 'none' ou 'soft_alert'."
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
@@ -960,17 +1227,32 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
 
 
 async def route_human(state: dict[str, Any]) -> dict[str, Any]:
-    """Escalada para humano — skipa RAG e responde com mensagem de passagem."""
+    """Hard handoff: responde uma vez e evita loop de passagem humana."""
     messages = state.get("messages", [])
-    handoff = AIMessage(
-        content=(
-            "Entendido! Vou te passar pra um dos nossos especialistas agora. "
-            "Aguarda um instante que alguém entra em contato contigo em breve. 🙂"
-        )
-    )
+    customer_data = state.get("customer_data", {})
+    phone = customer_data.get("phone", "")
+    reason = state.get("handoff_reason") or state.get("intent") or "explicit_handoff"
+    already_notified = False
+
+    if phone:
+        key = _handoff_state_key(phone)
+        try:
+            existing = await redis_get(key)
+            already_notified = bool(existing)
+            if not already_notified:
+                value = json.dumps({"reason": reason}, ensure_ascii=False)
+                await redis_set(key, value, ex=_HANDOFF_STATE_TTL)
+        except Exception as e:
+            logger.warning("Redis handoff_state falhou para %s: %s", phone, e)
+
+    content = _handoff_followup_response(reason) if already_notified else _handoff_initial_response(reason)
+    handoff = AIMessage(content=content)
     return {
         "messages": messages + [handoff],
         "is_human": True,
+        "handoff_mode": "hard_transfer",
+        "handoff_reason": reason,
+        "handoff_already_notified": already_notified,
     }
 
 
