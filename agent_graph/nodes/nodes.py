@@ -204,29 +204,61 @@ async def _call_groq(messages: list[dict[str, Any]], max_retries: int = 2, model
 
 
 async def _call_local_qwen(messages: list[dict[str, str]], max_retries: int = 1) -> str:
-    """Fallback local OpenAI-compatible via llama.cpp/Qwen2.5-VL."""
-    base_url = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8010/v1").rstrip("/")
+    """Fallback local OpenAI-compatible via llama.cpp/Qwen2.5-VL no PC1 via SSH."""
+    base_url = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8011/v1").rstrip("/")
     model = os.getenv("LOCAL_QWEN_MODEL", "qwen2.5-vl-7b-instruct")
+    ssh_host = os.getenv("SSH_HOST_PC1", "will-zappro@192.168.15.83")
+
+    remote_code = r"""
+import json
+import sys
+import requests
+
+data = json.load(sys.stdin)
+base_url = data.pop("_base_url").rstrip("/")
+timeout = float(data.pop("_timeout"))
+try:
+    response = requests.post(f"{base_url}/chat/completions", json=data, timeout=timeout)
+    response.raise_for_status()
+except requests.HTTPError as exc:
+    print(f"Qwen request failed: {exc}; body={response.text[:500]}", file=sys.stderr)
+    sys.exit(1)
+except Exception as exc:
+    print(f"Qwen request failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+print(response.text)
+"""
 
     last_error: Exception | None = None
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "max_tokens": 300,
-                        "temperature": 0.2,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("choices"):
-                    raise RuntimeError(f"Qwen local sem choices: {data}")
-                return _strip_thinking_tags(data["choices"][0]["message"]["content"])
+            import shlex
+            import json
+            import asyncio
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": 300,
+                "temperature": 0.2,
+                "_base_url": base_url,
+                "_timeout": 45.0
+            }
+            
+            proc = await asyncio.create_subprocess_exec(
+                "/usr/bin/ssh", "-o", "StrictHostKeyChecking=no", ssh_host, f"python3 -c {shlex.quote(remote_code)}",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate(input=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            
+            if proc.returncode != 0:
+                raise RuntimeError(f"SSH failed: {stderr.decode('utf-8', errors='replace')}")
+                
+            data = json.loads(stdout.decode("utf-8"))
+            if not data.get("choices"):
+                raise RuntimeError(f"Qwen local sem choices: {data}")
+            return _strip_thinking_tags(data["choices"][0]["message"]["content"])
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
@@ -790,7 +822,9 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         MINIMAX_INTENTS = {"pmoc", "consultoria", "projeto-central"}
-        if intent not in MINIMAX_INTENTS:
+        if intent in {"onboarding", "human"}:
+            response = await _call_local_qwen(llm_messages)
+        elif intent not in MINIMAX_INTENTS:
             try:
                 response = await _call_groq(llm_messages, tools=tools_definition)
                 

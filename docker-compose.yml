@@ -21,7 +21,9 @@ services:
       dockerfile: app/Dockerfile
     ports:
       - "8000:8000"
+    user: "1000:1000"
     environment:
+      - HOME=/tmp/home
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       - REDIS_URL=redis://127.0.0.1:6379
       - QDRANT_URL=http://127.0.0.1:6333
@@ -37,6 +39,10 @@ services:
       - evolution-api
     restart: unless-stopped
     network_mode: host
+    volumes:
+      - ~/.ssh:/tmp/home/.ssh:ro
+      - ~/.cache/huggingface:/tmp/home/.cache/huggingface
+      - ~/.local/share/fastembed:/tmp/home/.local/share/fastembed
 
 volumes:
   evolution_instances:

@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# libatomic1 para Prisma CLI + gcc para fastembed native
-RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/*
+# libatomic1 para Prisma CLI + gcc para fastembed native + openssh-client para tunel PC1
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 openssh-client && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

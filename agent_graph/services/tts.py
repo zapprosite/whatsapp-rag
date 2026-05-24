@@ -46,27 +46,59 @@ class TTSService:
         return os.path.join(self._voices_path, f"{name}.wav")
 
     async def _synthesize_omnivoice(self, text: str, voice_style: str) -> bytes | None:
-        voice = self._voice_name(voice_style)
+        voice = "willrefrimix-influencer"
+        ssh_host = os.getenv("SSH_HOST_PC1", "will-zappro@192.168.15.83")
+        
+        remote_code = r"""
+import json
+import sys
+import requests
+
+data = json.load(sys.stdin)
+base_url = data.pop("_base_url").rstrip("/")
+timeout = float(data.pop("_timeout"))
+try:
+    response = requests.post(f"{base_url}/v1/audio/speech", json=data, timeout=timeout)
+    response.raise_for_status()
+except requests.HTTPError as exc:
+    detail = response.text[:500]
+    print(f"OmniVoice request failed: {exc}; body={detail}", file=sys.stderr)
+    sys.exit(1)
+except Exception as exc:
+    print(f"OmniVoice request failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+sys.stdout.buffer.write(response.content)
+"""
         try:
-            async with httpx.AsyncClient(timeout=_TTS_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._omnivoice_url}/v1/audio/speech",
-                    json={
-                        "model": "omnivoice",
-                        "input": text,
-                        "voice": voice,
-                        "language": "pt-BR",
-                        "response_format": "wav",
-                    },
-                )
-                if resp.status_code == 200 and len(resp.content) > 512:
-                    logger.info(f"OmniVoice OK: {len(resp.content)} bytes (voice={voice})")
-                    return resp.content
-                logger.warning(f"OmniVoice retornou {resp.status_code}: {resp.text[:160]}")
-        except httpx.ConnectError:
-            logger.warning(f"OmniVoice indisponível em {self._omnivoice_url} — tentando fallback")
+            import shlex
+            import json
+            import asyncio
+            payload = {
+                "model": "omnivoice",
+                "input": text,
+                "voice": voice,
+                "language": "pt-BR",
+                "response_format": "wav",
+                "_base_url": self._omnivoice_url,
+                "_timeout": _TTS_TIMEOUT
+            }
+            proc = await asyncio.create_subprocess_exec(
+                "/usr/bin/ssh", "-o", "StrictHostKeyChecking=no", ssh_host, f"python3 -c {shlex.quote(remote_code)}",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate(input=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            
+            if proc.returncode != 0:
+                logger.warning(f"OmniVoice SSH falhou: {stderr.decode('utf-8', errors='replace')}")
+                return None
+                
+            if len(stdout) > 512:
+                logger.info(f"OmniVoice SSH OK: {len(stdout)} bytes (voice={voice})")
+                return stdout
         except Exception as e:
-            logger.error(f"OmniVoice erro: {e}")
+            logger.error(f"OmniVoice erro SSH: {e}")
         return None
 
     async def _synthesize_xtts(self, text: str, voice_style: str) -> bytes | None:

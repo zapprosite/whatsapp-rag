@@ -91,34 +91,70 @@ class VisionService:
             return data["choices"][0]["message"]["content"].strip()
 
     async def _analyze_hf(self, image_b64: str, caption: str) -> str:
-        """Fallback: Qwen 2.5 VL via HF Inference API."""
-        if not self._hf_key:
-            raise RuntimeError("HF_TOKEN não configurado para fallback vision")
-
+        """Fallback: Qwen 2.5 VL via SSH no PC1."""
+        ssh_host = os.getenv("SSH_HOST_PC1", "will-zappro@192.168.15.83")
+        base_url = "http://127.0.0.1:8011/v1"
+        model = "qwen2.5-vl-7b-instruct"
+        
         user_text = _HVAC_VISION_PROMPT
         if caption:
             user_text += f"\nLegenda do usuário: {caption}"
+            
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+                ]
+            }
+        ]
 
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                f"https://api-inference.huggingface.co/models/{_HF_QWEN_MODEL}",
-                headers={
-                    "Authorization": f"Bearer {self._hf_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "inputs": {
-                        "image": image_b64,
-                        "text": user_text,
-                    },
-                    "parameters": {"max_new_tokens": 300},
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list) and data:
-                return data[0].get("generated_text", "").strip()
-            return str(data)
+        remote_code = r"""
+import json
+import sys
+import requests
+
+data = json.load(sys.stdin)
+base_url = data.pop("_base_url").rstrip("/")
+timeout = float(data.pop("_timeout"))
+try:
+    response = requests.post(f"{base_url}/chat/completions", json=data, timeout=timeout)
+    response.raise_for_status()
+except requests.HTTPError as exc:
+    print(f"Vision request failed: {exc}; body={response.text[:500]}", file=sys.stderr)
+    sys.exit(1)
+except Exception as exc:
+    print(f"Vision request failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+print(response.text)
+"""
+        import shlex
+        import json
+        import asyncio
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": 300,
+            "_base_url": base_url,
+            "_timeout": 45.0
+        }
+        
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/ssh", "-o", "StrictHostKeyChecking=no", ssh_host, f"python3 -c {shlex.quote(remote_code)}",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate(input=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        
+        if proc.returncode != 0:
+            raise RuntimeError(f"Vision SSH failed: {stderr.decode('utf-8', errors='replace')}")
+            
+        data = json.loads(stdout.decode("utf-8"))
+        if not data.get("choices"):
+            raise RuntimeError(f"Vision local sem choices: {data}")
+        return data["choices"][0]["message"]["content"].strip()
 
     async def analyze_image(
         self,
