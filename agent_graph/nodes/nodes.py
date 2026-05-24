@@ -738,13 +738,13 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
 
     # CTA por outcome — guia o Will a conduzir o lead pro próximo passo certo
     outcome_cta = {
-        "onboarding":              "Primeira mensagem. Cumprimente, se apresente como Will da Refrimix e pergunte o que precisam. Máximo 2 linhas.",
-        "analise_tecnica":         "Finalize sugerindo agendar visita técnica gratuita e pedindo o endereço.",
-        "higienizacao_preventiva": "Finalize propondo agendar a higienização e perguntando quantos aparelhos são.",
-        "reuniao_projeto":         "Finalize propondo marcar uma reunião técnica sem compromisso.",
-        "duvida":                  "Responda a dúvida e pergunte se pode ajudar com mais alguma coisa.",
-        "escalar_humano":          "Informe que um especialista vai entrar em contato em breve.",
-    }.get(outcome, "Avance a conversa com uma pergunta que qualifique o lead.")
+        "onboarding":              "OBRIGATÓRIO: Diga 'Olá! Aqui é o Will da Refrimix.' e pergunte como você pode ajudar o cliente hoje. Mantenha em 1 ou 2 linhas no máximo.",
+        "analise_tecnica":         "Finalize sugerindo agendar uma visita técnica gratuita e pedindo o endereço do cliente.",
+        "higienizacao_preventiva": "Finalize propondo agendar a higienização e perguntando a quantidade e marca dos aparelhos.",
+        "reuniao_projeto":         "Finalize propondo marcar uma reunião técnica (online ou presencial) sem compromisso.",
+        "duvida":                  "Responda a dúvida tecnicamente, mas de forma simples, e pergunte se precisa de mais alguma ajuda.",
+        "escalar_humano":          "Informe com empatia que um especialista da equipe (ou você mesmo em breve) vai assumir o atendimento.",
+    }.get(outcome, "Avance a conversa fazendo uma pergunta técnica simples para qualificar o problema do cliente.")
 
     # ── Monta multi-turn com histórico de conversa ────────────────────────────
     # system + histórico alternado (user/assistant) + última mensagem com contexto RAG
