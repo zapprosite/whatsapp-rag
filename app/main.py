@@ -75,18 +75,23 @@ async def receive_webhook(request: Request) -> JSONResponse:
         # Tipos não suportados — ignora silenciosamente
         return JSONResponse({"status": "ok", "skipped": f"unsupported type: {message_type}"})
 
-    # ── Extrai URL de mídia (áudio/imagem) ────────────────────────────────────
+    # ── Extrai URL de mídia e Base64 (áudio/imagem) ───────────────────────────
     media_url = ""
+    media_base64 = data_block.get("base64", "")
     if message_type == "audioMessage":
         media_url = (
             msg_block.get("audioMessage", {}).get("url", "")
             or data_block.get("mediaUrl", "")
         )
+        if not media_base64:
+            media_base64 = msg_block.get("audioMessage", {}).get("base64", "")
     elif message_type == "imageMessage":
         media_url = (
             msg_block.get("imageMessage", {}).get("url", "")
             or data_block.get("mediaUrl", "")
         )
+        if not media_base64:
+            media_base64 = msg_block.get("imageMessage", {}).get("base64", "")
 
     # ── Extrai texto (caption para imagens, texto para conversas) ─────────────
     message = (
@@ -139,7 +144,9 @@ async def receive_webhook(request: Request) -> JSONResponse:
         "message": message,
         "instance": instance_name,
         "message_type": message_type,
+        "msg_id": msg_id,
         "media_url": media_url,
+        "media_base64": media_base64,
     }))
     logger.info(f"Enfileirado [{message_type}] de {phone}: {message[:60]}")
 

@@ -87,14 +87,11 @@ async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "d
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{api_url}/message/sendMedia/{instance_name}",
+                f"{api_url}/message/sendWhatsAppAudio/{instance_name}",
                 headers={"apikey": api_key, "Content-Type": "application/json"},
                 json={
                     "number": phone,
-                    "mediatype": "audio",
-                    "media": audio_b64,
-                    "mimetype": "audio/wav",
-                    "fileName": "resposta.wav",
+                    "audio": audio_b64
                 },
             )
             if resp.status_code in (200, 201):
@@ -185,7 +182,9 @@ async def worker_loop() -> None:
             message_text = data.get("message", "")
             instance = data.get("instance", "default")
             message_type = data.get("message_type", "conversation")
+            msg_id = data.get("msg_id", "")
             media_url = data.get("media_url", "")
+            media_base64 = data.get("media_base64", "")
 
             logger.info(f"Processando [{message_type}] de {phone}: {message_text[:60]}")
 
@@ -216,7 +215,9 @@ async def worker_loop() -> None:
                 "is_human": False,
                 "confidence": 1.0,
                 "message_type": message_type,
+                "msg_id": msg_id,
                 "media_url": media_url,
+                "media_base64": media_base64,
                 "instance": instance,
                 "response_modality": None,
                 "audio_bytes": None,

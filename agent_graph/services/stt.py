@@ -21,38 +21,54 @@ class STTService:
         self._evo_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
         self._evo_instance = os.getenv("EVOLUTION_INSTANCE", "RefrimixLead")
 
-    async def _fetch_audio_bytes(self, media_url: str, instance: str | None) -> bytes:
-        """
-        Tenta baixar o áudio diretamente pela URL.
-        Se falhar (URL privada), usa Evolution API getBase64FromMediaMessage.
-        """
-        try:
-            async with httpx.AsyncClient(timeout=_EVO_TIMEOUT) as client:
-                resp = await client.get(media_url)
-                if resp.status_code == 200 and len(resp.content) > 1024:
-                    return resp.content
-        except Exception:
-            pass
+    async def _fetch_audio_bytes(
+        self,
+        media_url: str,
+        instance: str | None,
+        msg_id: str | None = None,
+        media_base64: str | None = None,
+    ) -> bytes:
+        import base64
+        
+        if media_base64:
+            return base64.b64decode(media_base64)
 
-        # Fallback: Evolution API converte URL de mídia para base64
+        if media_url:
+            try:
+                async with httpx.AsyncClient(timeout=_EVO_TIMEOUT) as client:
+                    resp = await client.get(media_url)
+                    if resp.status_code == 200 and len(resp.content) > 1024:
+                        return resp.content
+            except Exception:
+                pass
+
+        if not msg_id:
+            raise RuntimeError("Sem media_base64, URL acessível ou msg_id para baixar o áudio")
+
+        # Fallback: Evolution API converte mensagem para base64 via msg_id
         inst = instance or self._evo_instance
         async with httpx.AsyncClient(timeout=_EVO_TIMEOUT) as client:
             resp = await client.post(
                 f"{self._evo_url}/chat/getBase64FromMediaMessage/{inst}",
                 headers={"apikey": self._evo_key, "Content-Type": "application/json"},
-                json={"message": {"audioMessage": {"url": media_url}}},
+                json={"message": {"key": {"id": msg_id}}, "convertToMp4": False},
             )
             resp.raise_for_status()
             data = resp.json()
-            import base64
             b64 = data.get("base64") or data.get("data", {}).get("base64", "")
             if not b64:
                 raise RuntimeError(f"Evolution API não retornou base64: {data}")
             return base64.b64decode(b64)
 
-    async def transcribe_url(self, media_url: str, instance: str | None = None) -> str:
-        """Baixa áudio pela URL e transcreve via Groq Whisper."""
-        audio_bytes = await self._fetch_audio_bytes(media_url, instance)
+    async def transcribe_audio(
+        self,
+        media_url: str,
+        instance: str | None = None,
+        msg_id: str | None = None,
+        media_base64: str | None = None,
+    ) -> str:
+        """Baixa áudio e transcreve via Groq Whisper."""
+        audio_bytes = await self._fetch_audio_bytes(media_url, instance, msg_id, media_base64)
         return await self.transcribe_bytes(audio_bytes, filename="audio.ogg")
 
     async def transcribe_bytes(self, audio_bytes: bytes, filename: str = "audio.ogg") -> str:
@@ -79,8 +95,13 @@ class STTService:
 _stt = STTService()
 
 
-async def transcribe_audio(media_url: str, instance: str | None = None) -> str:
-    return await _stt.transcribe_url(media_url, instance)
+async def transcribe_audio(
+    media_url: str,
+    instance: str | None = None,
+    msg_id: str | None = None,
+    media_base64: str | None = None,
+) -> str:
+    return await _stt.transcribe_audio(media_url, instance, msg_id, media_base64)
 
 
 async def transcribe_bytes(audio_bytes: bytes, filename: str = "audio.ogg") -> str:

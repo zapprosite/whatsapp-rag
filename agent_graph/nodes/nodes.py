@@ -1038,13 +1038,15 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
     """
     message_type = state.get("message_type", "conversation")
     media_url = state.get("media_url", "")
+    media_base64 = state.get("media_base64", "")
+    msg_id = state.get("msg_id", "")
     instance = state.get("instance", "")
     messages = state.get("messages", [])
 
-    if message_type == "audioMessage" and media_url:
+    if message_type == "audioMessage" and (media_url or media_base64 or msg_id):
         try:
             from agent_graph.services.stt import transcribe_audio
-            transcript = await transcribe_audio(media_url, instance or None)
+            transcript = await transcribe_audio(media_url, instance or None, msg_id, media_base64)
             logger.info(f"STT transcript: {transcript[:80]!r}")
             # Substitui última HumanMessage pelo texto transcrito
             new_messages = list(messages)
@@ -1057,14 +1059,14 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
             logger.error(f"STT falhou: {e}")
             # Mantém o estado sem alterar mensagens
 
-    elif message_type == "imageMessage" and media_url:
+    elif message_type == "imageMessage" and (media_url or media_base64 or msg_id):
         try:
             from agent_graph.services.vision import analyze_image
             # Caption já pode estar como última HumanMessage
             caption = ""
             if messages and isinstance(messages[-1], HumanMessage):
                 caption = messages[-1].content or ""
-            description = await analyze_image(media_url, caption, instance or None)
+            description = await analyze_image(media_url, caption, instance or None, msg_id, media_base64)
             logger.info(f"Vision description: {description[:80]!r}")
             # Prepend descrição ao texto do usuário
             combined = f"[Imagem: {description}]"

@@ -30,7 +30,9 @@ class AgentState(TypedDict):
     confidence: float
     # Multimodal
     message_type: str | None       # "conversation" | "audioMessage" | "imageMessage"
+    msg_id: str | None             # ID da mensagem para recuperar base64
     media_url: str | None          # URL da mídia inbound (áudio ou imagem)
+    media_base64: str | None       # Base64 cacheado via webhook
     instance: str | None           # instância Evolution API
     # Resposta
     response_modality: str | None  # "text" | "audio"

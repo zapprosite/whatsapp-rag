@@ -32,23 +32,36 @@ class VisionService:
         self._evo_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
         self._evo_instance = os.getenv("EVOLUTION_INSTANCE", "RefrimixLead")
 
-    async def _fetch_image_b64(self, image_url: str, instance: str | None) -> str:
+    async def _fetch_image_b64(
+        self,
+        image_url: str,
+        instance: str | None,
+        msg_id: str | None = None,
+        media_base64: str | None = None,
+    ) -> str:
         """Baixa imagem e retorna como base64. Usa Evolution API se URL privada."""
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.get(image_url)
-                if resp.status_code == 200 and len(resp.content) > 512:
-                    return base64.b64encode(resp.content).decode()
-        except Exception:
-            pass
+        if media_base64:
+            return media_base64
 
-        # Fallback: Evolution API
+        if image_url:
+            try:
+                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                    resp = await client.get(image_url)
+                    if resp.status_code == 200 and len(resp.content) > 512:
+                        return base64.b64encode(resp.content).decode()
+            except Exception:
+                pass
+
+        if not msg_id:
+            raise RuntimeError("Sem media_base64, URL acessível ou msg_id para baixar a imagem")
+
+        # Fallback: Evolution API via msg_id
         inst = instance or self._evo_instance
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
                 f"{self._evo_url}/chat/getBase64FromMediaMessage/{inst}",
                 headers={"apikey": self._evo_key, "Content-Type": "application/json"},
-                json={"message": {"imageMessage": {"url": image_url}}},
+                json={"message": {"key": {"id": msg_id}}, "convertToMp4": False},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -161,10 +174,12 @@ print(response.text)
         image_url: str,
         caption: str = "",
         instance: str | None = None,
+        msg_id: str | None = None,
+        media_base64: str | None = None,
     ) -> str:
         """Analisa imagem HVAC e retorna descrição técnica em pt-BR."""
         try:
-            image_b64 = await self._fetch_image_b64(image_url, instance)
+            image_b64 = await self._fetch_image_b64(image_url, instance, msg_id, media_base64)
         except Exception as e:
             logger.warning(f"Vision: falhou ao buscar imagem {image_url!r}: {e}")
             return caption or "Imagem não processada."
@@ -193,5 +208,7 @@ async def analyze_image(
     image_url: str,
     caption: str = "",
     instance: str | None = None,
+    msg_id: str | None = None,
+    media_base64: str | None = None,
 ) -> str:
-    return await _vision.analyze_image(image_url, caption, instance)
+    return await _vision.analyze_image(image_url, caption, instance, msg_id, media_base64)
