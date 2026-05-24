@@ -149,6 +149,18 @@ async def save_history(phone: str, messages: list) -> None:
     await r.set(f"conv_history:{phone}", json.dumps(turns), ex=_CONV_TTL)
 
 
+_BOT_KEY     = "whatsapp_rag:bot_enabled"   # "1" = ativo, "0" = pausado
+_BOT_OFF_MSG = os.getenv(
+    "BOT_OFF_MESSAGE",
+    "Oi! No momento estou atendendo pessoalmente. Te respondo em breve 🙂",
+)
+
+
+async def is_bot_enabled(r: redis.Redis) -> bool:
+    val = await r.get(_BOT_KEY)
+    return val != "0"   # ausente ou "1" → ativo
+
+
 async def worker_loop() -> None:
     """Poll Redis queue and process messages through LangGraph."""
     logger.info("Worker loop started")
@@ -171,6 +183,13 @@ async def worker_loop() -> None:
             logger.info(f"Processando [{message_type}] de {phone}: {message_text[:60]}")
 
             if not message_text:
+                continue
+
+            # ── Verifica se bot está ativo ────────────────────────────────
+            if not await is_bot_enabled(r):
+                logger.info(f"Bot PAUSADO — mensagem de {phone} ignorada pela IA")
+                if _BOT_OFF_MSG:
+                    await send_whatsapp_message(phone, _BOT_OFF_MSG, instance)
                 continue
 
             # Carrega histórico da conversa deste lead
