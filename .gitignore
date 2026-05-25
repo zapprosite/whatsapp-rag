@@ -40,6 +40,9 @@ logs/
 
 # QR codes e imagens temporárias
 qrcode_*.png
+image.png
+tts_travalinguAs_v2.ogg
+tts_travalinguAs_v2.wav
 
 # Testes gerados
 .pytest_cache/
