@@ -262,48 +262,62 @@ async def send_whatsapp_message(phone: str, text: str, instance: str = "default"
         return False
 
 
-def _resample_wav_16k(wav_bytes: bytes) -> bytes:
-    """Resamplea WAV de qualquer taxa (Chatterbox=24kHz) para 16kHz mono.
-    Evolution API converte WAV→OGG/OPUS para WhatsApp; 24kHz→OGG sem resample
-    correto causa eco e distorção. 16kHz é o target nativo do codec OPUS/WhatsApp.
+def _wav_to_ogg_opus(wav_bytes: bytes) -> bytes:
+    """Converte WAV (qualquer taxa/canais) para OGG OPUS 16kHz mono via ffmpeg.
+    Fazemos a conversão localmente para não depender dos parâmetros internos da
+    Evolution API, que produz eco/distorção ao receber WAV 24kHz do Chatterbox.
+    Parâmetros: 64kbps, application=voip — otimizado para voz no WhatsApp.
+    Fallback: retorna o WAV original se ffmpeg falhar.
     """
-    import audioop
-    import io
-    import wave
+    import shutil
+    import subprocess
+    import tempfile
 
-    buf = io.BytesIO(wav_bytes)
-    with wave.open(buf, "rb") as wf:
-        n_ch = wf.getnchannels()
-        sw = wf.getsampwidth()
-        rate = wf.getframerate()
-        frames = wf.readframes(wf.getnframes())
+    ffmpeg = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_in:
+            tmp_in.write(wav_bytes)
+            tmp_in_path = tmp_in.name
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp_out:
+            tmp_out_path = tmp_out.name
 
-    if rate == 16000 and n_ch == 1:
-        return wav_bytes
-
-    # Stereo → mono se necessário
-    if n_ch == 2:
-        frames = audioop.tomono(frames, sw, 0.5, 0.5)
-        n_ch = 1
-
-    # Resample para 16kHz
-    if rate != 16000:
-        frames, _ = audioop.ratecv(frames, sw, n_ch, rate, 16000, None)
-
-    out = io.BytesIO()
-    with wave.open(out, "wb") as wf:
-        wf.setnchannels(n_ch)
-        wf.setsampwidth(sw)
-        wf.setframerate(16000)
-        wf.writeframes(frames)
-    return out.getvalue()
+        result = subprocess.run(
+            [
+                ffmpeg, "-y", "-i", tmp_in_path,
+                "-c:a", "libopus",
+                "-b:a", "64k",
+                "-ar", "16000",
+                "-ac", "1",
+                "-application", "voip",
+                tmp_out_path,
+            ],
+            capture_output=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            ogg_bytes = open(tmp_out_path, "rb").read()
+            logger.info("WAV→OGG OPUS: %d → %d bytes", len(wav_bytes), len(ogg_bytes))
+            return ogg_bytes
+        logger.warning("ffmpeg WAV→OGG falhou: %s", result.stderr[-300:].decode("utf-8", errors="replace"))
+    except Exception as exc:
+        logger.warning("_wav_to_ogg_opus erro: %s", exc)
+    finally:
+        for p in (tmp_in_path, tmp_out_path):
+            try:
+                import os as _os; _os.unlink(p)
+            except Exception:
+                pass
+    return wav_bytes
 
 
 async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "default") -> bool:
-    """Envia áudio WAV via Evolution API sendWhatsAppAudio."""
+    """Envia áudio OGG OPUS via Evolution API sendWhatsAppAudio.
+    Converte WAV→OGG localmente com ffmpeg para garantir qualidade (evita eco
+    causado pela conversão interna da Evolution API com WAV 24kHz do Chatterbox).
+    """
     import base64
 
-    audio_bytes = _resample_wav_16k(audio_bytes)
+    audio_bytes = _wav_to_ogg_opus(audio_bytes)
     api_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
     api_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
     instance_name = os.getenv("EVOLUTION_INSTANCE", instance)
