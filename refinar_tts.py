@@ -69,10 +69,11 @@ def _ei(name: str, default: int) -> int:
         return default
 
 DEFAULT_PARAMS: dict[str, float | int] = {
-    "exaggeration": _ef("TTS_CHATTERBOX_EXAGGERATION", 1.0),
-    "cfg_weight":   _ef("TTS_CHATTERBOX_CFG_WEIGHT",   0.55),
-    "temperature":  _ef("TTS_CHATTERBOX_TEMPERATURE",  0.80),
+    "exaggeration": _ef("TTS_CHATTERBOX_EXAGGERATION", 0.42),
+    "cfg_weight":   _ef("TTS_CHATTERBOX_CFG_WEIGHT",   0.50),
+    "temperature":  _ef("TTS_CHATTERBOX_TEMPERATURE",  0.55),
     "speed_factor": _ef("TTS_CHATTERBOX_SPEED_FACTOR", 1.0),
+    "seed":         _ei("TTS_CHATTERBOX_SEED",         777),
     "chunk_size":   _ei("TTS_CHATTERBOX_CHUNK_SIZE",   400),
 }
 
@@ -213,6 +214,7 @@ async def synthesize(text: str, params: dict | None = None) -> bytes | None:
         "exaggeration":        float(p["exaggeration"]),
         "cfg_weight":          float(p["cfg_weight"]),
         "speed_factor":        float(p["speed_factor"]),
+        "seed":                int(p["seed"]),
     }
     try:
         proc = await asyncio.create_subprocess_exec(
