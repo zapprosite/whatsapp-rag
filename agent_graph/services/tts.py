@@ -31,18 +31,18 @@ _AUDIO_INTENT_KEYWORDS = frozenset([
 ])
 
 _ACRONYM_REPLACEMENTS = {
-    # Letras pronunciadas em pt-BR (nomes das letras, não fonética inglesa)
-    "BTU":  "bê-tê-u",
-    "BTUS": "bê-tê-us",
-    "VRF":  "vê-erre-éfe",
-    "VRV":  "vê-erre-vê",
-    "PMOC": "pê-ême-ô-cê",
-    "ART":  "a-erre-tê",
+    # Nomes das letras em pt-BR — sem hífen para evitar r de ligação do modelo
+    "BTU":  "bê tê u",
+    "BTUS": "bê tê us",
+    "VRF":  "vê erre éfe",
+    "VRV":  "vê erre vê",
+    "PMOC": "pê ême ô cê",
+    "ART":  "a erre tê",
     "CREA": "CREA",       # lido como palavra em pt-BR: "créa"
-    "HP":   "agá-pê",
-    "HVAC": "agá-vê-a-cê",
-    "API":  "a-pê-í",
-    "IA":   "i-á",
+    "HP":   "agá pê",
+    "HVAC": "agá vê a cê",
+    "API":  "a pê í",
+    "IA":   "i á",
     "PIX":  "Pix",
 }
 
@@ -152,6 +152,14 @@ def _normalize_tts_text_ptbr(text: str) -> str:
     normalized = re.sub(r"https?://\S+|www\.\S+", "link", text.strip(), flags=re.IGNORECASE)
     normalized = re.sub(r"[*_`#>]+", " ", normalized)
     normalized = re.sub(r"\b(equipo|equipos)\b", "equipamento", normalized, flags=re.IGNORECASE)
+
+    # Empréstimos HVAC em inglês → fonética pt-BR usada por técnicos de São Paulo/Baixada
+    # "high-wall"/"hi-wall" → "ai uô" (gh silencioso; sem r inicial que confunde modelo)
+    normalized = re.sub(r"\b(high|hi)[\s\-]wall\b", "ai uô", normalized, flags=re.IGNORECASE)
+    # "split" → "espiliti" (epenthese brasileira: vogal inicial + final para quebrar cluster spl)
+    normalized = re.sub(r"\bsplits?\b", lambda m: "espilitis" if m.group(0).endswith("s") else "espiliti", normalized, flags=re.IGNORECASE)
+    # "inverter" → "invérter" (acento força sílaba tônica correta em pt-BR)
+    normalized = re.sub(r"\binverters?\b", "invérter", normalized, flags=re.IGNORECASE)
     normalized = re.sub(
         r"R\$\s*(?P<reais>\d{1,3}(?:\.\d{3})*|\d+)(?:,(?P<centavos>\d{2}))?",
         _money_to_words,
