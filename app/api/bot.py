@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 try:
@@ -331,3 +331,81 @@ async def bot_takeover_status(phone: str) -> dict[str, Any]:
         "manual_takeover": active,
         "redis_key": manual_takeover_key(normalized),
     }
+
+
+@router.get("/groups")
+async def bot_groups() -> dict[str, Any]:
+    if os.getenv("ENVIRONMENT", "local") not in {"local", "dev", "development", "test"}:
+        return {"groups": [], "error": "rota disponível apenas em ambiente local/dev"}
+    from agent_graph.services.whatsapp import list_whatsapp_groups
+
+    groups = await list_whatsapp_groups(os.getenv("EVOLUTION_INSTANCE", "default"))
+    return {"groups": groups, "count": len(groups)}
+
+
+async def _agenda_payload(target_date: date, kind: str, *, send: bool, target: str) -> dict[str, Any]:
+    from agent_graph.services.agenda_digest import send_agenda_digest
+
+    r = await get_redis()
+    actual_target = target if send else "preview"
+    result = await send_agenda_digest(
+        target_date,
+        kind,
+        force=not send,
+        redis_client=r if send else None,
+        target=actual_target,
+    )
+    if not send:
+        result["sent"] = False
+    return result
+
+
+@router.get("/agenda/today")
+async def agenda_today() -> dict[str, Any]:
+    today = datetime.now().date()
+    return await _agenda_payload(today, "morning_today", send=False, target="preview")
+
+
+@router.get("/agenda/tomorrow")
+async def agenda_tomorrow() -> dict[str, Any]:
+    tomorrow = datetime.now().date() + timedelta(days=1)
+    return await _agenda_payload(tomorrow, "night_tomorrow", send=False, target="preview")
+
+
+@router.post("/agenda/digest/today")
+@router.post("/agenda/send/today")
+async def agenda_send_today(
+    send: bool = Query(False),
+    target: str = Query("group", pattern="^(group|owner|preview)$"),
+) -> dict[str, Any]:
+    today = datetime.now().date()
+    return await _agenda_payload(today, "morning_today", send=send, target=target)
+
+
+@router.post("/agenda/digest/tomorrow")
+@router.post("/agenda/send/tomorrow")
+async def agenda_send_tomorrow(
+    send: bool = Query(False),
+    target: str = Query("group", pattern="^(group|owner|preview)$"),
+) -> dict[str, Any]:
+    tomorrow = datetime.now().date() + timedelta(days=1)
+    return await _agenda_payload(tomorrow, "night_tomorrow", send=send, target=target)
+
+
+@router.post("/agenda/digest/test")
+async def agenda_digest_test(
+    send: bool = Query(False),
+    target: str = Query("preview", pattern="^(group|owner|preview)$"),
+    date_value: date | None = Query(None, alias="date"),
+) -> dict[str, Any]:
+    target_date = date_value or datetime.now().date()
+    return await _agenda_payload(target_date, "manual", send=send, target=target)
+
+
+@router.post("/agenda/send/date/{yyyy_mm_dd}")
+async def agenda_send_date(
+    yyyy_mm_dd: date,
+    send: bool = Query(False),
+    target: str = Query("group", pattern="^(group|owner|preview)$"),
+) -> dict[str, Any]:
+    return await _agenda_payload(yyyy_mm_dd, "manual", send=send, target=target)

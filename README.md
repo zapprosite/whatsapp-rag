@@ -123,8 +123,19 @@ QDRANT_URL=http://127.0.0.1:6333
 QDRANT_COLLECTION=hermes_hvac_rag_service_staging
 DATABASE_URL=postgresql://USER:PASS@192.168.15.83:5432/whatsapp_rag
 
-# Alertas
+# Alertas humanos / gerente
 OWNER_PHONE=5513996659382
+OWNER_ALERTS_ENABLED=1
+OWNER_HIGH_VALUE_ALERTS_ENABLED=1
+OWNER_RECEIVE_AGENDA_DIGEST=0
+
+# Grupo operacional da agenda
+AGENDA_GROUP_ENABLED=1
+AGENDA_GROUP_NAME=Agenda Refrimix
+AGENDA_GROUP_JID=
+AGENDA_GROUP_DIGEST_TIMEZONE=America/Sao_Paulo
+AGENDA_GROUP_MORNING_DIGEST_HOUR=7
+AGENDA_GROUP_NIGHT_DIGEST_HOUR=20
 
 # Agenda opcional
 GOOGLE_CALENDAR_ENABLED=0
@@ -191,16 +202,63 @@ Com `appointment_score >= 5`, o estado vira `appointment_ready`, `pipeline_stage
 
 ### Alertas para OWNER_PHONE
 
-O `OWNER_PHONE` recebe alerta com telefone, motivo, última mensagem, resumo curto e próximo passo recomendado quando houver:
+O `OWNER_PHONE` é canal de decisão gerencial. Ele recebe alerta com telefone, motivo, última mensagem, resumo curto e próximo passo recomendado quando houver:
 
 - `appointment_ready`: lead pronto para confirmar agenda.
 - `no_context_needs_human_review`: segunda tentativa sem contexto suficiente.
 - `active_service_followup`: cliente com serviço ativo pedindo acompanhamento.
 - `complaint_or_risk`: reclamação forte, risco comercial ou jurídico.
 - `explicit_handoff`: cliente pediu humano/atendente.
-- `high_value_lead`: PMOC, muitos aparelhos, sistema central ou oportunidade de maior valor.
+- `high_value_*`: VRF/VRV, dutos, splitão, piso-teto, cassete, sistema central, PMOC, laudo, ART, contrato, empresa, condomínio, restaurante, clínica, galpão ou múltiplos aparelhos.
 
 Fora preço fixo de instalação simples e higienização de split, o bot não inventa valor: conduz para análise técnica de R$50 abatível se o orçamento for aprovado.
+
+### Grupo Agenda Refrimix
+
+O grupo operacional recebe apenas resumo de agenda. Ele não recebe alerta comercial de alto valor nem intervenção humana por padrão.
+
+- 07:00 `America/Sao_Paulo`: agenda de hoje.
+- 20:00 `America/Sao_Paulo`: agenda de amanhã.
+- O envio usa `AGENDA_GROUP_JID`, não o nome do grupo.
+- Se `AGENDA_GROUP_ENABLED=1` e `AGENDA_GROUP_JID` estiver vazio, o sistema registra warning e não envia.
+
+Para descobrir o JID:
+
+```bash
+python scripts/find-whatsapp-group.py --name "Agenda Refrimix"
+```
+
+Depois copie o valor exibido para o `.env`:
+
+```env
+AGENDA_GROUP_JID=120363000000000000@g.us
+```
+
+Preview e envio manual:
+
+```bash
+python scripts/send-agenda-digest.py today --preview
+python scripts/send-agenda-digest.py tomorrow --send
+curl -s http://localhost:8000/bot/agenda/today
+curl -s http://localhost:8000/bot/agenda/tomorrow
+curl -X POST "http://localhost:8000/bot/agenda/send/tomorrow?send=false"
+curl -X POST "http://localhost:8000/bot/agenda/send/tomorrow?send=true"
+```
+
+Rotas úteis:
+
+- `GET /bot/agenda/today`
+- `GET /bot/agenda/tomorrow`
+- `POST /bot/agenda/send/today?send=false`
+- `POST /bot/agenda/send/tomorrow?send=false`
+- `POST /bot/agenda/send/date/{yyyy_mm_dd}?send=false`
+- `GET /bot/groups` em ambiente local/dev para debug.
+
+Testes focados:
+
+```bash
+.venv/bin/python -m pytest tests/test_agenda_digest.py tests/test_owner_high_value_alerts.py tests/test_manual_takeover.py
+```
 
 ---
 

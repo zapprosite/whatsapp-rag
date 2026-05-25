@@ -904,17 +904,57 @@ _SCHEDULING_TERMS = (
 )
 
 _HIGH_VALUE_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("vrf", "high_value_vrf"),
+    ("vrv", "high_value_vrv"),
+    ("duto", "high_value_duto"),
+    ("dutado", "high_value_duto"),
+    ("rede de dutos", "high_value_duto"),
+    ("projeto de duto", "high_value_duto"),
+    ("splitao", "high_value_splitao"),
+    ("splitão", "high_value_splitao"),
+    ("piso teto", "high_value_piso_teto"),
+    ("piso-teto", "high_value_piso_teto"),
+    ("cassete", "high_value_cassete"),
+    ("self contained", "high_value_self"),
+    ("fancoil", "high_value_fancoil"),
+    ("fan coil", "high_value_fancoil"),
+    ("chiller", "high_value_chiller"),
+    ("sistema central", "high_value_sistema_central"),
+    ("ar central", "high_value_sistema_central"),
+    ("climatização central", "high_value_sistema_central"),
+    ("climatizacao central", "high_value_sistema_central"),
+    ("carga térmica", "high_value_carga_termica"),
+    ("carga termica", "high_value_carga_termica"),
+    ("obra grande", "high_value_obra"),
+    ("obra comercial", "high_value_obra"),
+    ("prédio", "high_value_predio"),
+    ("predio", "high_value_predio"),
+    ("condomínio", "high_value_condominio"),
+    ("condominio", "high_value_condominio"),
+    ("hotel", "high_value_hotel"),
+    ("restaurante", "high_value_restaurante"),
+    ("mercado", "high_value_mercado"),
+    ("supermercado", "high_value_supermercado"),
+    ("clínica", "high_value_clinica"),
+    ("clinica", "high_value_clinica"),
+    ("laboratório", "high_value_laboratorio"),
+    ("laboratorio", "high_value_laboratorio"),
+    ("hospital", "high_value_hospital"),
+    ("escritório", "high_value_empresa"),
+    ("escritorio", "high_value_empresa"),
+    ("empresa", "high_value_empresa"),
+    ("loja", "high_value_loja"),
+    ("galpão", "high_value_galpao"),
+    ("galpao", "high_value_galpao"),
     ("pmoc", "high_value_pmoc"),
     ("laudo", "high_value_laudo"),
     ("art", "high_value_art"),
+    ("contrato mensal", "high_value_contrato"),
+    ("contrato de manutenção", "high_value_contrato"),
+    ("contrato de manutencao", "high_value_contrato"),
     ("consultoria", "high_value_consultoria"),
     ("projeto", "high_value_projeto"),
-    ("sistema central", "high_value_projeto_central"),
     ("central de climatizacao", "high_value_projeto_central"),
-    ("empresa", "high_value_empresa"),
-    ("condominio", "high_value_condominio"),
-    ("restaurante", "high_value_restaurante"),
-    ("galpao", "high_value_galpao"),
     ("galpao industrial", "high_value_galpao"),
     ("orcamento grande", "high_value_orcamento_grande"),
     ("contrato", "high_value_contrato"),
@@ -946,9 +986,6 @@ def _keyword_in_text(keyword: str, text: str) -> bool:
 
 
 def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
-    if intent in ("pmoc", "consultoria", "projeto-central"):
-        return f"high_value_{intent.replace('-', '_')}"
-
     for keyword, reason in _HIGH_VALUE_KEYWORDS:
         folded_keyword = _fold_text(keyword)
         if len(folded_keyword) <= 3:
@@ -959,14 +996,22 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
             return reason
 
     multiple_devices = re.search(
-        r"\b([2-9]|[1-9][0-9])\s*(aparelhos?|equipamentos?|equipos?|splits?|maquinas?|evaporadoras?)\b",
+        r"\b([3-9]|[1-9][0-9]+)\s*(aparelhos?|splits?|máquinas?|maquinas?|equipamentos?|evaporadoras?)\b",
         text,
     )
     if multiple_devices:
         return "high_value_multiplos_aparelhos"
 
+    if re.search(r"\b([4-9][8-9]000|[5-9][0-9]000|[1-9][0-9]{5,})\s*(btus?|btu/h)?\b", text):
+        return "high_value_btus_altos"
+    if re.search(r"\b([5-9]|[1-9][0-9]+)\s*(tr|toneladas?\s+de\s+refrigeracao)\b", text):
+        return "high_value_btus_altos"
+
     if any(term in text for term in ("varios aparelhos", "varias maquinas", "muitos aparelhos")):
         return "high_value_multiplos_aparelhos"
+
+    if intent in ("pmoc", "consultoria", "projeto-central"):
+        return f"high_value_{intent.replace('-', '_')}"
 
     return None
 
@@ -974,11 +1019,49 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
 def _fallback_service_for_high_value(text: str) -> str | None:
     if any(term in text for term in ("pmoc", "laudo", "art", "preventiva")):
         return "pmoc"
-    if any(term in text for term in ("restaurante", "galpao", "sistema central", "multi split", "multisplit")):
+    if any(term in text for term in ("vrf", "vrv", "duto", "dutado", "restaurante", "galpao", "sistema central", "multi split", "multisplit", "splitao", "splitão", "cassete", "piso teto", "piso-teto")):
         return "projeto-central"
     if any(term in text for term in ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
         return "consultoria"
     return None
+
+
+def classify_high_value_project(text: str, lead_state: dict) -> dict | None:
+    folded = _fold_text(text)
+    reason = _detect_high_value_reason(folded, lead_state.get("tipo_servico") or lead_state.get("service"))
+    if not reason:
+        return None
+    if reason in {"high_value_vrf", "high_value_vrv"}:
+        project_type = "vrf"
+    elif reason == "high_value_duto":
+        project_type = "duto"
+    elif reason in {"high_value_splitao", "high_value_piso_teto", "high_value_cassete", "high_value_btus_altos"}:
+        project_type = "comercial_leve"
+    elif reason in {"high_value_pmoc", "high_value_laudo", "high_value_art", "high_value_contrato"}:
+        project_type = "pmoc"
+    else:
+        project_type = "contrato_ou_multiaparelho"
+    return {
+        "is_high_value": True,
+        "reason": reason,
+        "project_type": project_type,
+        "recommended_service": "pmoc" if project_type == "pmoc" else "projeto-central",
+        "owner_priority": "high",
+        "questions": [
+            "cidade/bairro",
+            "tipo de ambiente",
+            "quantidade de ambientes",
+            "planta ou fotos",
+            "prazo desejado",
+        ],
+    }
+
+
+def _high_value_consultative_response() -> str:
+    return (
+        "Esse caso é mais técnico e vale avaliar com cuidado para evitar erro de dimensionamento e retrabalho. "
+        "Me passa a cidade, o tipo de ambiente e a quantidade de máquinas ou ambientes pra eu direcionar certinho?"
+    )
 
 
 def _looks_like_pmoc_preventive_plan(text: str) -> bool:
@@ -1323,6 +1406,13 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
     high_value_reason = _detect_high_value_reason(semantic_text, intent)
     if high_value_reason:
+        project = classify_high_value_project(semantic_text, lead_state) or {}
+        if project:
+            lead_state["high_value_project"] = project
+            if not service:
+                service = project.get("recommended_service")
+                intent = service or intent
+            outcome = "reuniao_projeto"
         handoff_mode = "soft_alert"
         handoff_reason = high_value_reason
     elif _contains_any(text_lower, _LIGHT_COMPLAINT_TRIGGERS):
@@ -1457,6 +1547,18 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             "outcome": "duvida",
             "handoff_mode": "soft_alert",
             "handoff_reason": "no_context_needs_human_review",
+            "lead_state": lead_state,
+        }
+
+    if str(handoff_reason or "").startswith("high_value"):
+        ai_message = AIMessage(content=_high_value_consultative_response())
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service or (lead_state.get("high_value_project") or {}).get("recommended_service"),
+            "outcome": "reuniao_projeto",
+            "handoff_mode": "soft_alert",
+            "handoff_reason": handoff_reason,
             "lead_state": lead_state,
         }
 

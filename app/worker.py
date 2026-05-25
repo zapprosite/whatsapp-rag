@@ -8,6 +8,7 @@ import random
 import re
 import uuid
 from contextlib import asynccontextmanager, suppress
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -17,12 +18,15 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from agent_graph.graph.graph import build_graph
+from agent_graph.services.alerts import send_owner_alert
+from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
 
 logger = logging.getLogger(__name__)
 
 GRAPH: Any = None
 REDIS_POOL: redis.ConnectionPool | None = None
 WORKER_TASKS: list[asyncio.Task[None]] = []
+SCHEDULER_TASKS: list[asyncio.Task[None]] = []
 
 _QUEUE_KEY = os.getenv("WHATSAPP_QUEUE_KEY", "whatsapp_rag:queue")
 _PROCESSING_KEY = os.getenv("WHATSAPP_PROCESSING_QUEUE_KEY", "whatsapp_rag:processing")
@@ -40,6 +44,7 @@ _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
 _LOCK_REQUEUE_DELAY = float(os.getenv("CONV_LOCK_REQUEUE_DELAY_SECONDS", "0.4"))
 _HANDOFF_ALERT_TTL = int(os.getenv("HANDOFF_ALERT_TTL_SECONDS", "21600"))
+_OWNER_ALERT_TTL = int(os.getenv("OWNER_ALERT_DEDUP_TTL_SECONDS", "21600"))
 _MANUAL_TAKEOVER_TTL = int(os.getenv("MANUAL_TAKEOVER_TTL_SECONDS", "86400"))
 _ACTIVE_SERVICE_STATUSES = tuple(
     s.strip() for s in os.getenv(
@@ -60,6 +65,17 @@ _BOT_OFF_MSG = os.getenv(
     "BOT_OFF_MESSAGE",
     "Oi! No momento estou atendendo pessoalmente. Te respondo em breve 🙂",
 )
+_OWNER_WORTHY_REASONS = {
+    "explicit_handoff",
+    "complaint_or_risk",
+    "sensitive_complaint",
+    "no_context_needs_human_review",
+    "active_service_followup",
+    "high_value_lead",
+    "appointment_ready",
+    "electrical_risk",
+    "repeated_missing_critical_field",
+}
 
 
 class InvalidQueueMessage(ValueError):
@@ -137,13 +153,6 @@ def _safe_key(value: str) -> str:
 def _message_text(message: BaseMessage | Any) -> str:
     content = getattr(message, "content", message)
     return content if isinstance(content, str) else str(content)
-
-
-def normalize_whatsapp_number(value: str) -> str:
-    """Converte JID da Evolution em número aceito pelo sendText/sendAudio."""
-    raw = str(value or "").strip()
-    local = raw.split("@", 1)[0].split(":", 1)[0]
-    return re.sub(r"\D", "", local)
 
 
 def _safe_fallback_response(message_text: str) -> str:
@@ -271,7 +280,7 @@ async def set_manual_takeover(r: redis.Redis, phone: str, enabled: bool) -> None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan: start queue consumers and tear down on shutdown."""
-    global GRAPH, REDIS_POOL, WORKER_TASKS
+    global GRAPH, REDIS_POOL, WORKER_TASKS, SCHEDULER_TASKS
 
     GRAPH = build_graph()
     logger.info("LangGraph compiled OK")
@@ -286,7 +295,25 @@ async def lifespan(app: FastAPI):
     ]
     logger.info("Started %s worker task(s)", len(WORKER_TASKS))
 
+    SCHEDULER_TASKS = []
+    if os.getenv("AGENDA_GROUP_ENABLED", "1") == "1":
+        try:
+            from app.agenda_scheduler import agenda_digest_loop
+        except ModuleNotFoundError:
+            from agenda_scheduler import agenda_digest_loop
+
+        SCHEDULER_TASKS.append(
+            asyncio.create_task(agenda_digest_loop(0, get_redis), name="agenda-refrimix-scheduler")
+        )
+        logger.info("Scheduler de agenda iniciado")
+
     yield
+
+    for task in SCHEDULER_TASKS:
+        task.cancel()
+    if SCHEDULER_TASKS:
+        await asyncio.gather(*SCHEDULER_TASKS, return_exceptions=True)
+    SCHEDULER_TASKS = []
 
     for task in WORKER_TASKS:
         task.cancel()
@@ -307,30 +334,7 @@ async def get_redis() -> redis.Redis:
 
 async def send_whatsapp_message(phone: str, text: str, instance: str = "default") -> bool:
     """Send text message back to WhatsApp via Evolution API."""
-    api_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
-    api_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
-    instance_name = os.getenv("EVOLUTION_INSTANCE", instance)
-    number = normalize_whatsapp_number(phone)
-
-    if not number:
-        logger.error("Número WhatsApp inválido para envio de texto: %r", phone)
-        return False
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{api_url}/message/sendText/{instance_name}",
-                headers={"apikey": api_key, "Content-Type": "application/json"},
-                json={"number": number, "text": text},
-            )
-            if resp.status_code in (200, 201):
-                logger.info("Texto enviado para %s: %s", number, text[:50])
-                return True
-            logger.warning("Evolution API erro %s: %s", resp.status_code, resp.text)
-            return False
-    except Exception as e:
-        logger.error("Falha ao enviar texto para %s: %s", phone, e)
-        return False
+    return await send_whatsapp_text(phone, text, instance)
 
 
 def _wav_to_ogg_opus(wav_bytes: bytes) -> bytes:
@@ -427,17 +431,19 @@ async def notify_owner(
     next_step: str = "",
 ) -> bool:
     """Notifica o dono (Will) sobre handoff real ou alerta soft de alto valor."""
-    owner_phone = os.getenv("OWNER_PHONE", "5513996659382")
     title = _alert_title(reason, handoff_mode)
-    text = (
-        f"🚨 *{title}* 🚨\n\n"
-        f"Telefone: {lead_phone}\n"
-        f"Motivo: {reason or 'não informado'}\n"
-        f"Último pedido: {lead_message}\n"
-        f"Resumo: {conversation_summary or 'sem histórico anterior'}\n"
-        f"Próximo passo recomendado: {next_step or 'acompanhar pelo WhatsApp Web'}"
+    return await send_owner_alert(
+        {
+            "title": title,
+            "phone": lead_phone,
+            "reason": reason or "não informado",
+            "last_message": lead_message,
+            "summary": conversation_summary or "sem histórico anterior",
+            "next_step": next_step or "acompanhar pelo WhatsApp Web",
+            "priority": "high" if reason.startswith("high_value") else "normal",
+            "instance": instance,
+        }
     )
-    return await send_whatsapp_message(owner_phone, text, instance)
 
 
 def _summarize_conversation(messages: list[BaseMessage]) -> str:
@@ -455,19 +461,27 @@ def _summarize_conversation(messages: list[BaseMessage]) -> str:
 def _alert_title(reason: str, handoff_mode: str) -> str:
     titles = {
         "appointment_ready": "LEAD PRONTO PARA AGENDAR",
-        "no_context_needs_human_review": "REVISÃO HUMANA POR FALTA DE CONTEXTO",
-        "active_service_followup": "CLIENTE COM SERVIÇO EM ANDAMENTO",
+        "no_context_needs_human_review": "REVISÃO HUMANA",
+        "active_service_followup": "CLIENTE EM ATENDIMENTO",
         "complaint_or_risk": "RECLAMAÇÃO OU RISCO",
         "sensitive_complaint": "RECLAMAÇÃO OU RISCO",
         "light_complaint": "RECLAMAÇÃO OU RISCO",
         "explicit_handoff": "CLIENTE PEDIU HUMANO",
         "high_value_lead": "LEAD DE ALTO VALOR",
+        "high_value_vrf": "LEAD VRF/VRV",
+        "high_value_vrv": "LEAD VRF/VRV",
+        "high_value_duto": "PROJETO DE DUTOS",
+        "high_value_splitao": "SPLITÃO / COMERCIAL",
+        "high_value_pmoc": "PMOC / CONTRATO",
+        "electrical_risk": "RISCO ELÉTRICO",
     }
-    if reason.startswith("high_value"):
-        return "LEAD DE ALTO VALOR"
     if handoff_mode == "hard_transfer":
         return "HANDOFF HUMANO"
-    return titles.get(reason, "ALERTA OPERACIONAL")
+    if reason in titles:
+        return titles[reason]
+    if reason.startswith("high_value"):
+        return "LEAD DE ALTO VALOR"
+    return "ALERTA OPERACIONAL"
 
 
 def _handoff_next_step(handoff_mode: str, reason: str) -> str:
@@ -483,6 +497,8 @@ def _handoff_next_step(handoff_mode: str, reason: str) -> str:
         return "Acompanhar em paralelo; o bot pediu detalhes para adiantar a análise."
     if reason == "active_service_followup":
         return "Verificar serviço em andamento, agenda e pendências; cliente já não deve ser tratado como lead novo."
+    if reason.startswith("high_value"):
+        return "Assumir ou acompanhar de perto; pedir planta/fotos, quantidade de ambientes e objetivo do sistema."
     return "Acompanhar sem interromper o bot; revisar dados de qualificação e entrar se fizer sentido."
 
 
@@ -499,15 +515,21 @@ async def maybe_notify_owner_from_result(
         return False
 
     reason = result.get("handoff_reason") or result.get("outcome") or "sem_motivo"
+    reason = str(reason)
     if mode == "hard_transfer" and result.get("handoff_already_notified"):
         return False
 
-    if mode == "soft_alert":
-        alert_key = f"handoff_alert:{_safe_key(phone)}:{_safe_key(reason)}"
-        should_alert = await r.set(alert_key, "1", nx=True, ex=_HANDOFF_ALERT_TTL)
-        if not should_alert:
-            logger.info("Alerta soft deduplicado para %s (%s)", phone, reason)
-            return False
+    owner_worthy = reason in _OWNER_WORTHY_REASONS or reason.startswith("high_value")
+    if not owner_worthy:
+        logger.info("Motivo de handoff não direcionado ao owner: %s", reason)
+        return False
+
+    ttl = _OWNER_ALERT_TTL or _HANDOFF_ALERT_TTL
+    alert_key = f"owner_alert:{_safe_key(phone)}:{_safe_key(reason)}:{datetime.now().date().isoformat()}"
+    should_alert = await r.set(alert_key, "1", nx=True, ex=ttl)
+    if not should_alert:
+        logger.info("Alerta owner deduplicado para %s (%s)", phone, reason)
+        return False
 
     messages_out = result.get("messages", [])
     summary = _summarize_conversation(messages_out if isinstance(messages_out, list) else [])

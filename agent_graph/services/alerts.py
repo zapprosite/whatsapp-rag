@@ -1,58 +1,91 @@
 from __future__ import annotations
 
-import os
 import logging
-import httpx
+import os
+from typing import Any
+
+from agent_graph.services.whatsapp import send_whatsapp_group_text, send_whatsapp_text
 
 logger = logging.getLogger(__name__)
 
-_EVO_TIMEOUT = 15.0
+
+def _enabled(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip() == "1"
+
+
+def _format_owner_alert(alert: dict[str, Any]) -> str:
+    title = str(alert.get("title") or "ALERTA OPERACIONAL").strip()
+    lines = [f"*{title}*"]
+
+    fields = (
+        ("Telefone", alert.get("phone")),
+        ("Cliente", alert.get("name")),
+        ("Motivo", alert.get("reason")),
+        ("Serviço provável", alert.get("service")),
+        ("Relação", alert.get("relationship_type")),
+        ("Local", alert.get("city_bairro")),
+        ("Última mensagem", alert.get("last_message")),
+        ("Resumo", alert.get("summary")),
+        ("Próximo passo recomendado", alert.get("next_step")),
+        ("Prioridade", alert.get("priority")),
+    )
+    for label, value in fields:
+        if value:
+            lines.append(f"{label}: {value}")
+    return "\n".join(lines)[:3500]
+
+
+async def send_owner_alert(alert: dict[str, Any]) -> bool:
+    if not _enabled("OWNER_ALERTS_ENABLED", "1"):
+        logger.info("OWNER_ALERTS_ENABLED=0; alerta owner não enviado")
+        return False
+
+    reason = str(alert.get("reason") or "")
+    if reason.startswith("high_value") and not _enabled("OWNER_HIGH_VALUE_ALERTS_ENABLED", "1"):
+        logger.info("OWNER_HIGH_VALUE_ALERTS_ENABLED=0; alerta alto valor não enviado")
+        return False
+
+    owner_phone = os.getenv("OWNER_PHONE", "")
+    if not owner_phone:
+        logger.warning("OWNER_PHONE não configurado; alerta owner não enviado")
+        return False
+
+    instance = str(alert.get("instance") or "default")
+    return await send_whatsapp_text(owner_phone, _format_owner_alert(alert), instance)
+
+
+async def send_agenda_group_message(text: str) -> bool:
+    if not _enabled("AGENDA_GROUP_ENABLED", "1"):
+        logger.info("AGENDA_GROUP_ENABLED=0; mensagem de agenda não enviada")
+        return False
+
+    group_jid = os.getenv("AGENDA_GROUP_JID", "").strip()
+    if not group_jid:
+        logger.warning("AGENDA_GROUP_ENABLED=1, mas AGENDA_GROUP_JID está vazio; agenda não enviada")
+        return False
+    return await send_whatsapp_group_text(group_jid, text, os.getenv("EVOLUTION_INSTANCE", "default"))
 
 
 async def send_appointment_alert(lead_data: dict) -> bool:
-    """
-    Envia alerta de novo agendamento para o dono (Will) via WhatsApp.
-    lead_data deve conter: phone, name, service, address, window.
-    """
-    owner_phone = os.getenv("OWNER_PHONE", "")
-    if not owner_phone:
-        logger.warning("OWNER_PHONE não configurado — alerta não enviado")
-        return False
-
-    evo_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
-    evo_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
-    instance = os.getenv("EVOLUTION_INSTANCE", "RefrimixLead")
-
-    name = lead_data.get("name") or "não informado"
-    service = lead_data.get("service") or "não classificado"
-    address = lead_data.get("address") or "não informado"
-    window = lead_data.get("window") or "a combinar"
-    phone = lead_data.get("phone", "")
-
-    text = (
-        "*LEAD PRONTO PARA AGENDAR*\n\n"
-        f"Telefone: {phone}\n"
-        "Motivo: appointment_ready\n"
-        f"Última mensagem: {lead_data.get('last_message') or 'não informada'}\n"
-        f"Resumo: {name}; serviço {service}; local {address}; janela {window}.\n"
-        "Próximo passo recomendado: confirmar agenda direto no WhatsApp do cliente."
+    """Compatibilidade: alerta de lead pronto para agenda continua indo ao owner."""
+    return await send_owner_alert(
+        {
+            "title": "LEAD PRONTO PARA AGENDAR",
+            "phone": lead_data.get("phone"),
+            "name": lead_data.get("name"),
+            "reason": "appointment_ready",
+            "service": lead_data.get("service"),
+            "city_bairro": lead_data.get("address"),
+            "last_message": lead_data.get("last_message") or "não informada",
+            "summary": (
+                f"{lead_data.get('name') or 'sem nome'}; serviço {lead_data.get('service') or 'não classificado'}; "
+                f"local {lead_data.get('address') or 'não informado'}; janela {lead_data.get('window') or 'a combinar'}."
+            ),
+            "next_step": "Confirmar agenda direto no WhatsApp do cliente.",
+            "priority": "normal",
+            "instance": lead_data.get("instance") or "default",
+        }
     )
-
-    try:
-        async with httpx.AsyncClient(timeout=_EVO_TIMEOUT) as client:
-            resp = await client.post(
-                f"{evo_url}/message/sendText/{instance}",
-                headers={"apikey": evo_key, "Content-Type": "application/json"},
-                json={"number": owner_phone, "text": text},
-            )
-            if resp.status_code in (200, 201):
-                logger.info(f"Alerta de agendamento enviado para dono: {owner_phone}")
-                return True
-            logger.warning(f"Falha ao enviar alerta: {resp.status_code} {resp.text[:100]}")
-            return False
-    except Exception as e:
-        logger.error(f"Erro ao enviar alerta de agendamento: {e}")
-        return False
 
 
 async def prisma_upsert_lead(lead_data: dict) -> None:
@@ -81,8 +114,8 @@ async def prisma_upsert_lead(lead_data: dict) -> None:
                 },
             },
         )
-        logger.info(f"Lead upserted: {phone}")
-    except Exception as e:
-        logger.error(f"Prisma upsert lead falhou: {e}")
+        logger.info("Lead upserted: %s", phone)
+    except Exception as exc:
+        logger.error("Prisma upsert lead falhou: %s", exc)
     finally:
         await prisma.disconnect()
