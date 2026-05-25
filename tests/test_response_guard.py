@@ -34,3 +34,13 @@ def test_infers_asked_field_from_response():
 
     assert field == "btus"
     assert should_avoid_reasking("cidade_bairro", {"ask_count_by_field": {"cidade_bairro": 2}}) is True
+
+
+def test_detects_possible_truncated_response():
+    ok, violations = validate_response_before_send(
+        "Entendi. Pode ser placa eletrônica, mas antes preciso",
+        {"lead_state": {"tipo_servico": "manutencao"}},
+    )
+
+    assert ok is False
+    assert "possible_truncated_response" in violations

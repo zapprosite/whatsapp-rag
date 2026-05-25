@@ -464,6 +464,8 @@ def _normalize_text(text: str) -> str:
 def _normalize_service(service: str | None) -> str | None:
     if service == "hygienizacao":
         return "higienizacao"
+    if service == "conserto":
+        return "manutencao"
     return service
 
 
@@ -787,6 +789,8 @@ def _clean_whatsapp_markdown(text: str) -> str:
     if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ("'", '"'):
         cleaned = cleaned[1:-1].strip()
     cleaned = "\n".join(re.sub(r"[ \t]{2,}", " ", line).strip() for line in cleaned.splitlines())
+    cleaned = re.sub(r"([,;:])(?=\S)", r"\1 ", cleaned)
+    cleaned = re.sub(r"(?<!\d)([.!?])(?=[A-Za-zÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç])", r"\1 ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
@@ -904,7 +908,13 @@ def _truncate_whatsapp_blocks(text: str, outcome: str | None, max_chars: int) ->
         base = text[:limit].rsplit(" ", 1)[0].strip()
     if cta.rstrip("?")[:18].lower() not in base.lower() and "?" not in base:
         base = f"{base}{suffix}".strip()
-    return base[:max_chars].strip()
+    if len(base) <= max_chars:
+        return base.strip()
+    candidate = base[:max_chars].rstrip()
+    sentence_cut = max(candidate.rfind("."), candidate.rfind("?"), candidate.rfind("!"))
+    if sentence_cut >= max(40, int(max_chars * 0.35)):
+        return candidate[: sentence_cut + 1].strip()
+    return candidate.rsplit(" ", 1)[0].rstrip(" ,;:") + "."
 
 
 def _format_customer_whatsapp_response(text: str, outcome: str | None, max_chars: int = 850) -> str:
@@ -966,6 +976,38 @@ def _shape_whatsapp_response(text: str, outcome: str | None, max_chars: int = 85
     if not formatted:
         return _default_whatsapp_cta(outcome)
     return formatted
+
+
+def _looks_like_incomplete_customer_response(text: str) -> bool:
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    last_line = next((line.strip() for line in reversed(stripped.splitlines()) if line.strip()), "")
+    if re.match(r"^\d+[\.)]\s+\S", last_line):
+        return False
+    return stripped[-1] not in ".?!"
+
+
+def _fallback_after_truncated_format(state: dict[str, Any]) -> str:
+    lead_state = state.get("lead_state") or {}
+    service = _normalize_service(lead_state.get("tipo_servico") or state.get("service"))
+    user_text = _fold_text(_latest_human_text(state.get("messages", [])))
+    if service == "manutencao":
+        if _contains_any(user_text, ("disjuntor cai", "ponto eletrico", "ponto elétrico", "fio esquenta", "cheiro de queimado")):
+            return (
+                "Isso é sério. Deixa o ar desligado por segurança.\n\n"
+                "Me manda uma foto do disjuntor e do aparelho?"
+            )
+        return (
+            "Entendi. Em manutenção, precisa testar antes de condenar peça.\n\n"
+            "Me manda uma foto do aparelho ou do painel de erro e me fala a cidade/bairro?"
+        )
+    if service == "instalacao":
+        return (
+            "Entendi. Pra eu avaliar a instalação sem te passar valor errado, preciso ver o local.\n\n"
+            "Me manda uma foto do local interno e uma do local externo?"
+        )
+    return "Entendi. Me passa o serviço, a cidade/bairro e uma foto do aparelho?"
 
 
 async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
@@ -1657,6 +1699,11 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("comecou a pingar", 6): "manutencao",
         ("pinga agua", 5): "manutencao",
         ("vazando agua", 5): "manutencao",
+        ("placa eletrônica", 6): "manutencao",
+        ("placa eletronica", 6): "manutencao",
+        ("problema na placa", 6): "manutencao",
+        ("placa queimou", 6): "manutencao",
+        ("queda de energia", 5): "manutencao",
         ("não liga", 4): "manutencao",
         ("queimou", 3): "manutencao",
         ("deu ruim no ar", 3): "manutencao",
@@ -2416,6 +2463,19 @@ async def response_guard_check(state: dict[str, Any]) -> dict[str, Any]:
             fixed = "Vi aqui que você já tem atendimento em andamento com a Refrimix.\n\nMe fala o que precisa atualizar nesse serviço?"
         elif lead_state.get("appointment_ready") or relationship == "ready_to_schedule":
             fixed = "Perfeito, já tenho o principal para seguir com o atendimento.\n\nMe confirma o melhor período: manhã ou tarde?"
+        elif service == "manutencao":
+            user_text = _fold_text(_latest_human_text(state.get("messages", [])))
+            if _contains_any(user_text, ("disjuntor cai", "ponto eletrico", "ponto elétrico", "fio esquenta", "cheiro de queimado")):
+                fixed = (
+                    "Isso é sério. O ideal é deixar o ar desligado agora por segurança.\n\n"
+                    "Pode envolver sobrecarga, cabo inadequado, disjuntor fora do padrão ou falha no equipamento.\n\n"
+                    "Me manda uma foto do disjuntor e do aparelho?"
+                )
+            else:
+                fixed = (
+                    "Entendi. Em manutenção, precisa testar antes de condenar peça ou passar valor fechado.\n\n"
+                    "Me manda uma foto do aparelho ou do painel de erro e me fala a cidade/bairro?"
+                )
         elif service == "instalacao":
             next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
             next_question = _repeated_field_strategy(next_field, lead_state) or _question_for_field(next_field)
@@ -2454,6 +2514,9 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     formatted = _strip_customer_emojis(formatted)
     formatted = re.sub(r"\n{3,}", "\n\n", formatted).strip()
     formatted = formatted.strip()
+    if _looks_like_incomplete_customer_response(formatted):
+        logger.warning("format_whatsapp detectou resposta possivelmente truncada; aplicando fallback")
+        formatted = _fallback_after_truncated_format(state)
 
     if len(formatted) > 1500:
         formatted = _truncate_whatsapp_blocks(
@@ -3149,6 +3212,8 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     if state_patch:
         for k, v in state_patch.items():
             if v is not None:
+                if k == "tipo_servico" and isinstance(v, str):
+                    v = _normalize_service(v) or v
                 if k in lead_state and isinstance(lead_state[k], dict) and isinstance(v, dict):
                     lead_state[k].update(v)
                 else:

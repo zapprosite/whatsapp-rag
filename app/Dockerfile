@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia código e schema
 COPY app/ /app/
 COPY agent_graph/ /app/agent_graph/
+COPY knowledge/ /app/knowledge/
+COPY qdrant/ /app/qdrant/
 COPY prisma/ /app/prisma/
 
 # Gera client Prisma (não precisa de banco real, só do schema)

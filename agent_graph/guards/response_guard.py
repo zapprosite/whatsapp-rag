@@ -74,6 +74,10 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
         violations.append("too_many_questions")
     if len(response) > 1500:
         violations.append("too_long")
+    if response.strip() and response.strip()[-1] not in ".?!":
+        violations.append("possible_truncated_response")
+    if in_progress and "?" not in response and state.get("conversation_objective") not in {"security_reject", "human_handoff"}:
+        violations.append("missing_next_step")
     if re.search(r"\bvos\b|\bteu aparelho avariado\b|\bpresupuesto\b|\bservicio\b", text):
         violations.append("non_ptbr")
     if "vou passar para um humano" in text and state.get("handoff_mode") in (None, "none"):

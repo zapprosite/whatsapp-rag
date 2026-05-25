@@ -1,4 +1,5 @@
 from refinar import evaluate_ptbr_quality
+from agent_graph.nodes.nodes import _normalize_service
 
 
 def test_ptbr_quality_blocks_european_portuguese_terms():
@@ -57,3 +58,27 @@ def test_ptbr_quality_accepts_modern_sao_paulo_whatsapp_copy():
 
     assert blockers == []
     assert warnings == []
+
+
+def test_ptbr_quality_blocks_hvac_context_drift_and_bad_spacing():
+    blockers, _ = evaluate_ptbr_quality(
+        "Entendi,split financeiro não é comigo. A placa do veículo pode falhar.",
+        expected_intent="manutencao",
+    )
+
+    assert any("pontuação sem espaço" in item for item in blockers)
+    assert any("drift de domínio" in item for item in blockers)
+
+
+def test_ptbr_quality_warns_possible_truncation():
+    blockers, warnings = evaluate_ptbr_quality(
+        "Entendi. Pode ser placa eletrônica e precisa avaliar antes de condenar peça",
+        expected_intent="manutencao",
+    )
+
+    assert blockers == []
+    assert any("possível truncamento" in item for item in warnings)
+
+
+def test_conserto_normalizes_to_manutencao_for_hvac_policy():
+    assert _normalize_service("conserto") == "manutencao"
