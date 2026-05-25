@@ -373,15 +373,31 @@ async def _call_local_ptbr(messages: list[ChatMessage], max_retries: int = 1) ->
 
 
 async def llm_chat(messages: list[ChatMessage], max_retries: int = 2, fast_route: bool = False) -> str:
-    """MiniMax principal ou Groq (se fast_route for True), Qwen local como fallback."""
+    """MiniMax principal ou modelos locais (se fast_route for True), com fallback cruzado."""
     if fast_route:
+        # 1. Tenta o modelo local PT-BR (Qwen 2.5 7b pt-br) na porta 8211 (custo zero!)
+        local_ptbr_url = os.getenv("LOCAL_PTBR_BASE_URL", "")
+        if local_ptbr_url:
+            try:
+                return await _call_local_ptbr(messages, max_retries=1)
+            except Exception as e:
+                logger.warning(f"Local PT-BR fast route falhou, tentando local Qwen: {e}")
+
+        # 2. Tenta o Qwen local (Qwen 2.5 VL 7b) na porta 8010 (custo zero!)
+        try:
+            return await _call_local_qwen(messages, max_retries=1)
+        except Exception as e:
+            logger.warning(f"Local Qwen fast route falhou, tentando Groq/MiniMax: {e}")
+
+        # 3. Tenta Groq (llama-3.1-8b-instant) na nuvem se os locais falharem
         groq_key = os.getenv("GROQ_API_KEY", "")
         if groq_key:
             try:
-                return await _call_groq(messages, max_retries)
+                return await _call_groq(messages, max_retries=1)
             except Exception as e:
                 logger.warning(f"Groq fast route falhou, tentando MiniMax: {e}")
 
+    # Fluxo principal padrão
     minimax_key = os.getenv("MINIMAX_API_KEY", "")
     if minimax_key:
         try:
