@@ -153,9 +153,10 @@ def _normalize_tts_text_ptbr(text: str) -> str:
     normalized = re.sub(r"[*_`#>]+", " ", normalized)
     normalized = re.sub(r"\b(equipo|equipos)\b", "equipamento", normalized, flags=re.IGNORECASE)
 
-    # Empréstimos HVAC em inglês → fonética pt-BR usada por técnicos de São Paulo/Baixada
-    # "high-wall"/"hi-wall" → "ai uô" (gh silencioso confunde modelo; "split" fica como está)
-    normalized = re.sub(r"\b(high|hi)[\s\-]wall\b", "ai uô", normalized, flags=re.IGNORECASE)
+    # "split high-wall" / "split hi-wall" → "split" (termo técnico consolidado em pt-BR)
+    normalized = re.sub(r"\bsplit[\s\-](?:high|hi)[\s\-]wall\b", "split", normalized, flags=re.IGNORECASE)
+    # Qualquer "high-wall"/"hi-wall" restante → "split" também
+    normalized = re.sub(r"\b(?:high|hi)[\s\-]wall\b", "split", normalized, flags=re.IGNORECASE)
     # "inverter" → "invérter" (acento força sílaba tônica correta em pt-BR)
     normalized = re.sub(r"\binverters?\b", "invérter", normalized, flags=re.IGNORECASE)
     normalized = re.sub(
@@ -358,7 +359,7 @@ sys.stdout.write(response.text)
             "chunk_size": _env_int("TTS_CHATTERBOX_CHUNK_SIZE", 400),
             "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", 0.75),
             "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", 0.5),
-            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", 0.35),
+            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", 0.70),
             "speed_factor": _env_float("TTS_CHATTERBOX_SPEED_FACTOR", 1.05),
         }
         return await self._post_pc1_audio(

@@ -262,10 +262,48 @@ async def send_whatsapp_message(phone: str, text: str, instance: str = "default"
         return False
 
 
+def _resample_wav_16k(wav_bytes: bytes) -> bytes:
+    """Resamplea WAV de qualquer taxa (Chatterbox=24kHz) para 16kHz mono.
+    Evolution API converte WAV→OGG/OPUS para WhatsApp; 24kHz→OGG sem resample
+    correto causa eco e distorção. 16kHz é o target nativo do codec OPUS/WhatsApp.
+    """
+    import audioop
+    import io
+    import wave
+
+    buf = io.BytesIO(wav_bytes)
+    with wave.open(buf, "rb") as wf:
+        n_ch = wf.getnchannels()
+        sw = wf.getsampwidth()
+        rate = wf.getframerate()
+        frames = wf.readframes(wf.getnframes())
+
+    if rate == 16000 and n_ch == 1:
+        return wav_bytes
+
+    # Stereo → mono se necessário
+    if n_ch == 2:
+        frames = audioop.tomono(frames, sw, 0.5, 0.5)
+        n_ch = 1
+
+    # Resample para 16kHz
+    if rate != 16000:
+        frames, _ = audioop.ratecv(frames, sw, n_ch, rate, 16000, None)
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wf:
+        wf.setnchannels(n_ch)
+        wf.setsampwidth(sw)
+        wf.setframerate(16000)
+        wf.writeframes(frames)
+    return out.getvalue()
+
+
 async def send_whatsapp_audio(phone: str, audio_bytes: bytes, instance: str = "default") -> bool:
     """Envia áudio WAV via Evolution API sendWhatsAppAudio."""
     import base64
 
+    audio_bytes = _resample_wav_16k(audio_bytes)
     api_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
     api_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
     instance_name = os.getenv("EVOLUTION_INSTANCE", instance)
