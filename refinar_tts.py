@@ -204,7 +204,7 @@ async def synthesize(text: str, params: dict | None = None) -> bytes | None:
         "_timeout": TTS_TIMEOUT,
         "text":                text if text == _normalize_tts_text(text) else _normalize_tts_text(text),
         "voice_mode":          "clone",
-        "reference_audio_filename": "willrefrimix-influencer-v2.wav",
+        "reference_audio_filename": "willrefrimix-influencer.wav",
         "output_format":       "wav",
         "language":            "pt",
         "split_text":          True,

@@ -19,7 +19,7 @@ _MIN_AUDIO_BYTES = 512
 _DEFAULT_MAX_CHARS = 420
 
 _VOICE_STYLES: dict[str, str] = {
-    "influencer": "willrefrimix-influencer-v2",
+    "influencer": "willrefrimix-influencer",
 }
 _DEFAULT_STYLE = "influencer"
 
