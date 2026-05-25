@@ -215,6 +215,38 @@ def _fit_for_qwen(messages: list[ChatMessage], max_tokens: int, context_tokens: 
     return window.messages
 
 
+async def _call_groq(messages: list[ChatMessage], max_retries: int = 3) -> str:
+    """Modelo Groq super rápido para saudações e onboarding instantâneo."""
+    api_key = os.getenv("GROQ_API_KEY", "")
+    base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+    model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    max_tokens = _env_int("GROQ_MAX_TOKENS", 250)
+
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY não configurado")
+
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=_env_float("GROQ_TIMEOUT_SECONDS", 15.0)) as client:
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return _extract_chat_content(data, "Groq")
+        except Exception as exc:
+            last_error = exc
+            if attempt < max_retries - 1:
+                await asyncio.sleep(0.3 * (attempt + 1))
+    raise RuntimeError(f"Groq falhou: {last_error}")
+
+
 async def _call_minimax(messages: list[ChatMessage], max_retries: int = 5) -> str:
     api_key = os.getenv("MINIMAX_API_KEY", "")
     base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
@@ -340,8 +372,16 @@ async def _call_local_ptbr(messages: list[ChatMessage], max_retries: int = 1) ->
     raise RuntimeError(f"PT-BR local falhou: {last_error}")
 
 
-async def llm_chat(messages: list[ChatMessage], max_retries: int = 2) -> str:
-    """MiniMax principal, Qwen local como fallback automático."""
+async def llm_chat(messages: list[ChatMessage], max_retries: int = 2, fast_route: bool = False) -> str:
+    """MiniMax principal ou Groq (se fast_route for True), Qwen local como fallback."""
+    if fast_route:
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        if groq_key:
+            try:
+                return await _call_groq(messages, max_retries)
+            except Exception as e:
+                logger.warning(f"Groq fast route falhou, tentando MiniMax: {e}")
+
     minimax_key = os.getenv("MINIMAX_API_KEY", "")
     if minimax_key:
         try:
@@ -1330,8 +1370,9 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
+    fast_route = (outcome == "onboarding") or (intent == "onboarding")
     try:
-        response = await llm_chat(llm_messages, max_retries=2)
+        response = await llm_chat(llm_messages, max_retries=2, fast_route=fast_route)
     except Exception as e:
         logger.warning(f"LLM falhou em generate_response: {e}")
         response = {
