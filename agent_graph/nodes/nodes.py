@@ -984,6 +984,8 @@ async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
                     "Não use emoji. "
                     "Não use português europeu. "
                     "Não use espanhol. "
+                    "Não use termos fora do nicho de ar-condicionado, como cassete de áudio, split financeiro, carga de bateria, placa do veículo, framework ou cliente HTTP. "
+                    "Se houver palavra ambígua, preserve o sentido HVAC-R: ar é ar-condicionado, placa é placa eletrônica, cassete é evaporadora cassete, retorno é acompanhamento de atendimento. "
                     "Use quebras de linha naturais. "
                     "Se forem pedidos 2 ou mais dados, use lista numerada curta. "
                     "Evite texto tudo junto. "
@@ -1886,7 +1888,16 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
         _message_text(m) for m in messages[-6:]
         if _is_human_message(m) and _message_text(m)
     ]
-    query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
+    try:
+        from agent_graph.services.domain_disambiguation import build_rag_query, select_response_template
+
+        query, domain_disambiguation = build_rag_query(user_text, lead_state, recent_human)
+        selected_template = select_response_template(state, user_text)
+    except Exception as e:
+        logger.warning("domain_disambiguation falhou; usando query simples: %s", e)
+        query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
+        domain_disambiguation = {"original_query": user_text, "rewritten_query": query, "matched_terms": [], "applied_rules": []}
+        selected_template = None
 
     try:
         rag_context = await asyncio.wait_for(
@@ -1922,7 +1933,13 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
         logger.warning(f"Qdrant search falhou: {e}")
         rag_context = []
 
-    return {"rag_context": rag_context, "service": service, "messages": messages}
+    return {
+        "rag_context": rag_context,
+        "service": service,
+        "messages": messages,
+        "domain_disambiguation": domain_disambiguation,
+        "selected_template": selected_template,
+    }
 
 
 async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
@@ -2119,6 +2136,14 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         title = payload.get("title", "contexto")
         context_parts.append(f"[{doc_type} | {title}]\n{text}")
     context_str = "\n---\n".join(context_parts) or ""
+    domain_disambiguation = state.get("domain_disambiguation") or {}
+    selected_template = state.get("selected_template")
+    try:
+        from agent_graph.services.domain_disambiguation import template_context_for_prompt
+
+        template_context = template_context_for_prompt(selected_template if isinstance(selected_template, dict) else None)
+    except Exception:
+        template_context = "Nenhum template específico. Use as regras de estado e o contexto recuperado."
     if _contains_any(_normalize_text(user_text), _SCHEDULING_TERMS):
         try:
             from agent_graph.services.calendar import get_availability_summary
@@ -2173,6 +2198,13 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"- Estado estruturado atual: {json.dumps(lead_state, ensure_ascii=False)}\n"
         f"- Informações já fornecidas (PROIBIDO PERGUNTAR): {do_not_ask}\n"
         f"- Próximas informações em falta que você deve obter: {missing_fields}\n\n"
+        f"DESAMBIGUAÇÃO DE DOMÍNIO HVAC-R:\n"
+        f"- Query original: {domain_disambiguation.get('original_query') or user_text}\n"
+        f"- Query desambiguada para RAG: {domain_disambiguation.get('rewritten_query') or user_text}\n"
+        f"- Termos ambíguos detectados: {domain_disambiguation.get('matched_terms') or []}\n"
+        f"- Regras aplicadas: {domain_disambiguation.get('applied_rules') or []}\n\n"
+        f"TEMPLATE FLEXÍVEL RECOMENDADO:\n"
+        f"{template_context}\n\n"
         f"Objetivo único desta resposta: {conversation_objective}.\n"
         f"Não tente cumprir outro objetivo.\n"
         f"Política comercial: venda consultiva, sem pressão, sem promoção agressiva, sem 'últimas vagas', sem 'vamos fechar?' cedo demais. Explique o risco de passar valor errado, peça o dado mínimo e mostre o próximo passo.\n"
@@ -2190,7 +2222,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"6. Nunca diga visita gratuita. Fora os dois preços fixos, conduza para análise técnica de R$50 abatível no orçamento aprovado.\n"
         f"7. Formate como WhatsApp humano: sem emoji; com parágrafos curtos; com linha em branco entre blocos; se pedir 2 ou mais dados, use lista numerada; não entregue texto tudo junto; não use cabeçalhos markdown; não use bullets decorativos; não use 'Prezado cliente'; não use português europeu; não use espanhol.\n"
         f"8. Estrutura ideal: primeiro bloco confirma o que entendeu; segundo bloco explica o necessário em 1 ou 2 frases; terceiro bloco pede o próximo dado ou lista os dados necessários; última linha conduz para orçamento/agendamento.\n"
-        f"9. Não use emoji em mensagens para cliente final."
+        f"9. Não use emoji em mensagens para cliente final.\n"
+        f"10. Não use termos fora do nicho de ar-condicionado. Exemplos proibidos: cassete de áudio, split financeiro, carga de bateria, placa do veículo, framework, cliente HTTP, como modelo de linguagem."
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 

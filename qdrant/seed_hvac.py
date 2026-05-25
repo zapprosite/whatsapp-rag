@@ -104,7 +104,13 @@ def build_refrimix_documents() -> list[dict[str, Any]]:
     for path in sorted(playbook_dir.glob("*.yaml")):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
-        doc_type = "tts_style" if path.stem == "tts_speech_policy" else "playbook"
+        doc_type_by_name = {
+            "tts_speech_policy": "tts_style",
+            "ambiguity_lexicon": "ambiguity_lexicon",
+            "forbidden_context_drift": "guardrail",
+            "response_templates": "response_template",
+        }
+        doc_type = doc_type_by_name.get(path.stem, "playbook")
         goal = "high_value_project" if path.stem == "high_value_signals" else "qualify_quote"
         docs.append(
             {
@@ -120,6 +126,27 @@ def build_refrimix_documents() -> list[dict[str, Any]]:
                 "text": f"Playbook Refrimix {path.stem}:\n{text}",
             }
         )
+
+    ambiguity_cases = ROOT_DIR / "qdrant" / "refrimix_ambiguity_cases.jsonl"
+    if ambiguity_cases.exists():
+        for idx, line in enumerate(ambiguity_cases.read_text(encoding="utf-8").splitlines(), start=1):
+            line = line.strip()
+            if not line:
+                continue
+            docs.append(
+                {
+                    "doc_type": "ambiguity_case",
+                    "service": "geral",
+                    "segment_market": "unknown",
+                    "segment_tier": "unknown",
+                    "stage": "qualification",
+                    "goal": "qualify_quote",
+                    "priority": 8,
+                    "source": f"qdrant/refrimix_ambiguity_cases.jsonl#{idx}",
+                    "title": f"ambiguity_case_{idx}",
+                    "text": line,
+                }
+            )
 
     for path in sorted(docs_dir.glob("*.md")):
         segment_market, segment_tier = _doc_segment_from_name(path.stem)

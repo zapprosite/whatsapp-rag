@@ -177,7 +177,7 @@ stage_operational_files() {
     .context/docs/*.md docs/*.md docs/audits/*.md env.schema.md \
     sync.sh git.sh bot.sh refinar.py refinar_llm.py refinar_tts.py scripts/ \
     requirements.txt pytest.ini docker-compose.yml \
-    agent_graph/ app/ qdrant/ prisma/ sre/ tests/ \
+    agent_graph/ app/ qdrant/ prisma/ sre/ tests/ knowledge/ \
     .env.example prisma/.env.example 2>/dev/null || true
 }
 

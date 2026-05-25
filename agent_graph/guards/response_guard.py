@@ -62,6 +62,14 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
     )
     if any(term in text for term in forbidden):
         violations.append("forbidden_claim_or_secret")
+    try:
+        from agent_graph.services.domain_disambiguation import find_forbidden_context_drift
+
+        drift_hits = find_forbidden_context_drift(response)
+        if drift_hits:
+            violations.extend(f"context_drift:{hit}" for hit in drift_hits)
+    except Exception:
+        pass
     if _asks_more_than_two_questions(response):
         violations.append("too_many_questions")
     if len(response) > 1500:

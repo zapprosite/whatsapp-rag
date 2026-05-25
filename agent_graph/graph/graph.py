@@ -69,6 +69,8 @@ class AgentState(TypedDict):
     safe_response: str | None
     continuation_response: str | None
     response_guard_violations: list[str] | None
+    domain_disambiguation: dict[str, Any] | None
+    selected_template: dict[str, Any] | None
 
 
 def route_after_classify(state: AgentState) -> str:

@@ -67,3 +67,15 @@ def get_tts_policy(goal: str | None) -> dict[str, Any]:
     if goal and isinstance(by_goal, dict):
         default.update(by_goal.get(goal) or {})
     return default
+
+
+def get_ambiguity_lexicon() -> dict[str, Any]:
+    return load_playbook("ambiguity_lexicon").get("terms", {})
+
+
+def get_forbidden_context_drift() -> dict[str, Any]:
+    return load_playbook("forbidden_context_drift").get("forbidden_or_suspicious_terms", {})
+
+
+def get_response_templates() -> dict[str, Any]:
+    return load_playbook("response_templates").get("templates", {})
