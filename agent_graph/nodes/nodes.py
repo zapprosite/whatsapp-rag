@@ -1298,6 +1298,11 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         elif _is_ai_message(msg):
             llm_messages.append({"role": "assistant", "content": _message_text(msg)})
 
+    lead_state = state.get("lead_state") or {}
+    do_not_ask = state.get("do_not_ask") or []
+    missing_fields = state.get("missing_fields") or []
+    already_asked_fields = state.get("already_asked_fields") or []
+
     # Última mensagem do lead enriquecida com contexto RAG e CTA
     user_prompt = (
         f"==========================================================\n"
@@ -1305,6 +1310,10 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"{context_str or 'Nenhum contexto recuperado. Você NÃO DEVE inventar preços ou informações técnicas. Peça mais detalhes ao cliente.'}\n"
         f"[FIM DO CONTEXTO RECUPERADO]\n"
         f"==========================================================\n\n"
+        f"ESTADO DO ONBOARDING DO LEAD:\n"
+        f"- Estado estruturado atual: {json.dumps(lead_state, ensure_ascii=False)}\n"
+        f"- Informações já fornecidas (PROIBIDO PERGUNTAR): {do_not_ask}\n"
+        f"- Próximas informações em falta que você deve obter: {missing_fields}\n\n"
         f"Objetivo do Atendimento: Resolver a dúvida e avançar na qualificação do lead.\n"
         f"Serviço identificado: {service or 'não classificado'}\n"
         f"Modo de handoff: {handoff_mode}; motivo: {handoff_reason or 'nenhum'}.\n"
@@ -1314,8 +1323,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"CONTRATO DE GERAÇÃO DA RESPOSTA (OBRIGATÓRIO):\n"
         f"1. Responda de forma profissional e direta, em no máximo 4 frases.\n"
         f"2. ATENÇÃO MÁXIMA: Se o cliente perguntar preço/prazo/detalhe que NÃO está explícito no bloco de contexto acima, VOCÊ NÃO PODE INVENTAR. Responda elegantemente que precisa calcular ou avaliar os detalhes.\n"
-        f"3. Faça no máximo UMA pergunta ao final para avançar a conversa.\n"
-        f"4. Não repita informações ou perguntas que já constam no histórico da conversa.\n"
+        f"3. Faça no máximo UMA pergunta ao final para obter o PRÓXIMO campo da lista de informações em falta ({missing_fields}).\n"
+        f"4. NUNCA faça perguntas ou peça dados sobre informações que já foram fornecidas ({do_not_ask}).\n"
         f"5. Não ofereça handoff humano, especialista ou atendimento manual quando o modo de handoff for 'none' ou 'soft_alert'.\n"
         f"6. Nunca diga visita gratuita. Fora os dois preços fixos, conduza para análise técnica de R$50 abatível no orçamento aprovado."
     )
@@ -1340,9 +1349,74 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             ),
         }.get(outcome or "", "Me manda mais detalhes que eu te ajudo!")
 
+    # ── Guardrail Conversacional Anti-Burrice (Anti-Repetição) ───────────────
+    forbidden_mapping = {
+        "tipo_servico": ["instala", "higieni", "manuten", "consert", "limp", "eletri"],
+        "cidade_bairro": ["cidade", "bairro", "onde você", "seu endereço", "onde fica"],
+        "btus": ["btu", "potencia", "capacidade"],
+        "marca": ["marca", "fabricante"],
+        "modelo_aparelho": ["modelo", "aparelho", "equipamento"],
+        "aparelho_ja_comprado": ["já comprou", "já tem o ar", "adquiriu"],
+        "foto_aparelho": ["foto do aparelho", "foto da evaporadora", "imagem do ar"],
+        "foto_local_interno": ["foto de dentro", "foto do local interno", "imagem interna"],
+        "foto_local_externo": ["foto de fora", "foto do local externo", "imagem externa"],
+        "foto_disjuntor": ["foto do disjuntor", "foto do quadro"],
+        "ponto_eletrico_exclusivo": ["ponto elétrico", "ponto de energia", "220v"],
+        "distancia_aproximada": ["distancia", "metros", "tubulação"],
+        "tubulacao_existente": ["infraestrutura", "tubulação pronta", "infra pronta"],
+        "tempo_sem_manutencao": ["tempo sem", "última manutenção", "quanto tempo"],
+        "cheiro_ruim": ["cheiro", "odor"],
+        "pinga_agua": ["pingando", "vazando água", "pinga"],
+        "rinite_alergia": ["rinite", "alergia"],
+    }
+
+    detected_violations = []
+    response_lower = response.lower()
+    for field in do_not_ask:
+        keywords = forbidden_mapping.get(field, [])
+        if "?" in response_lower:
+            for kw in keywords:
+                if kw in response_lower:
+                    detected_violations.append(field)
+                    break
+                    
+    if detected_violations:
+        logger.warning(
+            "Guardrail conversacional detectou perguntas repetitivas proibidas: %s. Resposta original: %r",
+            detected_violations,
+            response
+        )
+        correct_prompt = (
+            "Você é o Will da Refrimix. Corrija a resposta abaixo removendo qualquer pergunta ou pedido "
+            "sobre informações que o cliente já nos forneceu e que estão marcadas como proibidas.\n\n"
+            f"Campos já fornecidos e PROIBIDOS de perguntar: {', '.join(detected_violations)}\n\n"
+            f"Resposta original: \"{response}\"\n\n"
+            "Escreva a nova versão da resposta de forma natural, educada e direta, sem fazer nenhuma pergunta sobre os campos proibidos. Retorne APENAS o texto da nova resposta:"
+        )
+        try:
+            corrected = await llm_chat([
+                {"role": "system", "content": WILL_SYSTEM_PROMPT},
+                {"role": "user", "content": correct_prompt}
+            ])
+            corrected = corrected.strip()
+            if corrected:
+                logger.info("Resposta corrigida pelo Guardrail: %r", corrected)
+                response = corrected
+        except Exception as e:
+            logger.warning("Falha ao rodar LLM corretivo no Guardrail: %s", e)
+
     response = await _polish_ptbr_if_enabled(response, user_text)
     ai_message = AIMessage(content=response)
-    return {"messages": messages + [ai_message], "rag_context": rag_context, "service": service, "outcome": outcome}
+    return {
+        "messages": messages + [ai_message],
+        "rag_context": rag_context,
+        "service": service,
+        "outcome": outcome,
+        "lead_state": lead_state,
+        "already_asked_fields": already_asked_fields,
+        "missing_fields": missing_fields,
+        "do_not_ask": do_not_ask,
+    }
 
 
 async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
@@ -1446,13 +1520,14 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
     service = state.get("service")
     outcome = state.get("outcome")
     customer_data = state.get("customer_data", {})
+    phone = customer_data.get("phone", "unknown")
 
     user_message = next((_message_text(m) for m in messages if _is_human_message(m)), None)
     ai_message = next((_message_text(m) for m in reversed(messages) if _is_ai_message(m)), None)
 
     try:
         await prisma_save_interaction({
-            "phone": customer_data.get("phone", "unknown"),
+            "phone": phone,
             "user_message": user_message or "",
             "intent": intent,
             "service": service,
@@ -1467,6 +1542,27 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
         })
     except Exception as e:
         logger.error(f"Falha ao salvar interação: {e}")
+
+    # ── Cria LeadEvent transacional para resposta da IA (Assistant) ───────────
+    if phone and phone != "unknown" and ai_message:
+        from prisma import Prisma
+        db = Prisma()
+        await db.connect()
+        try:
+            lead = await db.lead.find_unique(where={"phone": phone})
+            if lead:
+                await db.leadevent.create(
+                    data={
+                        "lead_id": lead.id,
+                        "role": "assistant",
+                        "message": ai_message,
+                        "extracted_data": json.dumps({}),
+                    }
+                )
+        except Exception as e:
+            logger.warning("Falha ao salvar LeadEvent para assistant: %s", e)
+        finally:
+            await db.disconnect()
 
     return {"messages": messages}
 
@@ -1505,12 +1601,140 @@ async def route_human(state: dict[str, Any]) -> dict[str, Any]:
 # Tarefa 3 — preprocess_input (STT + Vision)
 # ──────────────────────────────────────────────────────────────────────────────
 
+DEFAULT_LEAD_STATE = {
+  "tipo_servico": None,
+  "nome": None,
+  "cidade_bairro": None,
+  "tipo_imovel": None,
+  "marca": None,
+  "btus": None,
+  "modelo_aparelho": None,
+  "aparelho_ja_comprado": None,
+  "fotos": {
+    "aparelho": False,
+    "local_interno": False,
+    "local_externo": False,
+    "disjuntor": False,
+    "erro_display": False
+  },
+  "instalacao": {
+    "local_evaporadora": None,
+    "local_condensadora": None,
+    "distancia_aproximada": None,
+    "ponto_eletrico_exclusivo": None,
+    "tubulacao_existente": None,
+    "precisa_suporte": None,
+    "precisa_dreno": None
+  },
+  "manutencao": {
+    "tempo_sem_manutencao": None,
+    "cheiro_ruim": None,
+    "pinga_agua": None,
+    "rinite_alergia": None
+  },
+  "conserto": {
+    "liga": None,
+    "gela": None,
+    "codigo_erro": None,
+    "condensadora_liga": None,
+    "disjuntor_cai": None
+  },
+  "eletrica": {
+    "disjuntor_cai": None,
+    "fio_esquenta": None,
+    "cheiro_queimado": None,
+    "circuito_individual": None
+  }
+}
+
+def compute_fields_status(lead_state: dict) -> tuple[list[str], list[str], list[str]]:
+    """
+    Computa do_not_ask, already_asked_fields e missing_fields com base no lead_state.
+    Retorna (do_not_ask, already_asked_fields, missing_fields).
+    """
+    tipo_servico = lead_state.get("tipo_servico")
+    
+    # 1. Determina quais campos já foram preenchidos (flat list)
+    filled_fields = []
+    
+    # Campos gerais
+    for field in ["tipo_servico", "nome", "cidade_bairro", "tipo_imovel", "marca", "btus", "modelo_aparelho", "aparelho_ja_comprado"]:
+        if lead_state.get(field) is not None:
+            filled_fields.append(field)
+            
+    # Fotos
+    fotos = lead_state.get("fotos", {})
+    for f in ["aparelho", "local_interno", "local_externo", "disjuntor", "erro_display"]:
+        if fotos.get(f):
+            filled_fields.append(f"foto_{f}")
+            
+    # Instalação
+    inst = lead_state.get("instalacao", {})
+    for field in ["local_evaporadora", "local_condensadora", "distancia_aproximada", "ponto_eletrico_exclusivo", "tubulacao_existente", "precisa_suporte", "precisa_dreno"]:
+        if inst.get(field) is not None:
+            filled_fields.append(field)
+            
+    # Manutenção/Higienização
+    manut = lead_state.get("manutencao", {})
+    for field in ["tempo_sem_manutencao", "cheiro_ruim", "pinga_agua", "rinite_alergia"]:
+        if field in manut and manut[field] is not None:
+            filled_fields.append(field)
+            
+    # Conserto
+    cons = lead_state.get("conserto", {})
+    for field in ["liga", "gela", "codigo_erro", "condensadora_liga", "disjuntor_cai"]:
+        if field in cons and cons[field] is not None:
+            filled_fields.append(field)
+            
+    # Elétrica
+    elet = lead_state.get("eletrica", {})
+    for field in ["disjuntor_cai", "fio_esquenta", "cheiro_queimado", "circuito_individual"]:
+        if field in elet and elet[field] is not None:
+            filled_fields.append(field)
+            
+    # do_not_ask e already_asked_fields são basicamente os campos preenchidos
+    do_not_ask = list(set(filled_fields))
+    already_asked_fields = list(set(filled_fields))
+    
+    # 2. Computa missing_fields de acordo com o tipo_servico
+    missing_fields = []
+    
+    if not tipo_servico:
+        # Se não tem tipo_servico, os campos básicos em falta são tipo_servico e cidade_bairro
+        if "tipo_servico" not in do_not_ask:
+            missing_fields.append("tipo_servico")
+        if "cidade_bairro" not in do_not_ask:
+            missing_fields.append("cidade_bairro")
+    elif tipo_servico == "instalacao":
+        reqs = ["cidade_bairro", "btus", "foto_local_interno", "foto_local_externo", "ponto_eletrico_exclusivo", "distancia_aproximada", "tubulacao_existente"]
+        for r in reqs:
+            if r not in do_not_ask:
+                missing_fields.append(r)
+    elif tipo_servico in ["manutencao", "higienizacao"]:
+        reqs = ["cidade_bairro", "tempo_sem_manutencao", "cheiro_ruim", "pinga_agua", "rinite_alergia", "foto_aparelho"]
+        for r in reqs:
+            if r not in do_not_ask:
+                missing_fields.append(r)
+    elif tipo_servico == "conserto":
+        reqs = ["cidade_bairro", "liga", "gela", "codigo_erro", "foto_aparelho"]
+        for r in reqs:
+            if r not in do_not_ask:
+                missing_fields.append(r)
+    elif tipo_servico == "eletrica":
+        reqs = ["cidade_bairro", "disjuntor_cai", "fio_esquenta", "cheiro_queimado", "foto_disjuntor"]
+        for r in reqs:
+            if r not in do_not_ask:
+                missing_fields.append(r)
+                
+    return do_not_ask, already_asked_fields, missing_fields
+
 async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
     """
     Pré-processa input multimodal antes de classify_service:
     - audioMessage → transcreve com Groq Whisper → substitui texto
     - imageMessage → analisa com Vision LLM → prepend descrição ao texto
     - conversation → passa direto
+    - Inicializa/carrega o lead_state estruturado e campos associados a partir do Postgres 17.
     """
     message_type = state.get("message_type", "conversation")
     media_url = state.get("media_url", "")
@@ -1519,6 +1743,56 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
     instance = state.get("instance", "")
     messages = state.get("messages", [])
 
+    # ── 1. Inicializa o estado com os dados do banco ────────────────────────
+    customer_data = state.get("customer_data", {})
+    phone = customer_data.get("phone", "unknown")
+    
+    lead_state = None
+    already_asked_fields = []
+    missing_fields = []
+    do_not_ask = []
+    conversation_summary = ""
+    
+    if phone and phone != "unknown":
+        from prisma import Prisma
+        import json
+        db = Prisma()
+        await db.connect()
+        try:
+            lead = await db.lead.find_unique(where={"phone": phone})
+            if not lead:
+                # Cria novo lead no Postgres com estado inicial padrão
+                lead = await db.lead.create(
+                    data={
+                        "phone": phone,
+                        "name": customer_data.get("name"),
+                        "lead_state": json.dumps(DEFAULT_LEAD_STATE),
+                        "already_asked_fields": json.dumps([]),
+                        "missing_fields": json.dumps(["tipo_servico", "cidade_bairro"]),
+                        "do_not_ask": json.dumps([]),
+                    }
+                )
+            
+            # Carrega campos do Postgres 17
+            lead_state = json.loads(lead.lead_state) if isinstance(lead.lead_state, str) else (lead.lead_state or DEFAULT_LEAD_STATE)
+            if not lead_state:
+                lead_state = DEFAULT_LEAD_STATE
+                
+            already_asked_fields = json.loads(lead.already_asked_fields) if isinstance(lead.already_asked_fields, str) else (lead.already_asked_fields or [])
+            missing_fields = json.loads(lead.missing_fields) if isinstance(lead.missing_fields, str) else (lead.missing_fields or ["tipo_servico", "cidade_bairro"])
+            do_not_ask = json.loads(lead.do_not_ask) if isinstance(lead.do_not_ask, str) else (lead.do_not_ask or [])
+            conversation_summary = lead.conversation_summary or ""
+        except Exception as e:
+            logger.warning("Falha ao carregar Lead do Postgres em preprocess_input: %s", e)
+            lead_state = DEFAULT_LEAD_STATE
+            missing_fields = ["tipo_servico", "cidade_bairro"]
+        finally:
+            await db.disconnect()
+    else:
+        lead_state = DEFAULT_LEAD_STATE
+        missing_fields = ["tipo_servico", "cidade_bairro"]
+
+    # ── 2. Processa mídia multimodal ────────────────────────────────────────
     if message_type == "audioMessage" and (media_url or media_base64 or msg_id):
         try:
             from agent_graph.services.stt import transcribe_audio
@@ -1530,21 +1804,26 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
                 new_messages[-1] = HumanMessage(content=transcript)
             else:
                 new_messages.append(HumanMessage(content=transcript))
-            return {"messages": new_messages, "message_type": message_type}
+            return {
+                "messages": new_messages,
+                "message_type": message_type,
+                "lead_state": lead_state,
+                "already_asked_fields": already_asked_fields,
+                "missing_fields": missing_fields,
+                "do_not_ask": do_not_ask,
+                "conversation_summary": conversation_summary,
+            }
         except Exception as e:
             logger.error(f"STT falhou: {e}")
-            # Mantém o estado sem alterar mensagens
 
     elif message_type == "imageMessage" and (media_url or media_base64 or msg_id):
         try:
             from agent_graph.services.vision import analyze_image
-            # Caption já pode estar como última HumanMessage
             caption = ""
             if messages and _is_human_message(messages[-1]):
                 caption = _message_text(messages[-1]) or ""
             description = await analyze_image(media_url, caption, instance or None, msg_id, media_base64)
             logger.info(f"Vision description: {description[:80]!r}")
-            # Prepend descrição ao texto do usuário
             combined = f"[Imagem: {description}]"
             if caption:
                 combined = f"[Imagem: {description}]\n{caption}"
@@ -1553,11 +1832,137 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
                 new_messages[-1] = HumanMessage(content=combined)
             else:
                 new_messages.append(HumanMessage(content=combined))
-            return {"messages": new_messages, "message_type": message_type}
+            return {
+                "messages": new_messages,
+                "message_type": message_type,
+                "lead_state": lead_state,
+                "already_asked_fields": already_asked_fields,
+                "missing_fields": missing_fields,
+                "do_not_ask": do_not_ask,
+                "conversation_summary": conversation_summary,
+            }
         except Exception as e:
             logger.error(f"Vision falhou: {e}")
 
-    return {"messages": messages, "message_type": message_type}
+    return {
+        "messages": messages,
+        "message_type": message_type,
+        "lead_state": lead_state,
+        "already_asked_fields": already_asked_fields,
+        "missing_fields": missing_fields,
+        "do_not_ask": do_not_ask,
+        "conversation_summary": conversation_summary,
+    }
+
+async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
+    """
+    Nó Extrator (Extractor LLM):
+    - Lê a última mensagem do cliente e o histórico.
+    - Chama o LLM (Qwen local) para extrair novos dados estruturados e obter um patch JSON.
+    - Mescla o patch ao lead_state no Postgres.
+    - Registra a mensagem do usuário como LeadEvent.
+    """
+    from datetime import datetime
+    
+    messages = state.get("messages", [])
+    if not messages:
+        return {}
+
+    customer_data = state.get("customer_data", {})
+    phone = customer_data.get("phone", "unknown")
+    
+    lead_state = state.get("lead_state") or dict(DEFAULT_LEAD_STATE)
+    last_message = messages[-1]
+    user_text = _message_text(last_message)
+    
+    prompt = (
+        "Você é um extrator de dados para atendimento comercial de ar-condicionado no Brasil.\n\n"
+        "Leia o histórico da conversa e a nova mensagem do cliente abaixo.\n"
+        "Atualize APENAS os dados que o cliente informou claramente na última mensagem ou no histórico recente.\n"
+        "Não invente nenhuma informação. Não tente adivinhar. Não apague dados existentes. Nunca marque um campo como null/None se ele já estava preenchido.\n\n"
+        f"ESTADO ATUAL DO LEAD (JSON):\n{json.dumps(lead_state, ensure_ascii=False, indent=2)}\n\n"
+        f"NOVA MENSAGEM DO CLIENTE:\n\"{user_text}\"\n\n"
+        "Retorne APENAS um JSON válido no seguinte formato exato, sem explicações:\n"
+        "{\n"
+        "  \"state_patch\": {\n"
+        "     // altere apenas os campos que o cliente informou claramente na nova mensagem ou no histórico\n"
+        "     // Exemplos de campos válidos no primeiro nível:\n"
+        "     // \"tipo_servico\" (valores: \"instalacao\", \"manutencao\", \"higienizacao\", \"conserto\", \"eletrica\", \"projeto\"), \"nome\", \"cidade_bairro\", \"marca\", \"btus\"\n"
+        "  },\n"
+        "  \"detected_service_type\": null // string com o tipo de serviço detectado ou null\n"
+        "}"
+    )
+    
+    state_patch = {}
+    detected_service_type = None
+    
+    try:
+        resp = await _call_local_qwen([{"role": "user", "content": prompt}])
+        clean_resp = resp.strip()
+        if "```json" in clean_resp:
+            clean_resp = clean_resp.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean_resp:
+            clean_resp = clean_resp.split("```")[1].strip()
+            
+        data = json.loads(clean_resp)
+        state_patch = data.get("state_patch") or {}
+        detected_service_type = data.get("detected_service_type")
+    except Exception as e:
+        logger.warning("Falha ao rodar LLM Extractor em extract_lead_data: %s", e)
+        
+    if state_patch:
+        for k, v in state_patch.items():
+            if v is not None:
+                if k in lead_state and isinstance(lead_state[k], dict) and isinstance(v, dict):
+                    lead_state[k].update(v)
+                else:
+                    lead_state[k] = v
+                    
+    if detected_service_type and not lead_state.get("tipo_servico"):
+        lead_state["tipo_servico"] = detected_service_type
+        
+    do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
+    
+    if phone and phone != "unknown":
+        from prisma import Prisma
+        db = Prisma()
+        await db.connect()
+        try:
+            lead = await db.lead.find_unique(where={"phone": phone})
+            if lead:
+                await db.lead.update(
+                    where={"phone": phone},
+                    data={
+                        "lead_state": json.dumps(lead_state),
+                        "already_asked_fields": json.dumps(already_asked_fields),
+                        "missing_fields": json.dumps(missing_fields),
+                        "do_not_ask": json.dumps(do_not_ask),
+                        "service_type": lead_state.get("tipo_servico"),
+                        "city_bairro": lead_state.get("cidade_bairro"),
+                        "last_user_message_at": datetime.now(),
+                    }
+                )
+                
+                await db.leadevent.create(
+                    data={
+                        "lead_id": lead.id,
+                        "role": "user",
+                        "message": user_text,
+                        "extracted_data": json.dumps(state_patch),
+                    }
+                )
+        except Exception as e:
+            logger.warning("Falha ao salvar dados de extração no Postgres: %s", e)
+        finally:
+            await db.disconnect()
+            
+    return {
+        "lead_state": lead_state,
+        "already_asked_fields": already_asked_fields,
+        "missing_fields": missing_fields,
+        "do_not_ask": do_not_ask,
+        "service": lead_state.get("tipo_servico") or state.get("service"),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

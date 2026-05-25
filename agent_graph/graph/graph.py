@@ -6,6 +6,7 @@ from langchain_core.messages import BaseMessage
 
 from agent_graph.nodes.nodes import (
     preprocess_input,
+    extract_lead_data,
     classify_service,
     retrieve_knowledge,
     generate_response,
@@ -54,6 +55,12 @@ class AgentState(TypedDict):
     # Resposta
     response_modality: Literal["text", "audio"] | None
     audio_bytes: bytes | None      # bytes WAV do TTS (não serializado no Redis)
+    # Memória operacional Postgres 17
+    lead_state: dict[str, Any] | None
+    already_asked_fields: list[str] | None
+    missing_fields: list[str] | None
+    do_not_ask: list[str] | None
+    conversation_summary: str | None
 
 
 def route_after_classify(state: AgentState) -> str:
@@ -78,6 +85,7 @@ def build_graph() -> StateGraph:
 
     # ── Nós ────────────────────────────────────────────────────────────────────
     workflow.add_node("preprocess_input",         preprocess_input)
+    workflow.add_node("extract_lead_data",        extract_lead_data)
     workflow.add_node("classify_service",         classify_service)
     workflow.add_node("retrieve_knowledge",       retrieve_knowledge)
     workflow.add_node("generate_response",        generate_response)
@@ -93,7 +101,8 @@ def build_graph() -> StateGraph:
     workflow.set_entry_point("preprocess_input")
 
     # ── Arestas ────────────────────────────────────────────────────────────────
-    workflow.add_edge("preprocess_input", "classify_service")
+    workflow.add_edge("preprocess_input", "extract_lead_data")
+    workflow.add_edge("extract_lead_data", "classify_service")
 
     workflow.add_conditional_edges(
         "classify_service",

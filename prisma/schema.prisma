@@ -29,17 +29,42 @@ model Interaction {
 }
 
 model Lead {
-  id         String   @id @default(uuid())
-  phone      String   @unique
-  name       String?
-  service    String?
-  address    String?
-  window     String?
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id                   String      @id @default(uuid())
+  phone                String      @unique
+  name                 String?
+  service              String?
+  address              String?
+  window               String?
+  source               String?     @default("whatsapp")
+  service_type         String?
+  pipeline_stage       String?     @default("new")
+  city_bairro          String?
+  urgency              String?
+  lead_state           Json?       @default("{}")
+  conversation_summary String?
+  already_asked_fields Json?       @default("[]")
+  missing_fields       Json?       @default("[]")
+  do_not_ask           Json?       @default("[]")
+  last_user_message_at DateTime?
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
 
   @@index([phone])
+  @@index([service_type])
+  @@index([pipeline_stage])
   @@map("leads")
+}
+
+model LeadEvent {
+  id             String   @id @default(uuid())
+  lead_id        String
+  role           String   // user, assistant, system
+  message        String
+  extracted_data Json?    @default("{}")
+  created_at     DateTime @default(now())
+
+  @@index([lead_id])
+  @@map("lead_events")
 }
 
 model CustomerService {
