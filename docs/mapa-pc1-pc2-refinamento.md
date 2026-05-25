@@ -44,6 +44,11 @@ No PC2 ficam:
 - Scripts de refinamento:
   - `refinar.py`
   - `refinar_llm.py`
+- Base semântica versionada:
+  - `qdrant/hvac_top100.py`: FAQ Top100 compatível com o seed atual.
+  - `knowledge/refrimix/playbooks/*.yaml`: playbooks de decisão comercial, técnica, linguagem e segurança.
+  - `knowledge/refrimix/docs/*.md`: documentos de apoio por cenário de atendimento.
+  - `knowledge/refrimix/schemas/*.json`: contratos de payload para documentos RAG e leitura do lead.
 - Espelho Git:
   - Gitea primário: remoto `origin`.
   - GitHub espelho: remoto `github`.
@@ -106,6 +111,7 @@ O que normalmente depende do PC1:
 | Redis | PC1 ou local/túnel | Queue, histórico, locks, bot on/off | `REDIS_URL`, `WHATSAPP_QUEUE_KEY` |
 | PostgreSQL | PC1 | Prisma, interações, leads | `DATABASE_URL` |
 | Qdrant | PC1/PC2/túnel | RAG semântico dos serviços | `QDRANT_URL`, `QDRANT_COLLECTION` |
+| Knowledge Refrimix | PC2 | Fonte versionada para playbooks, documentos e payloads RAG | `knowledge/refrimix/*` |
 | MiniMax | externo | Resposta principal quando configurado | `MINIMAX_*` |
 | Groq | externo | STT, Vision e fallback | `GROQ_*` |
 | Qwen local | PC1/túnel | Classificação/fallback local | `LOCAL_QWEN_*` |
@@ -346,6 +352,65 @@ Use quando a resposta precisa de conhecimento técnico/comercial:
 - argumentos de venda;
 - detalhes de PMOC, ART, laudo, contrato.
 
+O Top100 continua sendo a base compatível com o seed atual. Para conhecimento novo e mais estruturado, use também a camada:
+
+```text
+knowledge/refrimix/
+```
+
+Essa pasta é o playbook semântico versionado da Refrimix. Ela não deve guardar segredo, telefone sensível, credencial, histórico real de cliente nem dado pessoal. O objetivo é manter conhecimento reutilizável para o bot decidir:
+
+1. o que o lead quer;
+2. em que etapa do atendimento ele está;
+3. qual próximo passo faz sentido;
+4. como explicar sem inventar preço, diagnóstico ou agenda.
+
+Arquivos principais:
+
+| Caminho | Uso |
+|---|---|
+| `knowledge/refrimix/playbooks/services.yaml` | Serviços, escopo e limites comerciais |
+| `knowledge/refrimix/playbooks/pricing_policy.yaml` | Política de preço fixo, análise técnica e abatimento |
+| `knowledge/refrimix/playbooks/qualification_questions.yaml` | Perguntas por serviço e etapa do funil |
+| `knowledge/refrimix/playbooks/objection_handling.yaml` | Objeções comerciais e resposta consultiva |
+| `knowledge/refrimix/playbooks/brazil_hvac_glossary.yaml` | Glossário HVAC em português brasileiro |
+| `knowledge/refrimix/playbooks/ambiguity_lexicon.yaml` | Termos ambíguos e desambiguação |
+| `knowledge/refrimix/playbooks/high_value_signals.yaml` | Sinais de alto valor e alto padrão |
+| `knowledge/refrimix/playbooks/response_templates.yaml` | Templates de resposta do atendimento |
+| `knowledge/refrimix/playbooks/tts_speech_policy.yaml` | Regras de fala curta para áudio |
+| `knowledge/refrimix/playbooks/malicious_lead_policy.yaml` | Conduta para lead malicioso ou abusivo |
+| `knowledge/refrimix/docs/*.md` | Documentos de apoio por cenário comercial/técnico |
+| `knowledge/refrimix/schemas/rag_document.schema.json` | Contrato esperado para chunk RAG |
+| `knowledge/refrimix/schemas/lead_mind.schema.json` | Contrato esperado para leitura estruturada do lead |
+
+Payload ideal para o Qdrant quando os playbooks forem ingeridos:
+
+```json
+{
+  "doc_id": "pricing_policy:instalacao_split_simples",
+  "doc_type": "playbook",
+  "service": "instalacao",
+  "stage": "pricing",
+  "segment": "residential",
+  "goal": "quote_or_qualify",
+  "priority": 90,
+  "tags": ["preco", "split", "acesso_simples"],
+  "source": "knowledge/refrimix/playbooks/pricing_policy.yaml",
+  "text": "..."
+}
+```
+
+Campos que devem ser filtráveis/indexáveis no Qdrant quando a ingestão expandida estiver ativa:
+
+- `doc_type`
+- `service`
+- `stage`
+- `segment`
+- `goal`
+- `priority`
+- `tags`
+- `source`
+
 Depois de editar:
 
 ```bash
@@ -384,6 +449,7 @@ Use sempre o nível mais baixo que resolve o problema.
 | Preço fixo errado | `_direct_price_response` ou RAG | Sim se código; não se RAG |
 | Serviço classificado errado | `SCORE_MAP` | Sim |
 | Informação técnica/comercial faltando | `qdrant/hvac_top100.py` | Não, só re-seed |
+| Playbook semântico faltando | `knowledge/refrimix/playbooks/*.yaml` ou `knowledge/refrimix/docs/*.md` | Não, só re-seed quando ingerido no Qdrant |
 | Variação inconsistente do LLM | exemplo validado no prompt ou resposta determinística | Sim |
 
 ### Fluxo Manual Seguro
