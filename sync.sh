@@ -173,6 +173,7 @@ PY
 stage_operational_files() {
   git add \
     CLAUDE.md GUIDE_REFINAMENTO.md README.md AGENTS.md \
+    .gitattributes .rules/ orcamento_teste.pdf \
     .context/docs/*.md docs/*.md \
     sync.sh git.sh refinar.py refinar_llm.py requirements.txt \
     agent_graph/ app/ qdrant/ prisma/ sre/ tests/ \
