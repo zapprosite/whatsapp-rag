@@ -22,10 +22,10 @@ def test_tts_normalizes_written_ptbr_for_speech():
     assert "oitocentos e cinquenta reais" in text
     assert "três vezes" in text
     assert "Pix" in text
-    assert "P M O C" in text
-    assert "A R T" in text
-    assert "C R E A" in text
-    assert "B T U" in text
+    assert "pê ême ô cê" in text
+    assert "a erre tê" in text
+    assert "CREA" in text
+    assert "bê tê us" in text
     assert "link" in text
 
 
@@ -47,7 +47,7 @@ def test_chatterbox_falls_back_to_omnivoice_without_xtts(monkeypatch):
         return None
 
     async def omni_audio(text: str, voice_style: str) -> bytes | None:
-        assert "P M O C" in text
+        assert "pê ême ô cê" in text
         return b"o" * 1024
 
     monkeypatch.setattr(service, "_synthesize_chatterbox", no_audio)
