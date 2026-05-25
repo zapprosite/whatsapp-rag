@@ -74,9 +74,9 @@ PC1 é a máquina de serviços persistentes e/ou pesados.
 
 O projeto referencia PC1 como:
 
-- Redis: `100.69.167.18:6379`.
-- PostgreSQL: `100.69.167.18:5432`.
-- Host SSH padrão para TTS/OmniVoice: `will-zappro@100.69.167.18`.
+- Redis: `100.66.232.72:6379`.
+- PostgreSQL: `100.66.232.72:5432`.
+- Host SSH padrão para TTS/OmniVoice: `will-zappro@100.66.232.72`.
 - Chave SSH usada no container: `pc1_zappro_ed25519`.
 - Vozes TTS: `/srv/data/tts/voices`.
 - Serviços locais de IA/voz, quando expostos por túnel:
@@ -134,7 +134,7 @@ CHATTERBOX_URL=http://127.0.0.1:8200
 TTS_CHATTERBOX_LANGUAGE=pt
 TTS_ALLOW_CHATTERBOX_PTBR=1
 TTS_MAX_CHARS=420
-SSH_HOST_PC1=will-zappro@100.69.167.18
+SSH_HOST_PC1=will-zappro@100.66.232.72
 ```
 
 Auditoria repetível:
