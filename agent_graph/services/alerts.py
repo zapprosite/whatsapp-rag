@@ -30,13 +30,12 @@ async def send_appointment_alert(lead_data: dict) -> bool:
     phone = lead_data.get("phone", "")
 
     text = (
-        f"🔔 *Novo lead agendado*\n\n"
-        f"👤 Nome: {name}\n"
-        f"📱 Contato: {phone}\n"
-        f"🔧 Serviço: {service}\n"
-        f"📍 Endereço: {address}\n"
-        f"🕐 Janela: {window}\n\n"
-        f"Responda direto no WhatsApp do lead."
+        "*LEAD PRONTO PARA AGENDAR*\n\n"
+        f"Telefone: {phone}\n"
+        "Motivo: appointment_ready\n"
+        f"Última mensagem: {lead_data.get('last_message') or 'não informada'}\n"
+        f"Resumo: {name}; serviço {service}; local {address}; janela {window}.\n"
+        "Próximo passo recomendado: confirmar agenda direto no WhatsApp do cliente."
     )
 
     try:

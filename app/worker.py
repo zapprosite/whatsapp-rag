@@ -40,10 +40,18 @@ _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
 _LOCK_REQUEUE_DELAY = float(os.getenv("CONV_LOCK_REQUEUE_DELAY_SECONDS", "0.4"))
 _HANDOFF_ALERT_TTL = int(os.getenv("HANDOFF_ALERT_TTL_SECONDS", "21600"))
+_MANUAL_TAKEOVER_TTL = int(os.getenv("MANUAL_TAKEOVER_TTL_SECONDS", "86400"))
 _ACTIVE_SERVICE_STATUSES = tuple(
     s.strip() for s in os.getenv(
         "ACTIVE_SERVICE_STATUSES",
         "scheduled,in_progress,awaiting_parts,awaiting_customer,approved,active",
+    ).split(",")
+    if s.strip()
+)
+_COMPLETED_SERVICE_STATUSES = tuple(
+    s.strip() for s in os.getenv(
+        "COMPLETED_SERVICE_STATUSES",
+        "completed,done,finished,concluido,concluído,cancelled,canceled",
     ).split(",")
     if s.strip()
 )
@@ -195,6 +203,69 @@ async def load_active_customer_service(phone: str) -> dict[str, Any] | None:
         "notes": row.get("notes"),
         "updated_at": str(row.get("updated_at") or ""),
     }
+
+
+async def load_last_customer_service(phone: str) -> dict[str, Any] | None:
+    """Carrega o último serviço concluído/encerrado para diferenciar cliente antigo."""
+    if not os.getenv("DATABASE_URL") or not _COMPLETED_SERVICE_STATUSES:
+        return None
+
+    try:
+        from prisma import Prisma
+
+        db = Prisma()
+        await db.connect()
+        try:
+            placeholders = ", ".join(f"${idx}" for idx in range(2, len(_COMPLETED_SERVICE_STATUSES) + 2))
+            rows = await db.query_raw(
+                f"""
+                SELECT id, phone, service, status, address, scheduled_window, notes, created_at, updated_at
+                FROM customer_services
+                WHERE phone = $1
+                  AND status IN ({placeholders})
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                phone,
+                *_COMPLETED_SERVICE_STATUSES,
+            )
+        finally:
+            await db.disconnect()
+    except Exception as e:
+        logger.warning("Não consegui consultar último serviço de %s: %s", phone, e)
+        return None
+
+    if not rows:
+        return None
+
+    row = rows[0]
+    return {
+        "id": str(row.get("id") or ""),
+        "phone": str(row.get("phone") or phone),
+        "service": row.get("service"),
+        "status": row.get("status"),
+        "address": row.get("address"),
+        "scheduled_window": row.get("scheduled_window"),
+        "notes": row.get("notes"),
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
+
+
+def manual_takeover_key(phone: str) -> str:
+    return f"manual_takeover:{_safe_key(normalize_whatsapp_number(phone) or phone)}"
+
+
+async def is_manual_takeover(r: redis.Redis, phone: str) -> bool:
+    return await r.get(manual_takeover_key(phone)) == "1"
+
+
+async def set_manual_takeover(r: redis.Redis, phone: str, enabled: bool) -> None:
+    key = manual_takeover_key(phone)
+    if enabled:
+        await r.set(key, "1", ex=_MANUAL_TAKEOVER_TTL)
+    else:
+        await r.delete(key)
 
 
 @asynccontextmanager
@@ -357,12 +428,7 @@ async def notify_owner(
 ) -> bool:
     """Notifica o dono (Will) sobre handoff real ou alerta soft de alto valor."""
     owner_phone = os.getenv("OWNER_PHONE", "5513996659382")
-    if handoff_mode == "hard_transfer":
-        title = "ALERTA DE HANDOFF"
-    elif reason == "active_service_followup":
-        title = "ALERTA DE CLIENTE COM SERVIÇO EM ANDAMENTO"
-    else:
-        title = "ALERTA DE LEAD ALTO VALOR"
+    title = _alert_title(reason, handoff_mode)
     text = (
         f"🚨 *{title}* 🚨\n\n"
         f"Telefone: {lead_phone}\n"
@@ -386,11 +452,33 @@ def _summarize_conversation(messages: list[BaseMessage]) -> str:
     return " | ".join(turns)[-900:]
 
 
+def _alert_title(reason: str, handoff_mode: str) -> str:
+    titles = {
+        "appointment_ready": "LEAD PRONTO PARA AGENDAR",
+        "no_context_needs_human_review": "REVISÃO HUMANA POR FALTA DE CONTEXTO",
+        "active_service_followup": "CLIENTE COM SERVIÇO EM ANDAMENTO",
+        "complaint_or_risk": "RECLAMAÇÃO OU RISCO",
+        "sensitive_complaint": "RECLAMAÇÃO OU RISCO",
+        "light_complaint": "RECLAMAÇÃO OU RISCO",
+        "explicit_handoff": "CLIENTE PEDIU HUMANO",
+        "high_value_lead": "LEAD DE ALTO VALOR",
+    }
+    if reason.startswith("high_value"):
+        return "LEAD DE ALTO VALOR"
+    if handoff_mode == "hard_transfer":
+        return "HANDOFF HUMANO"
+    return titles.get(reason, "ALERTA OPERACIONAL")
+
+
 def _handoff_next_step(handoff_mode: str, reason: str) -> str:
     if handoff_mode == "hard_transfer":
-        if reason == "sensitive_complaint":
+        if reason in {"sensitive_complaint", "complaint_or_risk"}:
             return "Assumir a conversa, pedir dados do orçamento/serviço e dar retorno claro."
         return "Assumir a conversa no WhatsApp Web; o bot já pediu serviço e cidade para adiantar."
+    if reason == "appointment_ready":
+        return "Confirmar janela de agenda e assumir se o cliente responder horário preferido."
+    if reason == "no_context_needs_human_review":
+        return "Ler o histórico e responder manualmente se a intenção continuar incerta."
     if reason == "light_complaint":
         return "Acompanhar em paralelo; o bot pediu detalhes para adiantar a análise."
     if reason == "active_service_followup":
@@ -572,16 +660,28 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
         return
 
     async with RedisConversationLock(r, phone, ttl_seconds=_LOCK_TTL, wait_seconds=_LOCK_WAIT):
+        if await is_manual_takeover(r, phone):
+            logger.info("Humano assumiu; IA pausada para este contato: %s", phone)
+            return
+
         history = await load_history(phone, r)
         is_first_message = len(history) == 0
         messages_with_history = history + [HumanMessage(content=message_text)]
         active_service = await load_active_customer_service(phone)
+        last_service = None if active_service else await load_last_customer_service(phone)
         if active_service:
             logger.info(
                 "Cliente %s tem serviço ativo: %s/%s",
                 phone,
                 active_service.get("service") or "-",
                 active_service.get("status") or "-",
+            )
+        elif last_service:
+            logger.info(
+                "Cliente %s tem serviço antigo: %s/%s",
+                phone,
+                last_service.get("service") or "-",
+                last_service.get("status") or "-",
             )
 
         initial_state = {
@@ -597,6 +697,7 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
                 "phone": phone,
                 "is_first_message": is_first_message,
                 "active_service": active_service,
+                "last_service": last_service,
             },
             "is_human": False,
             "confidence": 1.0,

@@ -134,6 +134,7 @@ GOOGLE_CALENDAR_TIMEZONE=America/Sao_Paulo
 
 # Bot (opcional)
 BOT_OFF_MESSAGE=Oi! Estou em atendimento agora, te respondo em breve 🙂
+MANUAL_TAKEOVER_TTL_SECONDS=86400
 
 # Voz / TTS PC1
 TTS_ENGINE=chatterbox
@@ -144,6 +145,62 @@ TTS_CHATTERBOX_LANGUAGE=pt
 TTS_ALLOW_CHATTERBOX_PTBR=1
 SSH_HOST_PC1=will-zappro@192.168.15.83
 ```
+
+---
+
+## Atendimento, Agenda e Intervenção Humana
+
+O bot diferencia três situações antes de responder:
+
+- `new_lead`: contato sem serviço anterior identificado. O fluxo coleta serviço, cidade/bairro e dados mínimos para orçamento ou agenda.
+- `active_customer`: existe registro em `customer_services` com status ativo (`scheduled`, `in_progress`, `awaiting_parts`, `awaiting_customer`, `approved`, `active`). O bot trata como acompanhamento de serviço, não como lead novo, e alerta o `OWNER_PHONE`.
+- `past_customer`: existe último serviço concluído/encerrado, mas nenhum serviço ativo. O bot pergunta se é dúvida do atendimento anterior ou novo atendimento.
+
+### Pausa por atendimento humano
+
+Quando um humano assumir um contato, pause a IA só para aquele telefone:
+
+```bash
+curl -X POST http://localhost:8000/bot/takeover/5513999999999
+curl http://localhost:8000/bot/takeover/5513999999999
+curl -X POST http://localhost:8000/bot/release/5513999999999
+```
+
+Contrato Redis equivalente:
+
+```bash
+redis-cli SETEX manual_takeover:5513999999999 86400 1
+redis-cli GET manual_takeover:5513999999999
+redis-cli DEL manual_takeover:5513999999999
+```
+
+Enquanto `manual_takeover:{phone}=1`, o worker registra `Humano assumiu; IA pausada para este contato` e não chama o LangGraph nem envia resposta automática.
+
+### Pontuação de agendamento
+
+`appointment_score` mede quando já há dados suficientes para focar em agenda:
+
+- `+2` tipo de serviço.
+- `+2` cidade/bairro.
+- `+2` intenção de agendar, visita ou técnico.
+- `+1` nome.
+- `+1` foto ou contexto técnico.
+- `+1` janela preferida.
+
+Com `appointment_score >= 5`, o estado vira `appointment_ready`, `pipeline_stage=ready_to_schedule`, `handoff_mode=soft_alert` e `handoff_reason=appointment_ready`.
+
+### Alertas para OWNER_PHONE
+
+O `OWNER_PHONE` recebe alerta com telefone, motivo, última mensagem, resumo curto e próximo passo recomendado quando houver:
+
+- `appointment_ready`: lead pronto para confirmar agenda.
+- `no_context_needs_human_review`: segunda tentativa sem contexto suficiente.
+- `active_service_followup`: cliente com serviço ativo pedindo acompanhamento.
+- `complaint_or_risk`: reclamação forte, risco comercial ou jurídico.
+- `explicit_handoff`: cliente pediu humano/atendente.
+- `high_value_lead`: PMOC, muitos aparelhos, sistema central ou oportunidade de maior valor.
+
+Fora preço fixo de instalação simples e higienização de split, o bot não inventa valor: conduz para análise técnica de R$50 abatível se o orçamento for aprovado.
 
 ---
 

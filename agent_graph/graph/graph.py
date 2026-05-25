@@ -32,6 +32,7 @@ class CustomerData(TypedDict, total=False):
     is_first_message: bool
     name: str
     active_service: dict[str, Any]
+    last_service: dict[str, Any]
 
 
 class AgentState(TypedDict):

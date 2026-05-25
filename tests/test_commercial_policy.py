@@ -31,6 +31,50 @@ def test_only_instalacao_and_higienizacao_have_fixed_price_paths():
     assert "R$200" not in maintenance
 
 
+def test_installation_price_does_not_ask_service_again():
+    lead_state = {"tipo_servico": "instalacao"}
+    response = nodes._direct_price_response(
+        "instalacao",
+        "quero preço da instalação",
+        lead_state,
+        ["cidade_bairro", "btus"],
+        ["tipo_servico"],
+    )
+
+    assert response
+    assert "instalação, manutenção ou higienização" not in response.lower()
+    assert "qual serviço" not in response.lower()
+
+
+def test_installation_price_does_not_ask_btu_again():
+    lead_state = {"tipo_servico": "instalacao", "btus": "12000"}
+    response = nodes._direct_price_response(
+        "instalacao",
+        "instalação 12000 btus, quanto fica?",
+        lead_state,
+        ["cidade_bairro", "foto_local_interno"],
+        ["tipo_servico", "btus"],
+    )
+
+    assert response
+    assert "btu" not in response.lower().rstrip("?")
+
+
+def test_santos_installation_price_uses_850_for_simple_access():
+    lead_state = {"tipo_servico": "instalacao", "cidade_bairro": "Santos"}
+    response = nodes._direct_price_response(
+        "instalacao",
+        "em Santos, acesso simples, qual valor?",
+        lead_state,
+        ["btus"],
+        ["tipo_servico", "cidade_bairro"],
+    )
+
+    assert response
+    assert "R$850" in response
+    assert "cidade" not in response.lower().split("?")[-1]
+
+
 def test_active_customer_service_is_answered_as_followup_not_new_sale():
     state = {
         "messages": [HumanMessage(content="o técnico ainda vem hoje?")],
@@ -60,3 +104,32 @@ def test_active_customer_service_is_answered_as_followup_not_new_sale():
     assert "serviço de instalacao" in response
     assert "acompanhamento" in response
     assert "R$800" not in response
+
+
+def test_completed_customer_service_is_past_customer_post_sale():
+    state = {
+        "messages": [HumanMessage(content="oi, preciso falar sobre meu ar")],
+        "rag_context": [],
+        "service": None,
+        "intent": "onboarding",
+        "outcome": "onboarding",
+        "handoff_mode": "none",
+        "handoff_reason": None,
+        "customer_data": {
+            "phone": "5513999999999",
+            "last_service": {
+                "service": "higienizacao",
+                "status": "completed",
+                "updated_at": "2026-05-01",
+            },
+        },
+        "lead_state": {"relationship_type": "new_lead"},
+    }
+
+    result = run(nodes.generate_response(state))
+    response = last_ai(result["messages"])
+
+    assert result["outcome"] == "pos_venda_ou_novo_atendimento"
+    assert result["lead_state"]["relationship_type"] == "past_customer"
+    assert "atendimento anterior" in response
+    assert "novo atendimento" in response

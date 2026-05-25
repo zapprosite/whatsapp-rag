@@ -10,9 +10,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 try:
-    from runtime import get_redis
+    from runtime import get_redis, is_manual_takeover, manual_takeover_key, normalize_whatsapp_number, set_manual_takeover
 except ModuleNotFoundError:
-    from app.runtime import get_redis
+    from app.runtime import get_redis, is_manual_takeover, manual_takeover_key, normalize_whatsapp_number, set_manual_takeover
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bot", tags=["bot-control"])
@@ -293,3 +293,41 @@ async def bot_toggle(request: Request) -> dict[str, Any]:
 async def bot_status_api() -> dict[str, Any]:
     r = await get_redis()
     return await _bot_state(r)
+
+
+@router.post("/takeover/{phone}")
+async def bot_takeover(phone: str) -> dict[str, Any]:
+    r = await get_redis()
+    normalized = normalize_whatsapp_number(phone)
+    await set_manual_takeover(r, normalized, True)
+    logger.info("Humano assumiu; IA pausada para este contato: %s", normalized)
+    return {
+        "phone": normalized,
+        "manual_takeover": True,
+        "redis_key": manual_takeover_key(normalized),
+    }
+
+
+@router.post("/release/{phone}")
+async def bot_release(phone: str) -> dict[str, Any]:
+    r = await get_redis()
+    normalized = normalize_whatsapp_number(phone)
+    await set_manual_takeover(r, normalized, False)
+    logger.info("IA liberada para contato: %s", normalized)
+    return {
+        "phone": normalized,
+        "manual_takeover": False,
+        "redis_key": manual_takeover_key(normalized),
+    }
+
+
+@router.get("/takeover/{phone}")
+async def bot_takeover_status(phone: str) -> dict[str, Any]:
+    r = await get_redis()
+    normalized = normalize_whatsapp_number(phone)
+    active = await is_manual_takeover(r, normalized)
+    return {
+        "phone": normalized,
+        "manual_takeover": active,
+        "redis_key": manual_takeover_key(normalized),
+    }

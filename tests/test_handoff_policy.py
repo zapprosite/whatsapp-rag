@@ -68,6 +68,7 @@ def test_classify_explicit_handoff_is_hard_transfer(monkeypatch):
     assert result["intent"] == "explicit_handoff"
     assert result["handoff_mode"] == "hard_transfer"
     assert result["handoff_reason"] == "explicit_handoff"
+    assert result["lead_state"]["relationship_type"] == "human_takeover"
 
 
 def test_classify_sensitive_complaint_is_hard_transfer(monkeypatch):
@@ -285,3 +286,126 @@ def test_worker_normalizes_evolution_jid_to_number():
     assert worker.normalize_whatsapp_number("5513999999999@s.whatsapp.net") == "5513999999999"
     assert worker.normalize_whatsapp_number("5513999999999:12@s.whatsapp.net") == "5513999999999"
     assert worker.normalize_whatsapp_number("+55 (13) 99999-9999") == "5513999999999"
+
+
+def test_unknown_repeated_becomes_soft_alert(monkeypatch):
+    patch_classifier_llm(monkeypatch, "unknown")
+    state = base_state("não sei explicar")
+    state["lead_state"] = {"unknown_context_count": 1}
+
+    result = run(nodes.classify_service(state))
+
+    assert result["lead_state"]["unknown_context_count"] == 2
+    assert result["handoff_mode"] == "soft_alert"
+    assert result["handoff_reason"] == "no_context_needs_human_review"
+
+
+def test_generate_no_context_soft_alert_response():
+    state = base_state("não sei explicar")
+    state.update({
+        "intent": "unknown",
+        "lead_state": {"unknown_context_count": 2, "relationship_type": "no_context"},
+    })
+
+    result = run(nodes.generate_response(state))
+    response = last_ai(result["messages"])
+
+    assert result["handoff_mode"] == "soft_alert"
+    assert result["handoff_reason"] == "no_context_needs_human_review"
+    assert "sinalizar o gerente" in response
+
+
+def test_appointment_score_ready_sets_soft_alert(monkeypatch):
+    patch_classifier_llm(monkeypatch, "instalacao")
+    state = base_state("sou João, quero agendar técnico amanhã em Santos para instalação")
+    state["lead_state"] = {
+        "tipo_servico": "instalacao",
+        "nome": "João",
+        "cidade_bairro": "Santos",
+        "fotos": {"aparelho": True},
+    }
+
+    result = run(nodes.classify_service(state))
+
+    assert result["lead_state"]["appointment_score"] >= 5
+    assert result["lead_state"]["appointment_ready"] is True
+    assert result["handoff_mode"] == "soft_alert"
+    assert result["handoff_reason"] == "appointment_ready"
+
+
+def test_worker_manual_takeover_blocks_graph_and_response(monkeypatch):
+    from app import worker
+
+    class FakeRedis:
+        async def get(self, key: str) -> str | None:
+            if key.startswith("manual_takeover:"):
+                return "1"
+            if key == "whatsapp_rag:bot_enabled":
+                return "1"
+            return None
+
+        async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
+            return True
+
+        async def eval(self, script: str, numkeys: int, key: str, token: str) -> int:
+            return 1
+
+    class FailingGraph:
+        async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+            raise AssertionError("GRAPH não deve ser chamado quando humano assumiu")
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(phone: str, text: str, instance: str = "default") -> bool:
+        sent.append((phone, text))
+        return True
+
+    monkeypatch.setattr(worker, "GRAPH", FailingGraph())
+    monkeypatch.setattr(worker, "send_whatsapp_message", fake_send)
+
+    payload = worker.QueueMessage(phone="5513999999999", message="oi", instance="test")
+    run(worker._process_customer_message(payload, FakeRedis(), 1))
+
+    assert sent == []
+
+
+def test_appointment_ready_notifies_owner(monkeypatch):
+    from app import worker
+
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.store: dict[str, str] = {}
+
+        async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool | None:
+            if nx and key in self.store:
+                return None
+            self.store[key] = value
+            return True
+
+    sent: list[dict[str, Any]] = []
+
+    async def fake_notify_owner(lead_phone: str, lead_message: str, instance: str = "default", **kwargs: Any) -> bool:
+        sent.append({"lead_phone": lead_phone, "lead_message": lead_message, **kwargs})
+        return True
+
+    monkeypatch.setattr(worker, "notify_owner", fake_notify_owner)
+    result = {
+        "handoff_mode": "soft_alert",
+        "handoff_reason": "appointment_ready",
+        "messages": [
+            HumanMessage(content="quero agendar técnico amanhã em Santos"),
+            AIMessage(content="Vou sinalizar o gerente agora."),
+        ],
+    }
+
+    notified = run(worker.maybe_notify_owner_from_result(
+        FakeRedis(),
+        phone="5513999999999",
+        message_text="quero agendar técnico amanhã em Santos",
+        result=result,
+        instance="test",
+    ))
+
+    assert notified is True
+    assert sent[0]["reason"] == "appointment_ready"
+    assert "Confirmar janela" in sent[0]["next_step"]
