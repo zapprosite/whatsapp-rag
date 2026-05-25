@@ -19,6 +19,9 @@ O Will responde leads automaticamente, coleta dados de agendamento e escala para
                               [Redis histórico] + [PostgreSQL leads]
 ```
 
+Mapa operacional detalhado de PC1/PC2, dependências e refinamento:
+[docs/mapa-pc1-pc2-refinamento.md](docs/mapa-pc1-pc2-refinamento.md).
+
 ### LangGraph — 8 nós em sequência
 
 ```
@@ -144,25 +147,44 @@ curl -s http://localhost:8000/health
 
 ## Ligar e Desligar o Bot
 
-Controle instantâneo sem restart — a chave fica no Redis.
+Controle instantâneo sem restart. A rota `/bot/on` grava `whatsapp_rag:bot_enabled=1` no Redis, `/bot/off` grava `0`, e `/bot/toggle` alterna o estado atual. O painel e a API também gravam metadados em `whatsapp_rag:bot_state_meta`.
+
+O worker consulta essa chave antes de chamar o LangGraph. Quando está pausado, a IA não conduz o atendimento no WhatsApp; se `BOT_OFF_MESSAGE` estiver preenchida, o cliente recebe essa mensagem de ausência.
 
 ```bash
-./bot.sh on      # 🟢 Will responde normalmente
-./bot.sh off     # 🔴 IA pausada (manda mensagem de ausência ou fica em silêncio)
-./bot.sh status  # vê o estado atual
+./bot.sh on      # liga a IA no WhatsApp
+./bot.sh off     # pausa a IA no WhatsApp
+./bot.sh toggle  # alterna o estado atual
+./bot.sh status  # confirma o estado real lido da API/Redis
 ```
 
 **Painel visual** (celular ou browser):
 ```
 http://localhost:8000/bot
 ```
-Botão grande, atualiza sozinho a cada 10s.
+Interruptor visual acessível, sem recarregar página, com atualização automática a cada 5s.
+
+Se a API estiver em outra porta:
+
+```bash
+BOT_API_URL=http://localhost:8015 ./bot.sh status
+```
 
 **Mensagem de ausência** quando bot está off:
 ```env
 BOT_OFF_MESSAGE=Oi! No momento estou em atendimento. Te retorno em breve 🙂
 ```
-Deixe vazio para silêncio total.
+Se a variável não existir, o worker usa uma mensagem padrão. Defina `BOT_OFF_MESSAGE=` vazio para silêncio total.
+
+**Validação operacional:**
+
+```bash
+curl -s http://localhost:8000/bot/status
+./bot.sh off && ./bot.sh status
+./bot.sh on && ./bot.sh status
+```
+
+Com o bot pausado, o log do worker deve mostrar `Bot PAUSADO; mensagem ... ignorada pela IA` quando chegar mensagem real.
 
 ---
 

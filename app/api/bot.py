@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 
 try:
     from runtime import get_redis
@@ -14,24 +18,87 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bot", tags=["bot-control"])
 
 _BOT_KEY = "whatsapp_rag:bot_enabled"
+_BOT_META_KEY = "whatsapp_rag:bot_state_meta"
+_DEFAULT_BOT_OFF_MESSAGE = "Oi! No momento estou atendendo pessoalmente. Te respondo em breve 🙂"
 
 
-async def _bot_status(r) -> str:
-    val = await r.get(_BOT_KEY)
-    return "ativo" if val != "0" else "pausado"
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _source_from_request(request: Request | None) -> str:
+    if request is None or request.client is None:
+        return "api"
+    return f"{request.client.host}:{request.client.port}"
+
+
+def _redis_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _bot_off_message_configured() -> bool:
+    return bool(os.getenv("BOT_OFF_MESSAGE", _DEFAULT_BOT_OFF_MESSAGE))
+
+
+async def _bot_state(r) -> dict[str, Any]:
+    raw_enabled = _redis_text(await r.get(_BOT_KEY))
+    enabled = raw_enabled != "0"
+
+    meta: dict[str, Any] = {}
+    raw_meta = _redis_text(await r.get(_BOT_META_KEY))
+    if raw_meta:
+        try:
+            parsed = json.loads(raw_meta)
+            if isinstance(parsed, dict):
+                meta = parsed
+        except json.JSONDecodeError:
+            meta = {}
+
+    return {
+        "status": "ativo" if enabled else "pausado",
+        "bot_enabled": enabled,
+        "redis_key": _BOT_KEY,
+        "updated_at": meta.get("updated_at"),
+        "updated_by": meta.get("updated_by"),
+        "checked_at": _now_iso(),
+        "off_message_configured": _bot_off_message_configured(),
+    }
+
+
+async def _set_bot_enabled(r, enabled: bool, *, source: str) -> dict[str, Any]:
+    value = "1" if enabled else "0"
+    await r.set(_BOT_KEY, value)
+    await r.set(
+        _BOT_META_KEY,
+        json.dumps(
+            {
+                "status": "ativo" if enabled else "pausado",
+                "bot_enabled": enabled,
+                "updated_at": _now_iso(),
+                "updated_by": source,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return await _bot_state(r)
 
 
 @router.get("", response_class=HTMLResponse)
-async def bot_panel():
-    """Painel visual para ligar/desligar o bot."""
+async def bot_panel() -> str:
+    """Painel operacional para ligar/desligar o bot."""
     r = await get_redis()
-    status = await _bot_status(r)
-    ativo = status == "ativo"
-    cor = "#22c55e" if ativo else "#ef4444"
-    cor_btn = "#ef4444" if ativo else "#22c55e"
-    label = "ATIVO 🟢" if ativo else "PAUSADO 🔴"
-    acao = "Pausar IA" if ativo else "Ligar IA"
-    endpoint = "/bot/off" if ativo else "/bot/on"
+    state = await _bot_state(r)
+    enabled = "true" if state["bot_enabled"] else "false"
+    aria_checked = "true" if state["bot_enabled"] else "false"
+    state_label = "ATIVO" if state["bot_enabled"] else "PAUSADO"
+    state_help = "IA respondendo leads no WhatsApp" if state["bot_enabled"] else "IA não conduzindo atendimento"
+    updated_at = state.get("updated_at") or "não registrada"
+    updated_by = state.get("updated_by") or "não registrada"
+    off_message_label = "configurada" if state["off_message_configured"] else "não configurada"
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -40,50 +107,189 @@ async def bot_panel():
   <title>Refrimix Bot</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #f1f5f9;
-            display: flex; flex-direction: column; align-items: center;
-            justify-content: center; min-height: 100vh; gap: 2rem; padding: 2rem; }}
-    h1 {{ font-size: 1.4rem; color: #94a3b8; letter-spacing: .05em; }}
-    .status {{ font-size: 3rem; font-weight: 800; color: {cor}; }}
-    .btn {{ background: {cor_btn}; color: #fff; border: none; border-radius: 1rem;
-            padding: 1.2rem 3rem; font-size: 1.4rem; font-weight: 700;
-            cursor: pointer; width: 100%; max-width: 320px; transition: opacity .2s; }}
-    .btn:hover {{ opacity: .85; }}
-    .hint {{ color: #475569; font-size: .85rem; text-align: center; }}
-    form {{ width: 100%; display: flex; justify-content: center; }}
+    :root {{
+      color-scheme: dark;
+      --bg: #111827;
+      --panel: #172033;
+      --line: #2b3548;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --active: #22c55e;
+      --paused: #ef4444;
+      --track: #364154;
+    }}
+    body {{
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }}
+    main {{
+      width: min(520px, 100%);
+      display: grid;
+      gap: 24px;
+    }}
+    header {{ display: grid; gap: 8px; }}
+    h1 {{ font-size: 1.4rem; font-weight: 760; letter-spacing: 0; }}
+    .subtitle {{ color: var(--muted); font-size: .95rem; line-height: 1.4; }}
+    .control {{
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 22px;
+      display: grid;
+      gap: 22px;
+    }}
+    .row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
+    .label {{ display: grid; gap: 4px; }}
+    .label strong {{ font-size: 1.8rem; line-height: 1; }}
+    .label span {{ color: var(--muted); font-size: .9rem; }}
+    .switch {{
+      position: relative;
+      width: 92px;
+      height: 48px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--track);
+      cursor: pointer;
+      transition: background .18s ease, opacity .18s ease;
+      flex: 0 0 auto;
+    }}
+    .switch::before {{
+      content: "";
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      top: 5px;
+      left: 5px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform .18s ease;
+      box-shadow: 0 8px 20px rgba(0,0,0,.35);
+    }}
+    body[data-enabled="true"] .switch {{ background: var(--active); }}
+    body[data-enabled="true"] .switch::before {{ transform: translateX(44px); }}
+    body[data-enabled="true"] .state {{ color: var(--active); }}
+    body[data-enabled="false"] .state {{ color: var(--paused); }}
+    .switch[disabled] {{ opacity: .55; cursor: wait; }}
+    .meta {{
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+      display: grid;
+      gap: 8px;
+      color: var(--muted);
+      font-size: .88rem;
+    }}
+    code {{ color: #dbeafe; }}
+    .error {{ color: #fecaca; min-height: 1.2em; }}
   </style>
-  <meta http-equiv="refresh" content="10">
 </head>
-<body>
-  <h1>Refrimix WhatsApp Bot</h1>
-  <div class="status">{label}</div>
-  <form method="post" action="{endpoint}">
-    <button class="btn" type="submit">{acao}</button>
-  </form>
-  <p class="hint">Página atualiza automaticamente a cada 10s<br>
-     API: <code>./bot.sh on</code> / <code>./bot.sh off</code></p>
+<body data-enabled="{enabled}">
+  <main>
+    <header>
+      <h1>Refrimix WhatsApp Bot</h1>
+      <p class="subtitle">Interruptor operacional do atendimento automático no WhatsApp.</p>
+    </header>
+    <section class="control" aria-live="polite">
+      <div class="row">
+        <div class="label">
+          <strong class="state" id="stateLabel">{state_label}</strong>
+          <span id="stateHelp">{state_help}</span>
+        </div>
+        <button id="toggle" class="switch" type="button" role="switch" aria-checked="{aria_checked}" aria-label="Alternar estado do bot"></button>
+      </div>
+      <div class="meta">
+        <div>Última alteração: <code id="updatedAt">{updated_at}</code></div>
+        <div>Origem: <code id="updatedBy">{updated_by}</code></div>
+        <div>Redis: <code>{_BOT_KEY}</code></div>
+        <div id="offMessage">Mensagem de ausência: {off_message_label}</div>
+        <div class="error" id="error"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const body = document.body;
+    const button = document.getElementById("toggle");
+    const stateLabel = document.getElementById("stateLabel");
+    const stateHelp = document.getElementById("stateHelp");
+    const updatedAt = document.getElementById("updatedAt");
+    const updatedBy = document.getElementById("updatedBy");
+    const offMessage = document.getElementById("offMessage");
+    const errorBox = document.getElementById("error");
+
+    function render(data) {{
+      const enabled = Boolean(data.bot_enabled);
+      body.dataset.enabled = String(enabled);
+      button.setAttribute("aria-checked", String(enabled));
+      stateLabel.textContent = enabled ? "ATIVO" : "PAUSADO";
+      stateHelp.textContent = enabled ? "IA respondendo leads no WhatsApp" : "IA não conduzindo atendimento";
+      updatedAt.textContent = data.updated_at || "não registrada";
+      updatedBy.textContent = data.updated_by || "não registrada";
+      offMessage.textContent = "Mensagem de ausência: " + (data.off_message_configured ? "configurada" : "não configurada");
+      errorBox.textContent = "";
+    }}
+
+    async function request(path, options = {{}}) {{
+      const response = await fetch(path, options);
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    }}
+
+    async function refresh() {{
+      try {{
+        render(await request("/bot/status"));
+      }} catch (error) {{
+        errorBox.textContent = "Falha ao ler status: " + error.message;
+      }}
+    }}
+
+    button.addEventListener("click", async () => {{
+      button.disabled = true;
+      try {{
+        render(await request("/bot/toggle", {{ method: "POST" }}));
+      }} catch (error) {{
+        errorBox.textContent = "Falha ao alternar: " + error.message;
+      }} finally {{
+        button.disabled = false;
+      }}
+    }});
+
+    setInterval(refresh, 5000);
+  </script>
 </body>
 </html>"""
 
 
 @router.post("/on")
-async def bot_on():
+async def bot_on(request: Request) -> dict[str, Any]:
     r = await get_redis()
-    await r.set(_BOT_KEY, "1")
+    state = await _set_bot_enabled(r, True, source=_source_from_request(request))
     logger.info("Bot ATIVADO")
-    return RedirectResponse(url="/bot", status_code=303)
+    return state
 
 
 @router.post("/off")
-async def bot_off():
+async def bot_off(request: Request) -> dict[str, Any]:
     r = await get_redis()
-    await r.set(_BOT_KEY, "0")
+    state = await _set_bot_enabled(r, False, source=_source_from_request(request))
     logger.info("Bot PAUSADO")
-    return RedirectResponse(url="/bot", status_code=303)
+    return state
+
+
+@router.post("/toggle")
+async def bot_toggle(request: Request) -> dict[str, Any]:
+    r = await get_redis()
+    state = await _bot_state(r)
+    next_enabled = not state["bot_enabled"]
+    new_state = await _set_bot_enabled(r, next_enabled, source=_source_from_request(request))
+    logger.info("Bot alternado para %s", new_state["status"])
+    return new_state
 
 
 @router.get("/status")
-async def bot_status_api():
+async def bot_status_api() -> dict[str, Any]:
     r = await get_redis()
-    status = await _bot_status(r)
-    return {"status": status, "bot_enabled": status == "ativo"}
+    return await _bot_state(r)
