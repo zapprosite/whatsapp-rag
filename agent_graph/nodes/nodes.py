@@ -90,6 +90,8 @@ DIRETRIZES DE TOM DE VOZ E ESTILO:
 - Evitar formalidade exagerada, gírias demais ou excesso de emojis.
 - Respostas curtas, claras e úteis (máximo de 1 a 3 parágrafos curtos).
 - Não faça textão, não pressione o cliente com promoções, não invente preços ou disponibilidade e nunca dê diagnóstico definitivo sem avaliação/inspeção local.
+- Formate como WhatsApp humano: sem emoji, com parágrafos curtos, linha em branco entre blocos e lista numerada curta quando pedir 2 ou mais dados.
+- Não use cabeçalhos markdown, bullets decorativos, "Prezado cliente", "Segue abaixo", "Conforme solicitado" ou "Para prosseguirmos".
 - Preços Comerciais da Refrimix:
   - Instalação de split com acesso simples: R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Qualquer outra situação (acesso difícil, telhado, altura, distância grande, VRF, central) exige análise técnica no local de R$50 (abatida do orçamento se aprovado).
   - Higienização de split padrão: R$200 por aparelho.
@@ -124,6 +126,52 @@ FLUXO DE ONBOARDING POR SERVIÇO:
 
 7. Follow-up pós-orçamento:
    "Oi, tudo bem? Passando só para saber se ficou alguma dúvida sobre o orçamento do ar-condicionado. Se quiser, consigo te orientar sobre o melhor dia para fazer o serviço e deixar tudo organizado para evitar retrabalho."
+
+EXEMPLOS VALIDADOS DE FORMATAÇÃO WHATSAPP:
+Lead: "Quanto fica instalar um split 12000 em Santos?"
+Will: "Perfeito, instalação de split 12.000 BTUs em Santos.
+
+Para acesso simples, fica R$850.
+
+Se tiver telhado, altura, distância grande ou ponto elétrico fora do padrão, precisa avaliar antes para não te passar valor errado.
+
+Me manda uma foto do local interno e uma do local externo?"
+
+Lead: "Quero instalar um ar no quarto"
+Will: "Perfeito, instalação no quarto.
+
+Pra eu avaliar certinho, me manda:
+
+1. Foto da parede onde vai a unidade interna
+2. Foto do local onde vai a condensadora
+3. Bairro/cidade do atendimento
+
+Com isso eu já consigo te orientar melhor."
+
+Lead: "Meu ar tá com cheiro ruim"
+Will: "Entendi.
+
+Cheiro ruim normalmente aparece quando o aparelho está com sujeira interna, umidade acumulada ou muito tempo sem higienização.
+
+Pra te orientar certinho, me manda:
+
+1. Foto do aparelho
+2. Bairro/cidade
+3. Faz quanto tempo que não higieniza?"
+
+Lead: "Queria mudar o horário"
+Will: "Vi aqui que você já tem um serviço em andamento com a Refrimix.
+
+Vou tratar isso como acompanhamento, não como orçamento novo.
+
+Me confirma qual período fica melhor pra você: manhã ou tarde?"
+
+Lead: "O disjuntor cai e tem cheiro de queimado"
+Will: "Nesse caso, o ideal é deixar o aparelho desligado até avaliar.
+
+Pode envolver sobrecarga, cabo inadequado, disjuntor fora do padrão ou falha interna no equipamento.
+
+Me manda uma foto do disjuntor e do aparelho para eu adiantar a análise."
 """
 
 
@@ -643,42 +691,216 @@ def _default_whatsapp_cta(outcome: str | None) -> str:
     }.get(outcome or "", "Me fala a cidade, o modelo e manda uma foto do aparelho?")
 
 
-def _shape_whatsapp_response(text: str, outcome: str | None, max_chars: int = 650) -> str:
-    """Mantém a resposta no formato WhatsApp: curta, sem lista e com CTA."""
-    cleaned_lines: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
+_CUSTOMER_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"
+    "\U0001F300-\U0001FAFF"
+    "\u2600-\u27BF"
+    "\uFE0F"
+    "\u200D"
+    "]+"
+)
+
+
+def _strip_customer_emojis(text: str) -> str:
+    """Remove emojis e símbolos decorativos das respostas enviadas ao cliente."""
+    cleaned = _CUSTOMER_EMOJI_RE.sub("", text or "")
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r" *\n *", "\n", cleaned)
+    return cleaned.strip()
+
+
+def _clean_whatsapp_markdown(text: str) -> str:
+    """Limpa markdown pesado preservando quebras úteis para WhatsApp."""
+    cleaned = text or ""
+    cleaned = re.sub(r"```(?:[a-zA-Z0-9_-]+)?\n?(.*?)```", r"\1", cleaned, flags=re.S)
+    cleaned = cleaned.replace("**", "*")
+    cleaned = cleaned.replace("__", "_")
+    cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s{0,3}>\s?", "", cleaned, flags=re.MULTILINE)
+    cleaned = cleaned.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ("'", '"'):
+        cleaned = cleaned[1:-1].strip()
+    cleaned = "\n".join(re.sub(r"[ \t]{2,}", " ", line).strip() for line in cleaned.splitlines())
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _looks_like_list_line(line: str) -> bool:
+    return bool(re.match(r"^\s*(?:\d+[\.)]|[-*•])\s+\S", line or ""))
+
+
+def _normalize_list_line(line: str, index: int | None = None) -> str:
+    body = re.sub(r"^\s*(?:\d+[\.)]|[-*•])\s+", "", line or "").strip()
+    body = body.strip("*_ ")
+    if not body:
+        return ""
+    if index is not None:
+        return f"{index}. {body}"
+    return f"- {body}"
+
+
+def _split_long_paragraph(text: str, max_len: int = 150) -> list[str]:
+    paragraph = re.sub(r"\s+", " ", (text or "").strip())
+    if not paragraph:
+        return []
+    if len(paragraph) <= max_len:
+        return [paragraph]
+
+    sentences = re.split(r"(?<=[.!?])\s+(?=[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ])", paragraph)
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
             continue
-        line = re.sub(r"^[-*•]\s*", "", line).strip()
-        line = line.strip("*_ ")
-        line = re.sub(r"^(pergunta-chave|me fala aí|pra eu te ajudar melhor):\s*", "", line, flags=re.I)
-        if line.endswith(":") and len(line) <= 80:
-            continue
-        cleaned_lines.append(line)
+        candidate = f"{current} {sentence}".strip()
+        if current and len(candidate) > max_len:
+            chunks.append(current)
+            current = sentence
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks or [paragraph]
 
-    shaped = " ".join(cleaned_lines).strip()
-    shaped = re.sub(r"\s+", " ", shaped)
-    if not shaped:
-        return _default_whatsapp_cta(outcome)
 
-    if shaped.count("?") > 2:
-        parts = shaped.split("?")
-        shaped = "?".join(parts[:2]).strip() + "?"
+def _repair_robot_phrases(text: str) -> str:
+    replacements = {
+        r"\b[Pp]rezado cliente,?\s*": "",
+        r"\b[Cc]onforme solicitado,?\s*": "",
+        r"\b[Ss]egue abaixo,?\s*": "",
+        r"\b[Pp]ara prosseguirmos,?\s*": "Pra seguir, ",
+    }
+    repaired = text
+    for pattern, repl in replacements.items():
+        repaired = re.sub(pattern, repl, repaired)
+    return repaired.strip()
 
+
+def _limit_customer_questions(text: str, outcome: str | None) -> str:
+    allowed = 3 if outcome == "onboarding" else 1
+    if text.count("?") <= allowed:
+        return text
+    chars = list(text)
+    question_positions = [i for i, char in enumerate(chars) if char == "?"]
+    for pos in question_positions[:-allowed]:
+        chars[pos] = "."
+    return "".join(chars)
+
+
+def _inline_requested_fields_block(paragraph: str) -> str | None:
+    lower = paragraph.lower()
+    stripped = lower.lstrip()
+    if "r$" in lower or not stripped.startswith(("me manda", "me envia", "preciso", "confirma", "pra eu")):
+        return None
+    if not any(trigger in lower for trigger in ("me manda", "me envia", "preciso", "confirma")):
+        return None
+
+    candidates = [
+        ("Foto do local interno", r"foto (?:do )?(?:local )?intern[ao]|foto interna|foto da parede"),
+        ("Foto do local externo", r"foto (?:do )?(?:local )?extern[ao]|foto externa|foto da condensadora"),
+        ("Foto do aparelho", r"foto do aparelho|foto do ar"),
+        ("Foto do disjuntor", r"foto do disjuntor|foto do quadro"),
+        ("Bairro/cidade", r"bairro/cidade|bairro e cidade|cidade/bairro|cidade"),
+        ("Marca e BTUs", r"marca e btus|marca.*btus|btus"),
+        ("Ponto elétrico exclusivo", r"ponto elétrico|ponto de energia|220v"),
+    ]
+    items: list[str] = []
+    for label, pattern in candidates:
+        if re.search(pattern, lower) and label not in items:
+            items.append(label)
+    if len(items) < 2:
+        return None
+
+    intro = "Me manda, por favor:"
+    if "avaliar" in lower or "certinho" in lower:
+        intro = "Pra eu avaliar certinho, me manda:"
+    return intro + "\n\n" + "\n".join(f"{idx}. {item}" for idx, item in enumerate(items, start=1))
+
+
+def _truncate_whatsapp_blocks(text: str, outcome: str | None, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
     cta = _default_whatsapp_cta(outcome)
-    if "?" not in shaped:
-        shaped = f"{shaped} {cta}"
+    suffix = f"\n\n{cta}"
+    limit = max(1, max_chars - len(suffix))
+    blocks = text.split("\n\n")
+    kept: list[str] = []
+    total = 0
+    for block in blocks:
+        next_total = total + len(block) + (2 if kept else 0)
+        if next_total > limit:
+            break
+        kept.append(block)
+        total = next_total
+    base = "\n\n".join(kept).strip()
+    if not base:
+        base = text[:limit].rsplit(" ", 1)[0].strip()
+    if cta.rstrip("?")[:18].lower() not in base.lower() and "?" not in base:
+        base = f"{base}{suffix}".strip()
+    return base[:max_chars].strip()
 
-    if len(shaped) > max_chars:
-        base = shaped[: max_chars - len(cta) - 2].strip()
-        base = base.rsplit(".", 1)[0].strip() or base.rsplit(" ", 1)[0].strip()
-        shaped = f"{base}. {cta}"
 
-    if len(shaped) > max_chars:
-        shaped = shaped[: max_chars - 3].rstrip() + "..."
+def _format_customer_whatsapp_response(text: str, outcome: str | None, max_chars: int = 850) -> str:
+    """Transforma texto bruto do LLM em resposta legível para WhatsApp de cliente."""
+    cleaned = _repair_robot_phrases(_strip_customer_emojis(_clean_whatsapp_markdown(text)))
+    if not cleaned:
+        return ""
 
-    return shaped.strip()
+    blocks: list[str] = []
+    for raw_block in re.split(r"\n\s*\n", cleaned):
+        raw_block = raw_block.strip()
+        if not raw_block:
+            continue
+
+        lines = [line.strip() for line in raw_block.splitlines() if line.strip()]
+        if any(_looks_like_list_line(line) for line in lines):
+            normalized_lines: list[str] = []
+            numbered_index = 1
+            use_numbered = sum(1 for line in lines if _looks_like_list_line(line)) >= 2
+            for line in lines:
+                if _looks_like_list_line(line):
+                    normalized_lines.append(
+                        _normalize_list_line(line, numbered_index if use_numbered else None)
+                    )
+                    numbered_index += 1
+                else:
+                    normalized_lines.append(line.strip("*_ "))
+            blocks.append("\n".join(line for line in normalized_lines if line))
+            continue
+
+        paragraph = " ".join(lines)
+        inline_list = _inline_requested_fields_block(paragraph)
+        if inline_list:
+            blocks.append(inline_list)
+            continue
+        blocks.extend(_split_long_paragraph(paragraph, max_len=120))
+
+    visible_blocks = blocks
+    if len(visible_blocks) > 4:
+        visible_blocks = visible_blocks[:3] + [visible_blocks[-1]]
+    formatted = "\n\n".join(visible_blocks).strip()
+    formatted = _limit_customer_questions(formatted, outcome)
+    formatted = re.sub(r"\n{3,}", "\n\n", formatted).strip()
+    formatted = _truncate_whatsapp_blocks(formatted, outcome, max_chars)
+    return formatted.strip()
+
+
+def _shape_whatsapp_response(text: str, outcome: str | None, max_chars: int = 850) -> str:
+    """
+    Formata resposta para WhatsApp de cliente:
+    - sem emoji;
+    - com quebras de linha;
+    - com listas curtas quando útil;
+    - sem markdown pesado;
+    - sem parágrafo gigante;
+    - com CTA claro.
+    """
+    formatted = _format_customer_whatsapp_response(text, outcome, max_chars=max_chars)
+    if not formatted:
+        return _default_whatsapp_cta(outcome)
+    return formatted
 
 
 async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
@@ -693,7 +915,14 @@ async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
                 "content": (
                     "Você reescreve respostas de WhatsApp em português brasileiro natural do Guarujá. "
                     "Preserve todos os preços, nomes de cidade, fatos técnicos e perguntas. "
-                    "Não adicione informação nova. Não use lista. Responda só com a versão final."
+                    "Não adicione informação nova. "
+                    "Não use emoji. "
+                    "Não use português europeu. "
+                    "Não use espanhol. "
+                    "Use quebras de linha naturais. "
+                    "Se forem pedidos 2 ou mais dados, use lista numerada curta. "
+                    "Evite texto tudo junto. "
+                    "Responda só com a versão final."
                 ),
             },
             {
@@ -904,17 +1133,57 @@ _SCHEDULING_TERMS = (
 )
 
 _HIGH_VALUE_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("vrf", "high_value_vrf"),
+    ("vrv", "high_value_vrv"),
+    ("duto", "high_value_duto"),
+    ("dutado", "high_value_duto"),
+    ("rede de dutos", "high_value_duto"),
+    ("projeto de duto", "high_value_duto"),
+    ("splitao", "high_value_splitao"),
+    ("splitão", "high_value_splitao"),
+    ("piso teto", "high_value_piso_teto"),
+    ("piso-teto", "high_value_piso_teto"),
+    ("cassete", "high_value_cassete"),
+    ("self contained", "high_value_self"),
+    ("fancoil", "high_value_fancoil"),
+    ("fan coil", "high_value_fancoil"),
+    ("chiller", "high_value_chiller"),
+    ("sistema central", "high_value_sistema_central"),
+    ("ar central", "high_value_sistema_central"),
+    ("climatização central", "high_value_sistema_central"),
+    ("climatizacao central", "high_value_sistema_central"),
+    ("carga térmica", "high_value_carga_termica"),
+    ("carga termica", "high_value_carga_termica"),
+    ("obra grande", "high_value_obra"),
+    ("obra comercial", "high_value_obra"),
+    ("prédio", "high_value_predio"),
+    ("predio", "high_value_predio"),
+    ("condomínio", "high_value_condominio"),
+    ("condominio", "high_value_condominio"),
+    ("hotel", "high_value_hotel"),
+    ("restaurante", "high_value_restaurante"),
+    ("mercado", "high_value_mercado"),
+    ("supermercado", "high_value_supermercado"),
+    ("clínica", "high_value_clinica"),
+    ("clinica", "high_value_clinica"),
+    ("laboratório", "high_value_laboratorio"),
+    ("laboratorio", "high_value_laboratorio"),
+    ("hospital", "high_value_hospital"),
+    ("escritório", "high_value_empresa"),
+    ("escritorio", "high_value_empresa"),
+    ("empresa", "high_value_empresa"),
+    ("loja", "high_value_loja"),
+    ("galpão", "high_value_galpao"),
+    ("galpao", "high_value_galpao"),
     ("pmoc", "high_value_pmoc"),
     ("laudo", "high_value_laudo"),
     ("art", "high_value_art"),
+    ("contrato mensal", "high_value_contrato"),
+    ("contrato de manutenção", "high_value_contrato"),
+    ("contrato de manutencao", "high_value_contrato"),
     ("consultoria", "high_value_consultoria"),
     ("projeto", "high_value_projeto"),
-    ("sistema central", "high_value_projeto_central"),
     ("central de climatizacao", "high_value_projeto_central"),
-    ("empresa", "high_value_empresa"),
-    ("condominio", "high_value_condominio"),
-    ("restaurante", "high_value_restaurante"),
-    ("galpao", "high_value_galpao"),
     ("galpao industrial", "high_value_galpao"),
     ("orcamento grande", "high_value_orcamento_grande"),
     ("contrato", "high_value_contrato"),
@@ -946,9 +1215,6 @@ def _keyword_in_text(keyword: str, text: str) -> bool:
 
 
 def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
-    if intent in ("pmoc", "consultoria", "projeto-central"):
-        return f"high_value_{intent.replace('-', '_')}"
-
     for keyword, reason in _HIGH_VALUE_KEYWORDS:
         folded_keyword = _fold_text(keyword)
         if len(folded_keyword) <= 3:
@@ -959,14 +1225,22 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
             return reason
 
     multiple_devices = re.search(
-        r"\b([2-9]|[1-9][0-9])\s*(aparelhos?|equipamentos?|equipos?|splits?|maquinas?|evaporadoras?)\b",
+        r"\b([3-9]|[1-9][0-9]+)\s*(aparelhos?|splits?|máquinas?|maquinas?|equipamentos?|evaporadoras?)\b",
         text,
     )
     if multiple_devices:
         return "high_value_multiplos_aparelhos"
 
+    if re.search(r"\b([4-9][8-9]000|[5-9][0-9]000|[1-9][0-9]{5,})\s*(btus?|btu/h)?\b", text):
+        return "high_value_btus_altos"
+    if re.search(r"\b([5-9]|[1-9][0-9]+)\s*(tr|toneladas?\s+de\s+refrigeracao)\b", text):
+        return "high_value_btus_altos"
+
     if any(term in text for term in ("varios aparelhos", "varias maquinas", "muitos aparelhos")):
         return "high_value_multiplos_aparelhos"
+
+    if intent in ("pmoc", "consultoria", "projeto-central"):
+        return f"high_value_{intent.replace('-', '_')}"
 
     return None
 
@@ -974,11 +1248,49 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
 def _fallback_service_for_high_value(text: str) -> str | None:
     if any(term in text for term in ("pmoc", "laudo", "art", "preventiva")):
         return "pmoc"
-    if any(term in text for term in ("restaurante", "galpao", "sistema central", "multi split", "multisplit")):
+    if any(term in text for term in ("vrf", "vrv", "duto", "dutado", "restaurante", "galpao", "sistema central", "multi split", "multisplit", "splitao", "splitão", "cassete", "piso teto", "piso-teto")):
         return "projeto-central"
     if any(term in text for term in ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
         return "consultoria"
     return None
+
+
+def classify_high_value_project(text: str, lead_state: dict) -> dict | None:
+    folded = _fold_text(text)
+    reason = _detect_high_value_reason(folded, lead_state.get("tipo_servico") or lead_state.get("service"))
+    if not reason:
+        return None
+    if reason in {"high_value_vrf", "high_value_vrv"}:
+        project_type = "vrf"
+    elif reason == "high_value_duto":
+        project_type = "duto"
+    elif reason in {"high_value_splitao", "high_value_piso_teto", "high_value_cassete", "high_value_btus_altos"}:
+        project_type = "comercial_leve"
+    elif reason in {"high_value_pmoc", "high_value_laudo", "high_value_art", "high_value_contrato"}:
+        project_type = "pmoc"
+    else:
+        project_type = "contrato_ou_multiaparelho"
+    return {
+        "is_high_value": True,
+        "reason": reason,
+        "project_type": project_type,
+        "recommended_service": "pmoc" if project_type == "pmoc" else "projeto-central",
+        "owner_priority": "high",
+        "questions": [
+            "cidade/bairro",
+            "tipo de ambiente",
+            "quantidade de ambientes",
+            "planta ou fotos",
+            "prazo desejado",
+        ],
+    }
+
+
+def _high_value_consultative_response() -> str:
+    return (
+        "Esse caso é mais técnico e vale avaliar com cuidado para evitar erro de dimensionamento e retrabalho. "
+        "Me passa a cidade, o tipo de ambiente e a quantidade de máquinas ou ambientes pra eu direcionar certinho?"
+    )
 
 
 def _looks_like_pmoc_preventive_plan(text: str) -> bool:
@@ -1323,6 +1635,13 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
     high_value_reason = _detect_high_value_reason(semantic_text, intent)
     if high_value_reason:
+        project = classify_high_value_project(semantic_text, lead_state) or {}
+        if project:
+            lead_state["high_value_project"] = project
+            if not service:
+                service = project.get("recommended_service")
+                intent = service or intent
+            outcome = "reuniao_projeto"
         handoff_mode = "soft_alert"
         handoff_reason = high_value_reason
     elif _contains_any(text_lower, _LIGHT_COMPLAINT_TRIGGERS):
@@ -1457,6 +1776,18 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             "outcome": "duvida",
             "handoff_mode": "soft_alert",
             "handoff_reason": "no_context_needs_human_review",
+            "lead_state": lead_state,
+        }
+
+    if str(handoff_reason or "").startswith("high_value"):
+        ai_message = AIMessage(content=_high_value_consultative_response())
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service or (lead_state.get("high_value_project") or {}).get("recommended_service"),
+            "outcome": "reuniao_projeto",
+            "handoff_mode": "soft_alert",
+            "handoff_reason": handoff_reason,
             "lead_state": lead_state,
         }
 
@@ -1602,7 +1933,10 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"3. Faça no máximo UMA pergunta ao final para obter o PRÓXIMO campo da lista de informações em falta ({missing_fields}).\n"
         f"4. NUNCA faça perguntas ou peça dados sobre informações que já foram fornecidas ({do_not_ask}).\n"
         f"5. Não ofereça handoff humano, especialista ou atendimento manual quando o modo de handoff for 'none' ou 'soft_alert'.\n"
-        f"6. Nunca diga visita gratuita. Fora os dois preços fixos, conduza para análise técnica de R$50 abatível no orçamento aprovado."
+        f"6. Nunca diga visita gratuita. Fora os dois preços fixos, conduza para análise técnica de R$50 abatível no orçamento aprovado.\n"
+        f"7. Formate como WhatsApp humano: sem emoji; com parágrafos curtos; com linha em branco entre blocos; se pedir 2 ou mais dados, use lista numerada; não entregue texto tudo junto; não use cabeçalhos markdown; não use bullets decorativos; não use 'Prezado cliente'; não use português europeu; não use espanhol.\n"
+        f"8. Estrutura ideal: primeiro bloco confirma o que entendeu; segundo bloco explica o necessário em 1 ou 2 frases; terceiro bloco pede o próximo dado ou lista os dados necessários; última linha conduz para orçamento/agendamento.\n"
+        f"9. Não use emoji em mensagens para cliente final."
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
@@ -1757,8 +2091,7 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
 
 async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     """
-    Formata resposta para WhatsApp: remove markdown pesado, quebra textos longos,
-    e retorna o AIMessage atualizado nos messages.
+    Formata resposta final para WhatsApp preservando quebras, listas curtas e CTA.
     """
     messages = state.get("messages", [])
     if not messages:
@@ -1767,25 +2100,19 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     last_message = messages[-1]
     raw = _message_text(last_message)
 
-    # Remove markdown que não renderiza bem no WhatsApp
-    formatted = raw
-    formatted = formatted.replace("**", "*")   # bold MD → WhatsApp bold
-    formatted = formatted.replace("__", "_")    # italic
-    if len(formatted) >= 2 and formatted[0] == formatted[-1] and formatted[0] in ("'", '"'):
-        formatted = formatted[1:-1].strip()
-    # Remove headers markdown
-    import re
-    formatted = re.sub(r"^#{1,6}\s+", "", formatted, flags=re.MULTILINE)
-    # Normaliza múltiplas linhas em branco
-    formatted = re.sub(r"\n{3,}", "\n\n", formatted)
-    formatted = formatted.strip()
+    formatted = _clean_whatsapp_markdown(raw)
     formatted = _shape_whatsapp_response(formatted, state.get("outcome"))
+    formatted = _strip_customer_emojis(formatted)
+    formatted = re.sub(r"\n{3,}", "\n\n", formatted).strip()
+    formatted = formatted.strip()
 
-    # Se muito longo (>1500 chars), trunca com gancho
     if len(formatted) > 1500:
-        formatted = formatted[:1450].rsplit("\n", 1)[0] + (
-            "\n\nPosso te passar mais detalhes. Qual a sua dúvida principal?"
+        formatted = _truncate_whatsapp_blocks(
+            formatted,
+            state.get("outcome"),
+            1450,
         )
+        formatted = f"{formatted}\n\nQual a sua dúvida principal?".strip()
 
     return {"messages": messages[:-1] + [AIMessage(content=formatted)]}
 

@@ -1,5 +1,15 @@
 # Obrigatório Para Agentes
 
+## Regra P0: Segredos e `.env.example`
+
+Antes de qualquer alteração envolvendo configuração, Docker, ambiente, README, scripts ou documentação operacional, leia [.rules/secrets-env.md](.rules/secrets-env.md).
+
+- Não remover `{SECRET}` do `.env.example`.
+- Não substituir placeholders por tokens, senhas, telefones, hosts internos, URLs com credencial, API keys ou chaves SSH reais.
+- Não imprimir `.env`, `.env.local`, vault, token, senha, URL com senha, telefone sensível ou chave real em logs, docs, prompts, respostas ou commits.
+- Diagnóstico de ambiente deve mostrar só nomes de variáveis ausentes, nunca valores. Use `.venv/bin/python scripts/validate-env.py --env-file .env`.
+- Se encontrar segredo versionado, remova do arquivo, troque por `${VAR}`, documente o nome em `env.schema.md` e recomende rotação sem repetir o valor.
+
 ## Regra Zero: Português Brasileiro
 
 Todo atendimento, prompt, documento, PDF, copy, log operacional legível por cliente e regra deste repositório deve ser pensado primeiro em português brasileiro moderno. Inglês só é permitido para nomes técnicos inevitáveis de APIs, bibliotecas, comandos, variáveis, classes, modelos ou protocolos.

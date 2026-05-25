@@ -174,7 +174,7 @@ stage_operational_files() {
   git add \
     CLAUDE.md GUIDE_REFINAMENTO.md README.md AGENTS.md \
     .gitattributes .rules/ orcamento_teste.pdf \
-    .context/docs/*.md docs/*.md \
+    .context/docs/*.md docs/*.md docs/audits/*.md env.schema.md \
     sync.sh git.sh bot.sh refinar.py refinar_llm.py refinar_tts.py scripts/ \
     requirements.txt pytest.ini docker-compose.yml \
     agent_graph/ app/ qdrant/ prisma/ sre/ tests/ \

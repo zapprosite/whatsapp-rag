@@ -68,18 +68,32 @@ model LeadEvent {
 }
 
 model CustomerService {
-  id               String   @id @default(uuid())
-  phone            String
-  service          String?
-  status           String   @default("scheduled")
-  address          String?
-  scheduled_window String?
-  notes            String?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  id                String    @id @default(uuid())
+  phone             String
+  service           String?
+  status            String    @default("scheduled")
+  address           String?
+  scheduled_window  String?
+  scheduled_start   DateTime?
+  scheduled_end     DateTime?
+  city_bairro       String?
+  customer_name     String?
+  source            String?   @default("whatsapp")
+  priority          String?   @default("normal")
+  value_tier        String?   @default("standard")
+  job_type          String?
+  owner_alerted_at  DateTime?
+  agenda_alerted_at DateTime?
+  notes             String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
   @@index([phone])
   @@index([status])
+  @@index([scheduled_start])
+  @@index([scheduled_end])
+  @@index([priority])
+  @@index([value_tier])
   @@index([updated_at])
   @@map("customer_services")
 }

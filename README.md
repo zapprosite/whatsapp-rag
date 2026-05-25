@@ -1,5 +1,7 @@
 # WhatsApp RAG Lead — Refrimix
 
+> Regra P0 de segurança: `.env.example` é propositalmente mascarado com `{SECRET}`. Nenhum agente deve substituir placeholders por valores reais, pedir/imprimir segredos ou diagnosticar ambiente exibindo valores. Veja [.rules/secrets-env.md](.rules/secrets-env.md) e [env.schema.md](env.schema.md).
+
 Bot WhatsApp para onboarding e atendimento a leads da Refrimix Tecnologia.
 O Will responde leads automaticamente, coleta dados de agendamento e escala para humano quando necessário.
 
@@ -103,47 +105,35 @@ whatsapp-rag/
 
 ---
 
-## Variáveis de Ambiente (`.env`)
+## Variáveis de Ambiente e Vault
+
+O `.env.example` é propositalmente mascarado com `{SECRET}`. Esse placeholder é uma defesa contra vazamento por assistentes, agentes e revisões apressadas; não substitua por exemplos realistas de token, senha, telefone, host interno ou URL com credencial.
+
+Valores reais ficam somente em `.env`, `.env.local`, vault ou configuração local do operador. Esses arquivos são ignorados pelo Git. O contrato operacional fica em [env.schema.md](env.schema.md), com tipo, obrigatoriedade, default seguro, origem e categoria de cada variável.
+
+Fluxo seguro:
+
+```bash
+scripts/env-vault.sh edit
+scripts/env-vault.sh sync
+.venv/bin/python scripts/validate-env.py --env-file .env
+```
+
+`scripts/env-vault.sh sync` atualiza o `.env.example` mantendo valores mascarados. A validação mostra apenas nomes ausentes ou mascarados; ela nunca imprime tokens, senhas, URLs completas, telefones ou chaves.
+
+Regras para agentes:
+
+- Não remover `{SECRET}` do `.env.example`.
+- Não transformar `.env.example` em arquivo com segredos realistas.
+- Não pedir segredo real ao operador em chat quando a validação por nome for suficiente.
+- Não imprimir `.env`, `.env.local`, token, senha, URL com senha, API key ou chave SSH.
+- Em diagnósticos, listar somente nomes de variáveis faltantes.
+
+No Compose, segredos da Evolution API devem vir do ambiente:
 
 ```env
-# Evolution API
-AUTHENTICATION_API_KEY=sua_chave
-SERVER_URL=https://seu-servidor.com
-EVOLUTION_API_URL=http://localhost:8080
-EVOLUTION_INSTANCE=RefrimixLead
-
-# LLM
-MINIMAX_API_KEY=sk-...
-MINIMAX_MODEL=MiniMax-M2.7
-GROQ_API_KEY=gsk_...
-
-# Infraestrutura
-REDIS_URL=redis://192.168.15.83:6379
-QDRANT_URL=http://127.0.0.1:6333
-QDRANT_COLLECTION=hermes_hvac_rag_service_staging
-DATABASE_URL=postgresql://USER:PASS@192.168.15.83:5432/whatsapp_rag
-
-# Alertas
-OWNER_PHONE=5513996659382
-
-# Agenda opcional
-GOOGLE_CALENDAR_ENABLED=0
-GOOGLE_CALENDAR_ID=
-GOOGLE_SERVICE_ACCOUNT_FILE=
-GOOGLE_CALENDAR_TIMEZONE=America/Sao_Paulo
-
-# Bot (opcional)
-BOT_OFF_MESSAGE=Oi! Estou em atendimento agora, te respondo em breve 🙂
-MANUAL_TAKEOVER_TTL_SECONDS=86400
-
-# Voz / TTS PC1
-TTS_ENGINE=chatterbox
-TTS_LOCALE=pt-BR
-OMNIVOICE_URL=http://127.0.0.1:8202
-CHATTERBOX_URL=http://127.0.0.1:8200
-TTS_CHATTERBOX_LANGUAGE=pt
-TTS_ALLOW_CHATTERBOX_PTBR=1
-SSH_HOST_PC1=will-zappro@192.168.15.83
+AUTHENTICATION_API_KEY={SECRET}
+EVOLUTION_DATABASE_URL={SECRET}
 ```
 
 ---
@@ -161,17 +151,17 @@ O bot diferencia três situações antes de responder:
 Quando um humano assumir um contato, pause a IA só para aquele telefone:
 
 ```bash
-curl -X POST http://localhost:8000/bot/takeover/5513999999999
-curl http://localhost:8000/bot/takeover/5513999999999
-curl -X POST http://localhost:8000/bot/release/5513999999999
+curl -X POST http://localhost:8000/bot/takeover/{TELEFONE_TESTE}
+curl http://localhost:8000/bot/takeover/{TELEFONE_TESTE}
+curl -X POST http://localhost:8000/bot/release/{TELEFONE_TESTE}
 ```
 
 Contrato Redis equivalente:
 
 ```bash
-redis-cli SETEX manual_takeover:5513999999999 86400 1
-redis-cli GET manual_takeover:5513999999999
-redis-cli DEL manual_takeover:5513999999999
+redis-cli SETEX manual_takeover:{TELEFONE_TESTE} 86400 1
+redis-cli GET manual_takeover:{TELEFONE_TESTE}
+redis-cli DEL manual_takeover:{TELEFONE_TESTE}
 ```
 
 Enquanto `manual_takeover:{phone}=1`, o worker registra `Humano assumiu; IA pausada para este contato` e não chama o LangGraph nem envia resposta automática.
@@ -191,16 +181,63 @@ Com `appointment_score >= 5`, o estado vira `appointment_ready`, `pipeline_stage
 
 ### Alertas para OWNER_PHONE
 
-O `OWNER_PHONE` recebe alerta com telefone, motivo, última mensagem, resumo curto e próximo passo recomendado quando houver:
+O `OWNER_PHONE` é canal de decisão gerencial. Ele recebe alerta com telefone, motivo, última mensagem, resumo curto e próximo passo recomendado quando houver:
 
 - `appointment_ready`: lead pronto para confirmar agenda.
 - `no_context_needs_human_review`: segunda tentativa sem contexto suficiente.
 - `active_service_followup`: cliente com serviço ativo pedindo acompanhamento.
 - `complaint_or_risk`: reclamação forte, risco comercial ou jurídico.
 - `explicit_handoff`: cliente pediu humano/atendente.
-- `high_value_lead`: PMOC, muitos aparelhos, sistema central ou oportunidade de maior valor.
+- `high_value_*`: VRF/VRV, dutos, splitão, piso-teto, cassete, sistema central, PMOC, laudo, ART, contrato, empresa, condomínio, restaurante, clínica, galpão ou múltiplos aparelhos.
 
 Fora preço fixo de instalação simples e higienização de split, o bot não inventa valor: conduz para análise técnica de R$50 abatível se o orçamento for aprovado.
+
+### Grupo Agenda Refrimix
+
+O grupo operacional recebe apenas resumo de agenda. Ele não recebe alerta comercial de alto valor nem intervenção humana por padrão.
+
+- 07:00 `America/Sao_Paulo`: agenda de hoje.
+- 20:00 `America/Sao_Paulo`: agenda de amanhã.
+- O envio usa `AGENDA_GROUP_JID`, não o nome do grupo.
+- Se `AGENDA_GROUP_ENABLED=1` e `AGENDA_GROUP_JID` estiver vazio, o sistema registra warning e não envia.
+
+Para descobrir o JID:
+
+```bash
+python scripts/find-whatsapp-group.py --name "Agenda Refrimix"
+```
+
+Depois copie o valor exibido para o `.env`:
+
+```env
+AGENDA_GROUP_JID=120363000000000000@g.us
+```
+
+Preview e envio manual:
+
+```bash
+python scripts/send-agenda-digest.py today --preview
+python scripts/send-agenda-digest.py tomorrow --send
+curl -s http://localhost:8000/bot/agenda/today
+curl -s http://localhost:8000/bot/agenda/tomorrow
+curl -X POST "http://localhost:8000/bot/agenda/send/tomorrow?send=false"
+curl -X POST "http://localhost:8000/bot/agenda/send/tomorrow?send=true"
+```
+
+Rotas úteis:
+
+- `GET /bot/agenda/today`
+- `GET /bot/agenda/tomorrow`
+- `POST /bot/agenda/send/today?send=false`
+- `POST /bot/agenda/send/tomorrow?send=false`
+- `POST /bot/agenda/send/date/{yyyy_mm_dd}?send=false`
+- `GET /bot/groups` em ambiente local/dev para debug.
+
+Testes focados:
+
+```bash
+.venv/bin/python -m pytest tests/test_agenda_digest.py tests/test_owner_high_value_alerts.py tests/test_manual_takeover.py
+```
 
 ---
 
@@ -334,7 +371,7 @@ Quando o cliente já fechou e voltar no WhatsApp, cadastre o serviço para o bot
 
 ```bash
 .venv/bin/python scripts/customer-service.py upsert \
-  --phone 5513999999999 \
+  --phone {TELEFONE_TESTE} \
   --service instalacao \
   --status scheduled \
   --address "Santos" \
@@ -345,7 +382,7 @@ Quando o cliente já fechou e voltar no WhatsApp, cadastre o serviço para o bot
 Para encerrar:
 
 ```bash
-.venv/bin/python scripts/customer-service.py close --phone 5513999999999
+.venv/bin/python scripts/customer-service.py close --phone {TELEFONE_TESTE}
 ```
 
 ### Testar sem WhatsApp
@@ -376,7 +413,7 @@ Os antigos scripts soltos da raiz foram consolidados em `sre.probes`. Eles são 
 .venv/bin/python -m sre.probes webhook-stress --requests 30 --concurrency 10
 
 # Endpoints de audio da Evolution API
-EVOLUTION_API_KEY=... .venv/bin/python -m sre.probes evolution-audio --phone 5513996659382
+EVOLUTION_API_KEY={SECRET} .venv/bin/python -m sre.probes evolution-audio --phone {TELEFONE_TESTE}
 
 # Auditoria PC2 + TTS PC1 (OmniVoice/Chatterbox/vozes)
 .venv/bin/python -m sre.probes tts-audit
