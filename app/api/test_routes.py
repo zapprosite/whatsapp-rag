@@ -70,6 +70,7 @@ def _build_state(
     message: str,
     *,
     phone: str,
+    send: bool = False,
     media_type: str = "conversation",
     media_url: str = "",
     media_base64: str = "",
@@ -85,7 +86,7 @@ def _build_state(
         "handoff_reason": None,
         "handoff_already_notified": False,
         "rag_context": [],
-        "customer_data": {"phone": phone},
+        "customer_data": {"phone": phone, "diagnostic_mode": True, "send_requested": send},
         "is_human": False,
         "confidence": 1.0,
         "message_type": media_type,
@@ -235,7 +236,7 @@ async def test_chat(
     media_url: str = "",
     send: bool = False,
 ) -> dict[str, Any]:
-    result = await _invoke_graph(_build_state(message, phone="+5511900000001", media_type=media_type, media_url=media_url))
+    result = await _invoke_graph(_build_state(message, phone="+5511900000001", send=send, media_type=media_type, media_url=media_url))
     if "error" in result:
         return result
 

@@ -603,7 +603,7 @@ def _question_for_field(field: str | None) -> str:
         "tempo_sem_manutencao": "Faz quanto tempo que não passa por manutenção?",
         "pinga_agua": "Ele está pingando água?",
         "nome": "Qual é seu nome?",
-    }.get(field, "Qual é o próximo detalhe que você já consegue me passar?")
+    }.get(field, "Qual é o próximo detalhe que você já consegue me informar?")
 
 
 def infer_asked_field_from_response(response: str, missing_fields: list[str]) -> str | None:
@@ -2374,45 +2374,47 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
     outcome = state.get("outcome")
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
+    diagnostic_no_send = bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested"))
 
     user_message = next((_message_text(m) for m in reversed(messages) if _is_human_message(m)), None)
     ai_message = next((_message_text(m) for m in reversed(messages) if _is_ai_message(m)), None)
     lead_state = state.get("lead_state") or {}
     memory = customer_data.get("memory") or {}
 
-    try:
-        await prisma_save_interaction({
-            "phone": phone,
-            "user_message": user_message or "",
-            "intent": intent,
-            "service": service,
-            "ai_message": ai_message or "",
-            "is_human": state.get("is_human", False),
-            "metadata": {
-                "outcome": outcome,
-                "handoff_mode": state.get("handoff_mode"),
-                "handoff_reason": state.get("handoff_reason"),
-                "active_service": customer_data.get("active_service"),
-                "last_service": customer_data.get("last_service"),
-                "relationship_type": lead_state.get("relationship_type"),
-                "conversation_goal": state.get("conversation_objective") or lead_state.get("conversation_goal"),
-                "lead_state": {
-                    "tipo_servico": lead_state.get("tipo_servico"),
-                    "cidade_bairro": lead_state.get("cidade_bairro"),
-                    "btus": lead_state.get("btus"),
-                    "last_asked_field": lead_state.get("last_asked_field"),
-                    "ask_count_by_field": lead_state.get("ask_count_by_field"),
+    if not diagnostic_no_send:
+        try:
+            await prisma_save_interaction({
+                "phone": phone,
+                "user_message": user_message or "",
+                "intent": intent,
+                "service": service,
+                "ai_message": ai_message or "",
+                "is_human": state.get("is_human", False),
+                "metadata": {
+                    "outcome": outcome,
+                    "handoff_mode": state.get("handoff_mode"),
+                    "handoff_reason": state.get("handoff_reason"),
+                    "active_service": customer_data.get("active_service"),
+                    "last_service": customer_data.get("last_service"),
+                    "relationship_type": lead_state.get("relationship_type"),
+                    "conversation_goal": state.get("conversation_objective") or lead_state.get("conversation_goal"),
+                    "lead_state": {
+                        "tipo_servico": lead_state.get("tipo_servico"),
+                        "cidade_bairro": lead_state.get("cidade_bairro"),
+                        "btus": lead_state.get("btus"),
+                        "last_asked_field": lead_state.get("last_asked_field"),
+                        "ask_count_by_field": lead_state.get("ask_count_by_field"),
+                    },
+                    "response_guard_violations": state.get("response_guard_violations") or [],
+                    "history_source": memory.get("history_source"),
+                    "is_conversation_started": memory.get("is_conversation_started"),
                 },
-                "response_guard_violations": state.get("response_guard_violations") or [],
-                "history_source": memory.get("history_source"),
-                "is_conversation_started": memory.get("is_conversation_started"),
-            },
-        })
-    except Exception as e:
-        logger.error(f"Falha ao salvar interação: {e}")
+            })
+        except Exception as e:
+            logger.error(f"Falha ao salvar interação: {e}")
 
     # ── Cria LeadEvent transacional para resposta da IA (Assistant) ───────────
-    if phone and phone != "unknown" and ai_message:
+    if phone and phone != "unknown" and ai_message and not diagnostic_no_send:
         from prisma import Prisma
         db = Prisma()
         await db.connect()
@@ -2846,6 +2848,7 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
     # ── 1. Inicializa o estado com os dados do banco ────────────────────────
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
+    diagnostic_no_send = bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested"))
     
     lead_state = None
     already_asked_fields = []
@@ -2853,7 +2856,10 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
     do_not_ask = []
     conversation_summary = ""
     
-    if phone and phone != "unknown":
+    if diagnostic_no_send:
+        lead_state = _lead_state_copy()
+        missing_fields = ["tipo_servico", "cidade_bairro"]
+    elif phone and phone != "unknown":
         from prisma import Prisma
         import json
         db = Prisma()
@@ -2970,6 +2976,7 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
 
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
+    diagnostic_no_send = bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested"))
     
     lead_state = state.get("lead_state") or _lead_state_copy()
     last_message = messages[-1]
@@ -3049,7 +3056,7 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     lead_state, relationship_type = _apply_relationship_and_appointment(state, lead_state)
     pipeline_stage = "ready_to_schedule" if lead_state.get("appointment_ready") else relationship_type
     
-    if phone and phone != "unknown":
+    if phone and phone != "unknown" and not diagnostic_no_send:
         from prisma import Prisma
         db = Prisma()
         await db.connect()
@@ -3212,6 +3219,8 @@ async def dispatch_appointment_alert(state: dict[str, Any]) -> dict[str, Any]:
     service = state.get("service")
     messages = state.get("messages", [])
     customer_data = state.get("customer_data", {})
+    if bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested")):
+        return {}
 
     lead_state = state.get("lead_state") or {}
     # Só verifica outcomes que levam a visita/reunião ou lead já pronto para agenda.
@@ -3219,16 +3228,9 @@ async def dispatch_appointment_alert(state: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     lead_data = _extract_appointment_data(messages, customer_data, service)
-    if not lead_data and lead_state.get("appointment_ready"):
-        lead_data = {
-            "phone": customer_data.get("phone", ""),
-            "name": lead_state.get("nome") or customer_data.get("name"),
-            "service": service or lead_state.get("tipo_servico"),
-            "address": lead_state.get("cidade_bairro"),
-            "window": None,
-        }
-    if not lead_data:
+    if not lead_data or not lead_data.get("window"):
         return {}
+    lead_data["reason"] = "appointment_confirmed"
     lead_data["last_message"] = _latest_human_text(messages)
 
     from agent_graph.services.alerts import send_appointment_alert, prisma_upsert_lead
