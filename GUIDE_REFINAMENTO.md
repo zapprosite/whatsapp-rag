@@ -8,7 +8,7 @@ Manda mensagem direto para o número WhatsApp vinculado à instância e o bot re
 **Bypass rápido (sem WhatsApp):**
 ```bash
 # Testa uma mensagem específica direto pelo graph
-curl -X POST "http://localhost:8000/test/chat?message=MENSAGEM+AQUI"
+curl -X POST "http://localhost:8000/test/chat?message=MENSAGEM+AQUI&send=false"
 
 # Ou via httpie / browser:
 # http://localhost:8000/docs  → POST /test/chat
@@ -82,7 +82,7 @@ curl -s http://localhost:8000/health
 
 **Testa imediatamente:**
 ```bash
-curl -X POST "http://localhost:8000/test/chat?message=Quero+instalar+ar+split"
+curl -X POST "http://localhost:8000/test/chat?message=Quero+instalar+ar+split&send=false"
 ```
 
 ---
@@ -252,7 +252,7 @@ ssh will-zappro@192.168.15.83 \
 
 ## 9. Adicionando cenários E2E novos
 
-**Arquivo:** `app/main.py` — lista `E2E_SCENARIOS`
+**Arquivo:** `app/api/test_routes.py` — lista `E2E_SCENARIOS`
 
 ```python
 E2E_SCENARIOS = [

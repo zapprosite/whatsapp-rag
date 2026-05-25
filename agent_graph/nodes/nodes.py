@@ -39,6 +39,8 @@ REGRAS ABSOLUTAS - COMPORTAMENTO E TOM DE VOZ:
 - Responda SEMPRE em português brasileiro (pt-BR) profissional, mas natural para o WhatsApp. Evite jargões corporativos robóticos (como "prezado cliente", "conforme solicitado"), mas mantenha total cortesia e autoridade técnica.
 - Seja objetivo: frases curtas, parágrafos concisos. Jamais use listas enormes.
 - Use um tom cordial, transmitindo segurança e confiança técnica.
+- Interprete português brasileiro pelo contexto da conversa, não como tradução literal do inglês. Palavras curtas e ambíguas como "ar", "limpeza", "quanto fica", "deu ruim" e "não está legal" devem ser resolvidas pelo histórico e pelo domínio de climatização antes de pedir esclarecimento.
+- Quando a intenção estiver ambígua, faça uma pergunta curta de desambiguação em vez de encerrar, escalar ou responder genericamente.
 
 REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO E VISÃO (MULTIMODAL):
 - VOCÊ É ESTRITAMENTE PROIBIDO DE INVENTAR PREÇOS, PRAZOS, SERVIÇOS OU PROCEDIMENTOS TÉCNICOS.
@@ -632,7 +634,19 @@ def _fold_text(text: str) -> str:
 
 
 def _contains_any(text: str, triggers: tuple[str, ...] | list[str]) -> bool:
-    return any(_fold_text(trigger) in text for trigger in triggers)
+    for trigger in triggers:
+        if _keyword_in_text(trigger, text):
+            return True
+    return False
+
+
+def _keyword_in_text(keyword: str, text: str) -> bool:
+    folded_keyword = _fold_text(keyword)
+    if len(folded_keyword) <= 3 and " " not in folded_keyword:
+        if re.search(rf"\b{re.escape(folded_keyword)}\b", text):
+            return True
+        return False
+    return folded_keyword in text
 
 
 def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
@@ -640,7 +654,12 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
         return f"high_value_{intent.replace('-', '_')}"
 
     for keyword, reason in _HIGH_VALUE_KEYWORDS:
-        if _fold_text(keyword) in text:
+        folded_keyword = _fold_text(keyword)
+        if len(folded_keyword) <= 3:
+            if re.search(rf"\b{re.escape(folded_keyword)}\b", text):
+                return reason
+            continue
+        if folded_keyword in text:
             return reason
 
     multiple_devices = re.search(
@@ -697,11 +716,13 @@ def _handoff_followup_response(reason: str | None) -> str:
 
 def _unknown_recovery_response(user_text: str) -> str:
     text = _fold_text(user_text)
-    if "ar" in text and any(term in text for term in ("estranho", "problema", "ruim", "esquisito")):
+    if "ar" in text and any(term in text for term in ("estranho", "problema", "ruim", "esquisito", "nao ta legal", "nao esta legal", "deu ruim")):
         return (
             "Entendi. Quando você fala que o ar tá estranho, ele não gela, pinga, faz barulho ou tem cheiro? "
             "Se puder, me manda uma foto ou vídeo curto também."
         )
+    if any(term in text for term in ("faz", "voces fazem", "tem como", "consegue")) and len(text.split()) <= 5:
+        return "Consigo te ajudar sim. Você quer instalação, manutenção ou higienização?"
     if _looks_like_price_question(user_text):
         return (
             "Entendi. Pra eu te passar um valor certo, preciso saber qual serviço você quer: "
@@ -733,6 +754,12 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     last_message = messages[-1]
     user_text = _message_text(last_message)
     text_lower = _fold_text(user_text)
+    recent_human = [
+        _message_text(message)
+        for message in messages[-6:]
+        if _is_human_message(message) and _message_text(message)
+    ]
+    semantic_text = _fold_text(" | ".join(recent_human[-3:])) if len(recent_human) > 1 else text_lower
 
     if _contains_any(text_lower, _EXPLICIT_HANDOFF_TRIGGERS):
         return {
@@ -761,6 +788,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite",
         "e aí", "eai", "e ai", "tudo bem", "tudo bom", "como vai",
         "alguém", "alguem", "tem alguém", "quero informação", "quero informacao",
+        "opa",
     ]
     if _contains_any(text_lower, GREETING_WORDS) and len(text_lower.split()) <= 8:
         return {
@@ -776,10 +804,17 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     # Scoring por keywords
     SCORE_MAP: dict[tuple[str, int], str] = {
         ("quanto custa instalar", 8): "instalacao",
+        ("quanto fica pra instalar", 8): "instalacao",
+        ("quanto sai instalar", 8): "instalacao",
         ("custa instalar", 7): "instalacao",
         ("preço pra instalar", 7): "instalacao",
         ("preço de instalação", 7): "instalacao",
         ("vocês instalam", 6): "instalacao",
+        ("colocar ar", 5): "instalacao",
+        ("por ar", 5): "instalacao",
+        ("splits novos", 5): "instalacao",
+        ("split novo", 5): "instalacao",
+        ("pra por", 4): "instalacao",
         ("instalação de", 3): "instalacao",
         ("instalar", 1): "instalacao",
         ("instalação", 1): "instalacao",
@@ -787,11 +822,24 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("equipamento que eu já comprei", 5): "instalacao",
         ("não esquenta", 5): "manutencao",
         ("não aquece", 5): "manutencao",
+        ("não gela", 6): "manutencao",
+        ("nao gela", 6): "manutencao",
+        ("não está gelando", 6): "manutencao",
+        ("não tá gelando", 6): "manutencao",
+        ("nao ta gelando", 6): "manutencao",
+        ("parou de gelar", 6): "manutencao",
         ("barulho de vibração", 5): "manutencao",
         ("barulho", 3): "manutencao",
         ("vazamento", 4): "manutencao",
+        ("pingando", 5): "manutencao",
+        ("pingar", 5): "manutencao",
+        ("pingou", 5): "manutencao",
+        ("comecou a pingar", 6): "manutencao",
+        ("pinga agua", 5): "manutencao",
+        ("vazando agua", 5): "manutencao",
         ("não liga", 4): "manutencao",
         ("queimou", 3): "manutencao",
+        ("deu ruim no ar", 3): "manutencao",
         ("corretiva", 3): "manutencao",
         ("gela demais", 3): "manutencao",
         ("manutenção", 1): "manutencao",
@@ -799,6 +847,13 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("defeito", 1): "manutencao",
         ("pmoc", 5): "pmoc",
         ("laudo pmoc", 5): "pmoc",
+        ("art", 5): "pmoc",
+        ("certificado dos aparelhos", 5): "pmoc",
+        ("certificado", 3): "pmoc",
+        ("contrato de manutencao", 4): "pmoc",
+        ("programa preventivo", 5): "pmoc",
+        ("preventivo trimestral", 5): "pmoc",
+        ("manutencao trimestral", 4): "pmoc",
         ("manutenção preventiva", 2): "pmoc",
         ("alvará do bombeiros", 4): "pmoc",
         ("higienização", 5): "higienizacao",
@@ -807,10 +862,20 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("ácaros", 4): "higienizacao",
         ("fungos", 3): "higienizacao",
         ("sanitização", 3): "higienizacao",
-        ("limpeza do ar", 3): "higienizacao",
+        ("faz limpeza", 6): "higienizacao",
+        ("limpeza de split", 6): "higienizacao",
+        ("limpeza do ar", 4): "higienizacao",
+        ("limpeza", 4): "higienizacao",
+        ("limpar", 2): "higienizacao",
+        ("mofo", 3): "higienizacao",
         ("cheiro", 1): "higienizacao",
         ("projeto de climatização", 4): "consultoria",
         ("projeto de ar", 4): "consultoria",
+        ("split ou cassete", 6): "consultoria",
+        ("ajuda pra escolher", 5): "consultoria",
+        ("escolher o equipamento", 5): "consultoria",
+        ("dimensionar ar", 5): "consultoria",
+        ("dimensionar", 4): "consultoria",
         ("consultoria", 3): "consultoria",
         ("assessoria", 3): "consultoria",
         ("btu", 3): "consultoria",
@@ -839,7 +904,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
     scores: dict[str, int] = {}
     for (keyword, weight), svc in SCORE_MAP.items():
-        if _fold_text(keyword) in text_lower:
+        if _keyword_in_text(keyword, semantic_text):
             scores[svc] = scores.get(svc, 0) + weight
 
     intent = max(scores, key=lambda k: scores[k]) if scores else None
@@ -861,6 +926,8 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
             f"'explicit_handoff' = cliente pede claramente humano/atendente/pessoa real\n"
             f"'sensitive_complaint' = cancelamento, reembolso, ameaça pública/legal ou reclamação forte de falta de retorno\n"
             f"'unknown' = mensagem vaga, gíria, áudio ruim, fora de domínio ou intenção incerta. Nunca use handoff para dúvida incerta.\n"
+            f"Use português brasileiro real: considere histórico, elipse e contexto. Em HVAC, 'ar' geralmente significa ar-condicionado.\n"
+            f"Histórico recente do lead: \"{' | '.join(recent_human[-3:])}\"\n"
             f"Mensagem: \"{user_text}\"\n"
             f"Responda apenas o nome da categoria, sem explicação."
         )
@@ -878,7 +945,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
                 # Sem keyword match — confia no LLM
                 intent = intent_llm
             else:
-                strong_keyword = top_score >= 4 and (runner_up == 0 or top_score > runner_up * 2)
+                strong_keyword = top_score >= 3 and (runner_up == 0 or top_score > runner_up * 2)
                 if not strong_keyword:
                     intent = intent_llm
     except Exception as e:
@@ -886,7 +953,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
 
     # Se intent ainda None (sem keywords e LLM falhou) → recuperação conversacional, não handoff.
     if intent is None:
-        intent = _fallback_service_for_high_value(text_lower) or "unknown"
+        intent = _fallback_service_for_high_value(semantic_text) or "unknown"
 
     intent = _normalize_service(intent)
     if intent in ("explicit_handoff", "sensitive_complaint"):
@@ -905,7 +972,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     handoff_mode = "none"
     handoff_reason = None
 
-    high_value_reason = _detect_high_value_reason(text_lower, intent)
+    high_value_reason = _detect_high_value_reason(semantic_text, intent)
     if high_value_reason:
         handoff_mode = "soft_alert"
         handoff_reason = high_value_reason

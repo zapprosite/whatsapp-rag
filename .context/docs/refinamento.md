@@ -19,7 +19,7 @@ Regra: refine no nível mais baixo que resolve o problema.
 ## Testar sem WhatsApp
 
 ```bash
-curl -X POST "http://localhost:8000/test/chat?message=MENSAGEM+AQUI"
+curl -X POST "http://localhost:8000/test/chat?message=MENSAGEM+AQUI&send=false"
 curl -X POST "http://localhost:8000/test/e2e?start=0&limit=35&delay=0"
 ```
 

@@ -51,6 +51,9 @@ whatsapp-rag/
 ├── refinar.py                    # loop interativo de refinamento
 ├── sync.sh                       # gera CLAUDE.md a partir de .context/docs/
 │
+├── sre/
+│   └── probes.py                 # smoke, stress e probes Evolution sem coleta pytest
+│
 ├── agent_graph/
 │   ├── graph/
 │   │   └── graph.py              # StateGraph + edges + routing
@@ -67,7 +70,13 @@ whatsapp-rag/
 ├── app/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   ├── main.py                   # FastAPI: webhook + /bot + /test/*
+│   ├── main.py                   # FastAPI composition root
+│   ├── runtime.py                # ponte com worker, Redis e envio WhatsApp
+│   ├── api/
+│   │   ├── webhook.py            # entrada Evolution API → Redis queue
+│   │   ├── bot.py                # controle operacional /bot
+│   │   ├── health.py             # saúde e root
+│   │   └── test_routes.py        # diagnósticos /test/*
 │   └── worker.py                 # worker_loop: Redis queue → LangGraph
 │
 ├── prisma/
@@ -176,6 +185,9 @@ python3 refinar.py
 
 # Ou já passa uma mensagem direto
 python3 refinar.py "O ar tá fazendo barulho"
+
+# Bateria semântica sem interação: 50 mensagens pt-BR/SP
+python3 refinar.py --loop 50
 ```
 
 O script mostra a resposta do Will + intent + RAG hits e pergunta o que ficou errado:
@@ -198,14 +210,41 @@ Depois de refinar, ainda no loop:
 ### Testar sem WhatsApp
 
 ```bash
+# Suíte automatizada local
+.venv/bin/python -m pytest
+
 # Resposta única
-curl -X POST "http://localhost:8000/test/chat?message=O+ar+tá+com+barulho"
+curl -X POST "http://localhost:8000/test/chat?message=O+ar+tá+com+barulho&send=false"
 
 # 3 variações da mesma mensagem (checa consistência)
 curl -X POST "http://localhost:8000/test/refine?message=Quero+instalar+split"
 
 # Acurácia dos 34 cenários E2E
 curl -X POST "http://localhost:8000/test/e2e?start=0&limit=34&delay=0"
+```
+
+### Probes SRE
+
+Os antigos scripts soltos da raiz foram consolidados em `sre.probes`. Eles são checks operacionais manuais e não rodam durante o pytest.
+
+```bash
+# Smoke do webhook: texto, audio e imagem
+.venv/bin/python -m sre.probes webhook-smoke
+
+# Carga concorrente do webhook
+.venv/bin/python -m sre.probes webhook-stress --requests 30 --concurrency 10
+
+# Endpoints de audio da Evolution API
+EVOLUTION_API_KEY=... .venv/bin/python -m sre.probes evolution-audio --phone 5513996659382
+```
+
+### Vault Local
+
+O `.env` deste projeto segue o mesmo padrão do Hermes: valores reais ficam só em `.env`, e o contrato versionado fica em `.env.example` com segredos mascarados.
+
+```bash
+scripts/env-vault.sh edit
+scripts/env-vault.sh sync
 ```
 
 ### Nível 1 — Tom e persona (sem rebuild)

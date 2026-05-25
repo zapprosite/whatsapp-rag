@@ -101,6 +101,34 @@ def test_classify_restaurant_central_system_is_soft_alert(monkeypatch):
     assert result["handoff_mode"] == "soft_alert"
 
 
+def test_classify_uses_recent_context_for_short_price_followup(monkeypatch):
+    patch_classifier_llm(monkeypatch, "unknown")
+    state = base_state("quanto fica?")
+    state["messages"] = [
+        HumanMessage(content="quero instalar um split no apartamento"),
+        AIMessage(content="Me passa a cidade e a BTU do aparelho?"),
+        HumanMessage(content="quanto fica?"),
+    ]
+
+    result = run(nodes.classify_service(state))
+
+    assert result["intent"] == "instalacao"
+    assert result["service"] == "instalacao"
+    assert result["handoff_mode"] == "none"
+
+
+def test_classify_common_sp_hvac_phrases_without_handoff(monkeypatch):
+    patch_classifier_llm(monkeypatch, "unknown")
+
+    no_cooling = run(nodes.classify_service(base_state("meu ar não tá gelando")))
+    cleaning = run(nodes.classify_service(base_state("faz limpeza de split?")))
+
+    assert no_cooling["intent"] == "manutencao"
+    assert no_cooling["handoff_mode"] == "none"
+    assert cleaning["intent"] == "higienizacao"
+    assert cleaning["handoff_mode"] == "none"
+
+
 def build_patched_graph(monkeypatch, qdrant_calls: dict[str, int] | None = None):
     async def passthrough(state: dict[str, Any]) -> dict[str, Any]:
         return {}

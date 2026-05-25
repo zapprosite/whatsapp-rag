@@ -5,8 +5,10 @@ refinar.py — Ciclo de refinamento interativo do bot Will/Refrimix.
 Uso:
   python3 refinar.py
   python3 refinar.py "O ar tá fazendo barulho"
+  python3 refinar.py --loop 50
 """
 from __future__ import annotations
+import argparse
 import os, sys, re, json, textwrap, subprocess
 from pathlib import Path
 
@@ -17,7 +19,8 @@ except ImportError:
     import httpx
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_URL   = "http://localhost:8000"
+BASE_URL   = os.getenv("REFINAR_BASE_URL", "http://localhost:8000").rstrip("/")
+CALL_TIMEOUT_SECONDS = float(os.getenv("REFINAR_TIMEOUT_SECONDS", "90"))
 NODES_FILE = Path(__file__).parent / "agent_graph/nodes/nodes.py"
 SEED_FILE  = Path(__file__).parent / "qdrant/seed_hvac.py"
 
@@ -28,6 +31,59 @@ MARKER_END   = "# EXEMPLOS_VALIDADOS_END"
 # ── ANSI colors ───────────────────────────────────────────────────────────────
 R="\033[0m"; BOLD="\033[1m"; DIM="\033[2m"
 CYAN="\033[96m"; GREEN="\033[92m"; YELLOW="\033[93m"; RED="\033[91m"; MAGENTA="\033[95m"
+
+REFINEMENT_CASES: list[tuple[str, str]] = [
+    ("instalacao", "quero instalar um split no apartamento"),
+    ("instalacao", "quanto fica pra instalar ar de 9000 btus?"),
+    ("instalacao", "comprei o aparelho na loja, vocês instalam?"),
+    ("instalacao", "preciso colocar ar na sala"),
+    ("instalacao", "dá pra instalar em parede com janela de vidro?"),
+    ("instalacao", "instalação no Guarujá quanto sai?"),
+    ("instalacao", "tenho dois splits novos pra pôr"),
+    ("manutencao", "meu ar não tá gelando"),
+    ("manutencao", "o ar começou a pingar dentro do quarto"),
+    ("manutencao", "deu ruim no ar, ele liga e desliga"),
+    ("manutencao", "tá fazendo um barulho estranho"),
+    ("manutencao", "parou de gelar depois de uns minutos"),
+    ("manutencao", "acho que queimou alguma coisa"),
+    ("manutencao", "tem vazamento de água na evaporadora"),
+    ("manutencao", "o split não liga mais"),
+    ("higienizacao", "quero limpar meu ar"),
+    ("higienizacao", "faz limpeza de split?"),
+    ("higienizacao", "tem cheiro de mofo quando liga"),
+    ("higienizacao", "higienização remove fungos?"),
+    ("higienizacao", "quanto fica a higienização?"),
+    ("higienizacao", "preciso limpar os filtros e a evaporadora"),
+    ("higienizacao", "faz ozônio no ar condicionado?"),
+    ("pmoc", "preciso de PMOC para empresa"),
+    ("pmoc", "laudo pmoc para alvará"),
+    ("pmoc", "tenho 12 aparelhos e preciso de manutenção preventiva"),
+    ("pmoc", "condomínio precisa de certificado dos aparelhos"),
+    ("pmoc", "vocês fazem ART no contrato de manutenção?"),
+    ("pmoc", "programa preventivo trimestral para loja"),
+    ("consultoria", "qual BTU eu preciso pra sala?"),
+    ("consultoria", "split ou cassete para loja de 40m2?"),
+    ("consultoria", "preciso de ajuda pra escolher o equipamento"),
+    ("consultoria", "quero dimensionar ar para apartamento"),
+    ("consultoria", "dúvida sobre eficiência energética"),
+    ("consultoria", "vocês fazem projeto para obra nova?"),
+    ("projeto-central", "restaurante com sistema central"),
+    ("projeto-central", "multisplit para 6 ambientes"),
+    ("projeto-central", "galpão industrial precisa de carga térmica"),
+    ("projeto-central", "projeto central de climatização para escritório"),
+    ("projeto-central", "cassete em vários ambientes"),
+    ("projeto-central", "controle individual por ambiente"),
+    ("unknown", "quanto fica?"),
+    ("unknown", "faz?"),
+    ("unknown", "não sei explicar direito"),
+    ("unknown", "é pra hoje?"),
+    ("unknown", "me ajuda com uma dúvida"),
+    ("unknown", "o ar tá estranho"),
+    ("onboarding", "oi"),
+    ("onboarding", "bom dia, tudo bem?"),
+    ("explicit_handoff", "quero falar com atendente humano"),
+    ("sensitive_complaint", "ninguém retornou meu orçamento"),
+]
 
 def c(color: str, text: str) -> str:
     return f"{color}{text}{R}"
@@ -40,8 +96,9 @@ def call_bot(message: str, media_type: str = "conversation", media_url: str = ""
         r = httpx.post(f"{BASE_URL}/test/chat", params={
             "message": message,
             "media_type": media_type,
-            "media_url": media_url
-        }, timeout=90)
+            "media_url": media_url,
+            "send": "false",
+        }, timeout=CALL_TIMEOUT_SECONDS)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -61,6 +118,56 @@ def health_ok() -> bool:
         return r.status_code == 200
     except Exception:
         return False
+
+
+def run_refinement_loop(count: int) -> int:
+    if count <= 0:
+        print(c(RED, "Loop precisa ser maior que zero."))
+        return 2
+    if not health_ok():
+        print(c(RED, f"\n✗ API não está respondendo em {BASE_URL}"))
+        return 1
+
+    print(c(GREEN, f"✓ API online em {BASE_URL}"))
+    print(c(CYAN, f"Rodando loop semântico de refinamento: {count} mensagens\n"))
+
+    failures: list[dict[str, str]] = []
+    for index in range(count):
+        expected, message = REFINEMENT_CASES[index % len(REFINEMENT_CASES)]
+        data = call_bot(message)
+        intent = str(data.get("intent") or "")
+        response = str(data.get("response") or data.get("error") or "")
+        handoff_mode = str(data.get("handoff_mode") or "none")
+        ok = not data.get("error") and bool(response)
+
+        if expected in {"explicit_handoff", "sensitive_complaint"}:
+            ok = ok and intent == expected and handoff_mode == "hard_transfer"
+        elif expected == "unknown":
+            ok = ok and handoff_mode != "hard_transfer"
+        else:
+            ok = ok and intent == expected and handoff_mode != "hard_transfer"
+
+        status = c(GREEN, "OK") if ok else c(RED, "FAIL")
+        print(f"{index + 1:02d}/{count:02d} [{status}] esperado={expected} intent={intent or '-'} handoff={handoff_mode} :: {message}")
+
+        if not ok:
+            failures.append({
+                "message": message,
+                "expected": expected,
+                "intent": intent,
+                "handoff_mode": handoff_mode,
+                "response": response[:220],
+            })
+
+    print()
+    if failures:
+        print(c(RED, f"Falhas: {len(failures)}/{count}"))
+        for failure in failures[:10]:
+            print(json.dumps(failure, ensure_ascii=False))
+        return 1
+
+    print(c(GREEN, f"Loop verde: {count}/{count} respostas válidas e sem handoff indevido."))
+    return 0
 
 
 # ── Display ───────────────────────────────────────────────────────────────────
@@ -288,19 +395,35 @@ def menu_refinamento(message: str, resp: str, intent: str, service: str) -> bool
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-def main():
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Refinador do chatbot Will/Refrimix.")
+    parser.add_argument("message", nargs="*", help="Mensagem única para testar no modo interativo.")
+    parser.add_argument("--base-url", default=BASE_URL, help="URL da API FastAPI.")
+    parser.add_argument("--loop", type=int, default=0, help="Roda N cenários semânticos sem interação.")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None):
+    global BASE_URL
+
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    BASE_URL = args.base_url.rstrip("/")
+
     print(f"\n{BOLD}{MAGENTA}╔══════════════════════════════════════════╗{R}")
     print(f"{BOLD}{MAGENTA}║  Refinador de Respostas — Will/Refrimix  ║{R}")
     print(f"{BOLD}{MAGENTA}╚══════════════════════════════════════════╝{R}")
 
+    if args.loop:
+        sys.exit(run_refinement_loop(args.loop))
+
     if not health_ok():
-        print(c(RED, "\n✗ API não está respondendo em http://localhost:8000"))
+        print(c(RED, f"\n✗ API não está respondendo em {BASE_URL}"))
         print(c(DIM, "  Suba o container: docker compose up -d fastapi-rag"))
         sys.exit(1)
 
     print(c(GREEN, "  ✓ API online\n"))
 
-    initial_msg = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else None
+    initial_msg = " ".join(args.message) if args.message else None
     needs_rebuild = False
 
     while True:
