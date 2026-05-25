@@ -69,10 +69,10 @@ def _ei(name: str, default: int) -> int:
         return default
 
 DEFAULT_PARAMS: dict[str, float | int] = {
-    "exaggeration": _ef("TTS_CHATTERBOX_EXAGGERATION", 0.5),
-    "cfg_weight":   _ef("TTS_CHATTERBOX_CFG_WEIGHT",   0.70),
-    "temperature":  _ef("TTS_CHATTERBOX_TEMPERATURE",  0.75),
-    "speed_factor": _ef("TTS_CHATTERBOX_SPEED_FACTOR", 1.05),
+    "exaggeration": _ef("TTS_CHATTERBOX_EXAGGERATION", 1.0),
+    "cfg_weight":   _ef("TTS_CHATTERBOX_CFG_WEIGHT",   0.55),
+    "temperature":  _ef("TTS_CHATTERBOX_TEMPERATURE",  0.80),
+    "speed_factor": _ef("TTS_CHATTERBOX_SPEED_FACTOR", 1.0),
     "chunk_size":   _ei("TTS_CHATTERBOX_CHUNK_SIZE",   400),
 }
 

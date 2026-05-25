@@ -357,10 +357,10 @@ sys.stdout.write(response.text)
             "language": self._chatterbox_language,
             "split_text": True,
             "chunk_size": _env_int("TTS_CHATTERBOX_CHUNK_SIZE", 400),
-            "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", 0.75),
-            "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", 0.5),
-            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", 0.70),
-            "speed_factor": _env_float("TTS_CHATTERBOX_SPEED_FACTOR", 1.05),
+            "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", 0.80),
+            "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", 1.0),
+            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", 0.55),
+            "speed_factor": _env_float("TTS_CHATTERBOX_SPEED_FACTOR", 1.0),
         }
         return await self._post_pc1_audio(
             self._chatterbox_url,
