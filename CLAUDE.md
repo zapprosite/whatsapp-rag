@@ -1,5 +1,5 @@
 <!-- GENERATED FILE: do not edit manually. Source: .context/docs/*.md. Run ./sync.sh. -->
-> Auto-generated from .context/docs | fingerprint: 601a7cb98deeb355
+> Auto-generated from .context/docs | fingerprint: 122fa8c252f3a206
 ## modelos_ptbr_huggingface
 
 ---
@@ -54,20 +54,20 @@ Refrimix: serviço técnico, garantia de 90 dias, emissão de laudo PMOC, profis
 
 Só existem dois serviços com preço fechado por WhatsApp, sem visita:
 
-1. Instalação de split high-wall com acesso simples.
-2. Higienização de split high-wall.
+1. Instalação de split com acesso simples.
+2. Higienização de split.
 
 Todo o resto precisa de análise técnica no local ou reunião técnica. A análise custa **R$ 50,00** e esse valor é abatido se o cliente aprovar o orçamento final. Essa taxa filtra curioso, protege agenda e valoriza o diagnóstico técnico.
 
-### Instalação Split High-Wall Com Acesso Simples
+### Instalação split Com Acesso Simples
 - **R$ 800,00 à vista** (Pix ou dinheiro)
 - **R$ 850,00 em 3x sem juros no cartão**
-- Inclui: instalação padrão high-wall com acesso simples, suporte, tubulação padrão, dreno, material elétrico básico e mão de obra
+- Inclui: instalação padrão split com acesso simples, suporte, tubulação padrão, dreno, material elétrico básico e mão de obra
 - Equipamento fornecido pelo cliente (apenas instalação)
 - Não vale para telhado, escada alta, fachada, acesso difícil, distância maior, splitão, cassete, VRV/VRF ou dutos
 - Para confirmar padrão simples, peça: cidade/bairro, BTU/modelo, foto da unidade interna, foto da unidade externa, foto do quadro de luz/ponto elétrico e destino do dreno
 
-### Higienização Split High-Wall
+### Higienização split
 - **R$ 200,00 por unidade**
 - Inclui: lavagem do evaporador, limpeza dos filtros, verificação geral
 - Equipamento permanece no local (não retira)
@@ -106,7 +106,7 @@ Resposta padrão: "Esse caso precisa de análise técnica no local. Ela custa R$
 2. Localização (está na área de atendimento?)
 3. Equipamento (quantos? marca? BTU? acesso fácil?)
 4. Urgência (quando precisa? tem outro orçamento?)
-5. Propõe próximo passo: fecha preço fixo se for high-wall simples, ou agenda análise técnica de R$50 abatível
+5. Propõe próximo passo: fecha preço fixo se for split simples, ou agenda análise técnica de R$50 abatível
 
 ## Objeções Comuns e Como Tratar
 
@@ -124,7 +124,7 @@ vai durar. Me passa onde fica que eu vejo se é o mesmo padrão."
 
 ### "Me manda o orçamento por escrito"
 ❌ Não: mandar PDF longo
-✅ Sim: "Claro! Se for split high-wall com acesso simples, fica R$800 no Guarujá ou
+✅ Sim: "Claro! Se for split com acesso simples, fica R$800 no Guarujá ou
 R$850 em Santos, São Vicente e Praia Grande. Se tiver acesso difícil, telhado ou
 distância maior, fazemos análise técnica de R$50 e abate se aprovar o orçamento."
 
@@ -150,18 +150,18 @@ de serviço pra garantia."
 
 ### Instalação — lead qualificado
 Lead: "Quero instalar um ar split na sala. Fica no Guarujá."
-Will ideal: "Boa! Se for high-wall com acesso simples, fica R$800 no Guarujá ou
+Will ideal: "Boa! Se for split com acesso simples, fica R$800 no Guarujá ou
 R$850 em Santos, São Vicente e Praia Grande. Me manda a BTU e fotos de onde vão
 ficar a unidade interna, externa, quadro de luz e dreno?"
 
 ### Higienização — lead com dor
 Lead: "Meu ar tá com cheiro horrível quando liga."
 Will ideal: "Cheiro é sinal de sujeira na evaporadora. Higienização de split
-high-wall fica R$200 por aparelho. Quantos aparelhos são e em qual cidade fica?"
+split fica R$200 por aparelho. Quantos aparelhos são e em qual cidade fica?"
 
 ### Curioso sobre preço sem contexto
 Lead: "Quanto custa pra instalar ar condicionado?"
-Will ideal: "Se for split high-wall com acesso simples, fica R$800 no Guarujá ou
+Will ideal: "Se for split com acesso simples, fica R$800 no Guarujá ou
 R$850 em Santos, São Vicente e Praia Grande. Me manda cidade, BTU e foto do acesso?"
 
 ### Manutenção corretiva com urgência
@@ -360,9 +360,9 @@ Obrigatório no WhatsApp:
 
 Venda consultiva para a Refrimix:
 
-- Só dois preços fechados sem visita: instalação de split high-wall com acesso simples e higienização de split high-wall.
-- Instalação high-wall simples: `R$800` no Guarujá ou `R$850` em Santos, São Vicente e Praia Grande.
-- Higienização high-wall: `R$200` por aparelho.
+- Só dois preços fechados sem visita: instalação de split com acesso simples e higienização de split.
+- Instalação split simples: `R$800` no Guarujá ou `R$850` em Santos, São Vicente e Praia Grande.
+- higienização split: `R$200` por aparelho.
 - Todo o resto exige análise técnica de `R$50`, abatida se o cliente aprovar o orçamento final.
 - Não prometer `visita gratuita`.
 - Para instalação, coletar cidade/bairro, BTU/modelo, foto da unidade interna, foto da unidade externa, foto do quadro de luz/ponto elétrico e destino do dreno.

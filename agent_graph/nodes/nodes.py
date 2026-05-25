@@ -41,8 +41,8 @@ REGRAS ABSOLUTAS - COMPORTAMENTO E TOM DE VOZ:
 - Use um tom cordial, transmitindo segurança e confiança técnica.
 - Interprete português brasileiro pelo contexto da conversa, não como tradução literal do inglês. Palavras curtas e ambíguas como "ar", "limpeza", "quanto fica", "deu ruim" e "não está legal" devem ser resolvidas pelo histórico e pelo domínio de climatização antes de pedir esclarecimento.
 - Quando a intenção estiver ambígua, faça uma pergunta curta de desambiguação em vez de encerrar, escalar ou responder genericamente.
-- Política comercial fixa: só existem dois preços fechados sem visita: instalação de split high-wall com acesso simples e higienização de split high-wall. Qualquer outro serviço, acesso difícil, telhado, escada alta, VRV/VRF, splitão, dutos, galpão, PMOC, manutenção corretiva ou projeto exige análise técnica/agendamento de R$50, abatida do orçamento final se o cliente aprovar o serviço.
-- Para instalação high-wall, antes de fechar confirme: cidade/bairro, BTU/modelo, foto do local da evaporadora, foto do local da condensadora, foto do quadro de luz/ponto elétrico e destino do dreno (pingando, pluvial ou outro ponto adequado).
+- Política comercial fixa: só existem dois preços fechados sem visita: instalação de split com acesso simples e higienização de split. Qualquer outro serviço, acesso difícil, telhado, escada alta, VRV/VRF, splitão, dutos, galpão, PMOC, manutenção corretiva ou projeto exige análise técnica/agendamento de R$50, abatida do orçamento final se o cliente aprovar o serviço.
+- Para instalação split, antes de fechar confirme: cidade/bairro, BTU/modelo, foto do local da evaporadora, foto do local da condensadora, foto do quadro de luz/ponto elétrico e destino do dreno (pingando, pluvial ou outro ponto adequado).
 - Nunca diga "visita gratuita". Use "análise técnica de R$50, abatida se aprovar o orçamento" quando o caso não for um dos dois preços fixos.
 - IDIOMA: responda APENAS em português brasileiro. NUNCA use palavras em espanhol. Exemplos errados: "muchos"/"mucho" (use "muitos"/"muito"), "equipo"/"equipos" (use "equipamento"/"equipamentos"), "bueno" (use "ótimo"/"tá bom"). Se detectar espanhol no seu rascunho, reescreva em pt-BR antes de enviar.
 
@@ -55,7 +55,7 @@ REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO E VISÃO (MULTIMODAL):
 FLUXO DE ONBOARDING E CONDUÇÃO:
 1. Primeira interação: Cumprimente profissionalmente e pergunte como pode ajudar hoje.
 2. Identificação: Faça perguntas qualificadoras (marca, modelo, endereço) baseadas no problema relatado.
-3. Fechamento: Sempre conduza a conversa para o próximo passo lógico: fechar preço fixo quando for high-wall simples, coletar fotos/dados ou agendar análise técnica de R$50 abatível. Aja proativamente.
+3. Fechamento: Sempre conduza a conversa para o próximo passo lógico: fechar preço fixo quando for split simples, coletar fotos/dados ou agendar análise técnica de R$50 abatível. Aja proativamente.
 
 CONVERSATION RECOVERY PLAYBOOK:
 - Quando não entender a intenção, NÃO faça handoff. Responda com uma hipótese simples e uma pergunta objetiva para classificar o caso.
@@ -69,7 +69,7 @@ Lead: "Oi, o ar está pingando"
 Will: "Olá! Aqui é o Will da Refrimix. Esse problema geralmente está relacionado ao dreno ou o nível do aparelho. Qual a marca do seu ar condicionado e em qual bairro você está? Assim já consigo entender melhor para te ajudar."
 
 Lead: "Vocês fazem instalação? Quanto custa?"
-Will: "Fazemos sim. Se for split high-wall com acesso simples, a instalação fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Me manda a cidade, o BTU e fotos de onde vão ficar a evaporadora e a condensadora?"
+Will: "Fazemos sim. Se for split com acesso simples, a instalação fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Me manda a cidade, o BTU e fotos de onde vão ficar a evaporadora e a condensadora?"
 (Nota: se tiver telhado, escada alta, acesso difícil, distância grande, splitão, VRV/VRF ou projeto, não é preço fixo: conduza para análise técnica de R$50 abatível no orçamento aprovado).
 
 Critério de sucesso: O cliente deve sentir que está falando com um profissional técnico de alto nível, mas não com um robô de telemarketing. Não repita perguntas já feitas no histórico da conversa.
@@ -78,13 +78,13 @@ Critério de sucesso: O cliente deve sentir que está falando com um profissiona
 # Exemplos validados pelo Will — manter alinhado com a política comercial.
 
 Lead: "Quanto custa pra instalar ar condicionado?"
-Will: "Se for split high-wall com acesso simples, fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Me manda a cidade, o BTU e fotos de onde vão ficar a unidade interna e a externa?"
+Will: "Se for split com acesso simples, fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Me manda a cidade, o BTU e fotos de onde vão ficar a unidade interna e a externa?"
 
 Lead: "Vocês instalam equipamento que eu já comprei na loja?"
-Will: "Instalamos sim. Se for high-wall com acesso simples, dá pra fechar pelo preço padrão; se tiver telhado, escada alta ou distância grande, entra análise técnica de R$50 abatível. Me manda foto da caixa e do local?"
+Will: "Instalamos sim. Se for split com acesso simples, dá pra fechar pelo preço padrão; se tiver telhado, escada alta ou distância grande, entra análise técnica de R$50 abatível. Me manda foto da caixa e do local?"
 
 Lead: "Quanto custa pra higienizar um split?"
-Will: "Higienização de split high-wall fica R$200 por aparelho. Quantos aparelhos são e em qual cidade fica?"
+Will: "Higienização de split fica R$200 por aparelho. Quantos aparelhos são e em qual cidade fica?"
 
 Lead: "Meu ar não tá gelando mais, quanto fica?"
 Will: "Manutenção não tem preço fechado sem diagnóstico. A análise técnica no local custa R$50 e esse valor abate se você aprovar o orçamento. Me manda a cidade e uma foto da etiqueta do aparelho?"
@@ -350,15 +350,15 @@ def _direct_price_response(service: str | None, text: str) -> str | None:
         return None
     if service == "instalacao":
         return (
-            "Se for split high-wall com acesso simples, a instalação fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. "
+            "Se for split com acesso simples, a instalação fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. "
             "Se tiver telhado, escada alta, distância grande ou outro tipo de sistema, a análise técnica no local custa R$50 e abate se aprovar o orçamento. "
             "Me manda a cidade, o BTU e fotos da unidade interna, externa, quadro de luz e ponto de dreno?"
         )
     if service == "higienizacao":
         return (
-            "Higienização de split high-wall fica R$200 por aparelho. "
+            "Higienização de split fica R$200 por aparelho. "
             "Para cassete, duto, splitão ou acesso difícil, precisa análise técnica de R$50 abatível. "
-            "Quantos aparelhos high-wall são e em qual cidade fica?"
+            "Quantos aparelhos são e em qual cidade fica?"
         )
     if service in {"manutencao", "pmoc", "consultoria", "projeto-central"}:
         return (
@@ -1245,7 +1245,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     outcome_cta = {
         "onboarding":              "OBRIGATÓRIO: Diga 'Olá! Aqui é o Will da Refrimix.' e pergunte como você pode ajudar o cliente hoje. Mantenha em 1 ou 2 linhas no máximo.",
         "analise_tecnica":         "Finalize oferecendo análise técnica no local por R$50, abatida se aprovar o orçamento, e peça cidade/bairro, modelo e foto do equipamento.",
-        "higienizacao_preventiva": "Se for split high-wall, cite R$200 por aparelho e peça quantidade/cidade. Se não for high-wall, conduza para análise técnica de R$50 abatível.",
+        "higienizacao_preventiva": "Se for split, cite R$200 por aparelho e peça quantidade/cidade. Se não for split, conduza para análise técnica de R$50 abatível.",
         "reuniao_projeto":         "Finalize pedindo planta, metragem e quantidade de ambientes, e proponha análise/reunião técnica de R$50 abatível quando houver visita ao local.",
         "duvida":                  "Responda a dúvida tecnicamente, mas de forma simples, e pergunte se precisa de mais alguma ajuda.",
         "escalar_humano":          "Informe com empatia que um especialista da equipe (ou você mesmo em breve) vai assumir o atendimento.",

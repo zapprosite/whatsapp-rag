@@ -35,9 +35,9 @@ Obrigatório no WhatsApp:
 
 Venda consultiva para a Refrimix:
 
-- Só dois preços fechados sem visita: instalação de split high-wall com acesso simples e higienização de split high-wall.
-- Instalação high-wall simples: `R$800` no Guarujá ou `R$850` em Santos, São Vicente e Praia Grande.
-- Higienização high-wall: `R$200` por aparelho.
+- Só dois preços fechados sem visita: instalação de split com acesso simples e higienização de split.
+- Instalação split simples: `R$800` no Guarujá ou `R$850` em Santos, São Vicente e Praia Grande.
+- higienização split: `R$200` por aparelho.
 - Todo o resto exige análise técnica de `R$50`, abatida se o cliente aprovar o orçamento final.
 - Não prometer `visita gratuita`.
 - Para instalação, coletar cidade/bairro, BTU/modelo, foto da unidade interna, foto da unidade externa, foto do quadro de luz/ponto elétrico e destino do dreno.

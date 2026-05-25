@@ -24,9 +24,9 @@ def test_only_instalacao_and_higienizacao_have_fixed_price_paths():
     cleaning = nodes._direct_price_response("higienizacao", "quanto custa higienizar?")
     maintenance = nodes._direct_price_response("manutencao", "quanto custa consertar?")
 
-    assert install and "high-wall" in install and "acesso simples" in install
+    assert install and "split" in install and "acesso simples" in install
     assert install and "dreno" in install and "quadro de luz" in install
-    assert cleaning and "split high-wall" in cleaning and "R$200" in cleaning
+    assert cleaning and "split" in cleaning and "R$200" in cleaning
     assert maintenance and "R$50" in maintenance and "abate" in maintenance
     assert "R$200" not in maintenance
 
