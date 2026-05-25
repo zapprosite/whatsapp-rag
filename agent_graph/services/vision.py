@@ -168,21 +168,21 @@ class VisionService:
             logger.warning(f"Vision: falhou ao buscar imagem {image_url!r}: {e}")
             return caption or "Imagem não processada."
 
-        # 1. Tenta primeiro Groq Vision (OCR avançado e ultra rápido)
-        try:
-            result = await self._analyze_groq(image_b64, caption)
-            logger.info(f"Vision (Groq): {result[:80]!r}")
-            return result
-        except Exception as e:
-            logger.warning(f"Vision: Groq falhou, tentando fallback local: {e}")
-
-        # 2. Fallback para local llama.cpp Qwen 2.5 VL
+        # 1. Tenta primeiro o local llama.cpp Qwen 2.5 VL (porta 8010, custo zero)
         try:
             result = await self._analyze_local_qwen(image_b64, caption)
             logger.info(f"Vision (Local Qwen): {result[:80]!r}")
             return result
         except Exception as e:
-            logger.error(f"Vision Local Qwen também falhou: {e}")
+            logger.warning(f"Vision Local Qwen falhou, tentando fallback com Groq Vision: {e}")
+
+        # 2. Fallback para Groq Vision (llama-3.2-11b-vision-preview na nuvem)
+        try:
+            result = await self._analyze_groq(image_b64, caption)
+            logger.info(f"Vision (Groq): {result[:80]!r}")
+            return result
+        except Exception as e:
+            logger.error(f"Vision Groq também falhou: {e}")
             return caption or "Não foi possível analisar a imagem."
 
 
