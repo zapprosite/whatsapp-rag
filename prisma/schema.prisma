@@ -42,6 +42,23 @@ model Lead {
   @@map("leads")
 }
 
+model CustomerService {
+  id               String   @id @default(uuid())
+  phone            String
+  service          String?
+  status           String   @default("scheduled")
+  address          String?
+  scheduled_window String?
+  notes            String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@index([phone])
+  @@index([status])
+  @@index([updated_at])
+  @@map("customer_services")
+}
+
 model LLMEvaluation {
   id              String   @id @default(uuid())
   interaction_id  String?

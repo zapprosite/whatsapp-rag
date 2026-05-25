@@ -1,5 +1,5 @@
 <!-- GENERATED FILE: do not edit manually. Source: .context/docs/*.md. Run ./sync.sh. -->
-> Auto-generated from .context/docs | fingerprint: 511e6fd31ed53ec4
+> Auto-generated from .context/docs | fingerprint: 4d39f6debe536ab9
 ## modelos_ptbr_huggingface
 
 ---
@@ -50,20 +50,40 @@ o lead vai pro concorrente. O mercado é dominado por autônomos informais ("Seu
 cobram menos mas não têm CREA, não emitem nota, não dão garantia. Esse é o diferencial da
 Refrimix: serviço técnico, garantia de 90 dias, emissão de laudo PMOC, profissionalismo real.
 
-## Tabela de Preços — Os Dois Mais Vendidos
+## Política Comercial Fixa
 
-### Instalação Split High-Wall
+Só existem dois serviços com preço fechado por WhatsApp, sem visita:
+
+1. Instalação de split high-wall com acesso simples.
+2. Higienização de split high-wall.
+
+Todo o resto precisa de análise técnica no local ou reunião técnica. A análise custa **R$ 50,00** e esse valor é abatido se o cliente aprovar o orçamento final. Essa taxa filtra curioso, protege agenda e valoriza o diagnóstico técnico.
+
+### Instalação Split High-Wall Com Acesso Simples
 - **R$ 800,00 à vista** (Pix ou dinheiro)
 - **R$ 850,00 em 3x sem juros no cartão**
-- Inclui: suporte, tubulação (até 3m), dreno, material elétrico básico, mão de obra
+- Inclui: instalação padrão high-wall com acesso simples, suporte, tubulação padrão, dreno, material elétrico básico e mão de obra
 - Equipamento fornecido pelo cliente (apenas instalação)
-- Acesso difícil (fachada, andaime, distância maior que 3m): orçamento na visita
+- Não vale para telhado, escada alta, fachada, acesso difícil, distância maior, splitão, cassete, VRV/VRF ou dutos
+- Para confirmar padrão simples, peça: cidade/bairro, BTU/modelo, foto da unidade interna, foto da unidade externa, foto do quadro de luz/ponto elétrico e destino do dreno
 
 ### Higienização Split High-Wall
 - **R$ 200,00 por unidade**
 - Inclui: lavagem do evaporador, limpeza dos filtros, verificação geral
 - Equipamento permanece no local (não retira)
 - Periodicidade recomendada: a cada 6 meses
+- Cassete, duto, splitão, VRV/VRF ou acesso difícil exigem análise técnica de R$50 abatível
+
+### Serviços Com Análise Técnica de R$50 Abatível
+
+- Manutenção corretiva: não chutar preço sem diagnóstico.
+- Carga de gás: primeiro verificar vazamento, tipo de gás e condição do equipamento.
+- PMOC, ART, laudo e contrato preventivo.
+- VRV/VRF, splitão, rooftop, chiller, dutos, diagramas e projeto central.
+- Climatização de galpão, restaurante, hotel, sala de servidor e comércio com vários ambientes.
+- Instalação com telhado, fachada, escada alta, acesso difícil, ponto elétrico duvidoso ou dreno sem destino claro.
+
+Resposta padrão: "Esse caso precisa de análise técnica no local. Ela custa R$50 e esse valor abate se você aprovar o orçamento. Me manda cidade, fotos e melhor período pra eu ver agenda?"
 
 ## Como Qualificar o Lead
 
@@ -86,7 +106,7 @@ Refrimix: serviço técnico, garantia de 90 dias, emissão de laudo PMOC, profis
 2. Localização (está na área de atendimento?)
 3. Equipamento (quantos? marca? BTU? acesso fácil?)
 4. Urgência (quando precisa? tem outro orçamento?)
-5. Propõe próximo passo (visita técnica gratuita OU fecha direto se for instalação padrão)
+5. Propõe próximo passo: fecha preço fixo se for high-wall simples, ou agenda análise técnica de R$50 abatível
 
 ## Objeções Comuns e Como Tratar
 
@@ -104,9 +124,9 @@ vai durar. Me passa onde fica que eu vejo se é o mesmo padrão."
 
 ### "Me manda o orçamento por escrito"
 ❌ Não: mandar PDF longo
-✅ Sim: "Claro! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x
-sem juros. Equipamento fornecido por você. Se tiver algo fora do padrão (acesso
-difícil, distância maior), a gente confirma na visita que é gratuita."
+✅ Sim: "Claro! Se for split high-wall com acesso simples, fica R$800 no Guarujá ou
+R$850 em Santos, São Vicente e Praia Grande. Se tiver acesso difícil, telhado ou
+distância maior, fazemos análise técnica de R$50 e abate se aprovar o orçamento."
 
 ### "Preciso pensar / vou ver com minha esposa"
 ✅ Sim: "Claro, sem pressão! Só avisa que a agenda tá enchendo rápido pro verão.
@@ -130,26 +150,56 @@ de serviço pra garantia."
 
 ### Instalação — lead qualificado
 Lead: "Quero instalar um ar split na sala. Fica no Guarujá."
-Will ideal: "Boa! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x
-sem juros. Qual a BTU e a marca do equipo? Pergunto pra já verificar o acesso
-e confirmar o prazo."
+Will ideal: "Boa! Se for high-wall com acesso simples, fica R$800 no Guarujá ou
+R$850 em Santos, São Vicente e Praia Grande. Me manda a BTU e fotos de onde vão
+ficar a unidade interna, externa, quadro de luz e dreno?"
 
 ### Higienização — lead com dor
 Lead: "Meu ar tá com cheiro horrível quando liga."
-Will ideal: "Cheiro é sinal de fungo no evaporador — higienização resolve. A gente
-faz por R$200 a unidade aqui no Guarujá e região. Onde fica o aparelho e qual a marca?"
+Will ideal: "Cheiro é sinal de sujeira na evaporadora. Higienização de split
+high-wall fica R$200 por aparelho. Quantos aparelhos são e em qual cidade fica?"
 
 ### Curioso sobre preço sem contexto
 Lead: "Quanto custa pra instalar ar condicionado?"
-Will ideal: "Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x
-sem juros no cartão. Me passa onde fica e a BTU do equipo que confirmo
-se tem algum custo adicional de acesso."
+Will ideal: "Se for split high-wall com acesso simples, fica R$800 no Guarujá ou
+R$850 em Santos, São Vicente e Praia Grande. Me manda cidade, BTU e foto do acesso?"
 
 ### Manutenção corretiva com urgência
 Lead: "Meu ar não tá gelando mais, precisaria ver isso hoje."
-Will ideal: "Entendido! Hoje eu não consigo garantir, mas amanhã a gente encaixa.
-Visita técnica é gratuita — se resolver na hora a gente já cobra o serviço.
-Onde fica e qual a marca do aparelho?"
+Will ideal: "Entendido. Manutenção precisa de diagnóstico: a análise técnica custa
+R$50 e abate se aprovar o orçamento. Onde fica e qual a marca do aparelho?"
+
+### Cliente Com Serviço Em Andamento
+
+Se o número já tiver serviço em `customer_services` com status `scheduled`, `in_progress`,
+`awaiting_parts`, `awaiting_customer`, `approved` ou `active`, o bot não deve tratar como lead novo.
+
+Conduta:
+
+- Responder como acompanhamento de serviço.
+- Não tentar vender instalação/higienização de novo.
+- Confirmar agenda, pendência, endereço ou foto do problema.
+- Sinalizar o gerente em paralelo no `OWNER_PHONE`.
+
+Exemplo:
+
+Lead: "o técnico ainda vem hoje?"
+Will ideal: "Já identifiquei aqui que você tem um serviço em andamento com a Refrimix. Vou seguir por acompanhamento, sem te passar orçamento novo. Me fala o que você precisa confirmar nesse serviço?"
+
+## Agenda e Google Calendar
+
+O bot pode consultar disponibilidade quando `GOOGLE_CALENDAR_ENABLED=1` e houver credencial configurada. A consulta usa disponibilidade livre/ocupado do Google Calendar e injeta as próximas janelas livres no contexto antes de propor agendamento.
+
+Variáveis:
+
+```env
+GOOGLE_CALENDAR_ENABLED=1
+GOOGLE_CALENDAR_ID=primary
+GOOGLE_SERVICE_ACCOUNT_FILE=/caminho/seguro/service-account.json
+GOOGLE_CALENDAR_TIMEZONE=America/Sao_Paulo
+```
+
+Sem credencial, o bot não inventa horário. Ele coleta cidade, fotos, dados do serviço e pede melhor período para o gerente confirmar.
 
 ## Critérios de Qualidade de Resposta (para avaliação automatizada)
 
@@ -284,12 +334,39 @@ type: generic
 
 ```
 Nível 1 — Tom e persona     →  WILL_SYSTEM_PROMPT  (agent_graph/nodes/nodes.py)
-Nível 2 — Conhecimento RAG  →  chunks no Qdrant    (qdrant/seed_hvac.py)
+Nível 2 — Conhecimento RAG  →  top100 FAQ no Qdrant (qdrant/hvac_top100.py + qdrant/seed_hvac.py)
 Nível 3 — Classificação     →  SCORE_MAP           (classify_service em nodes.py)
 Nível 4 — Modelo LLM        →  .env MINIMAX_MODEL / GROQ_FALLBACK_MODEL
 ```
 
 Regra: refine no nível mais baixo que resolve o problema.
+
+## Padrão PT-BR/SP de Atendimento
+
+Pesquisa aplicada em 2026-05-25: todo refinamento deve usar português brasileiro moderno, com naturalidade de São Paulo/Baixada Santista e linguagem simples.
+
+Obrigatório no WhatsApp:
+
+- Resposta curta, direta e em voz ativa.
+- `você`, `a gente`, `pra` e `tá` são permitidos quando deixam a conversa mais natural.
+- Não usar formalismo antigo: `prezado`, `estimado`, `caro cliente`, `atenciosamente`, `cordialmente`, `conforme solicitado`.
+- Não usar português europeu: `estou a`, `telemóvel`, `contacto`, `morada`, `avaria`, `autocarro`.
+- Não usar inglês em copy de cliente: `breakdown`, `budget`, `labor`, `client-ready`, `required`, `must`.
+- Mensagem ambígua vira pergunta curta de desambiguação, sem handoff.
+- Reclamação recebe reconhecimento do problema e próximo passo, sem discutir culpa.
+- Toda resposta deve ter um próximo passo claro para o lead.
+
+## Política Comercial
+
+Venda consultiva para a Refrimix:
+
+- Só dois preços fechados sem visita: instalação de split high-wall com acesso simples e higienização de split high-wall.
+- Instalação high-wall simples: `R$800` no Guarujá ou `R$850` em Santos, São Vicente e Praia Grande.
+- Higienização high-wall: `R$200` por aparelho.
+- Todo o resto exige análise técnica de `R$50`, abatida se o cliente aprovar o orçamento final.
+- Não prometer `visita gratuita`.
+- Para instalação, coletar cidade/bairro, BTU/modelo, foto da unidade interna, foto da unidade externa, foto do quadro de luz/ponto elétrico e destino do dreno.
+- Cliente com serviço em andamento deve ser tratado como acompanhamento de serviço, não como lead novo; o gerente recebe alerta no `OWNER_PHONE`.
 
 ## Testar sem WhatsApp
 
@@ -324,9 +401,22 @@ docker logs -f whatsapp-rag-fastapi-rag-1 2>&1 | grep -E "INFO|ERROR|WARNING" | 
 
 ```bash
 python3 refinar.py --loop 50
+python3 refinar.py --loop 50 --strict-ptbr
 ```
 
-O loop usa `/test/chat?send=false`; ele não envia WhatsApp real. Quando houver mudança aceita no refinamento, use o comando `commit` no `refinar.py` ou deixe o `refinar_llm.py` salvar no final do ciclo. Os dois fluxos chamam `sync.sh`, publicam no Gitea e espelham no GitHub.
+O loop usa `/test/chat?send=false`; ele não envia WhatsApp real. O modo normal bloqueia erro semântico, handoff indevido, português europeu, inglês em copy e formalismo antigo. O modo `--strict-ptbr` também transforma avisos em falha, como resposta longa, perguntas demais ou ausência de próximo passo claro. Quando houver mudança aceita no refinamento, use o comando `commit` no `refinar.py` ou deixe o `refinar_llm.py` salvar no final do ciclo. Os dois fluxos chamam `sync.sh`, publicam no Gitea e espelham no GitHub.
+
+## RAG Top100 e Limpeza
+
+O conhecimento semântico de atendimento e venda fica em `qdrant/hvac_top100.py`, na lista `TOP100_FAQ`, com exatamente 100 perguntas/respostas. Cada resposta precisa estar em pt-BR/SP, ter próximo passo claro e passar nos guardrails do `refinar.py`.
+
+Para recriar a base limpa e remover coleções antigas/sandbox não usadas:
+
+```bash
+python qdrant/seed_hvac.py --prune-legacy
+```
+
+Coleção de produção: `hermes_hvac_rag_service_staging`.
 
 ## Voz PT-BR
 

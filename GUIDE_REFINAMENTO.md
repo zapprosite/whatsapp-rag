@@ -31,6 +31,45 @@ Use:
 
 O GitHub é espelho. A fonte primária é o Gitea (`origin`).
 
+## 0.1 Pesquisa aplicada em 25/05/2026 — PT-BR/SP
+
+O refinamento do atendimento deve seguir português brasileiro moderno, com recorte operacional para São Paulo/Baixada Santista. A regra prática é: curto, claro, humano e com próximo passo.
+
+Critérios obrigatórios para WhatsApp:
+
+- Começar pelo ponto principal; deixar detalhe técnico só quando ajuda a decisão.
+- Usar frase curta, voz ativa e ordem direta.
+- Falar com o cliente como atendimento real no Brasil: `você`, `a gente`, `pra`, `tá` podem ser usados quando deixam a conversa natural.
+- Evitar formalismo antigo: `prezado`, `estimado`, `caro cliente`, `atenciosamente`, `cordialmente`, `conforme solicitado`.
+- Bloquear marcas de português europeu: `estou a`, `telemóvel`, `contacto`, `morada`, `avaria`, `autocarro`.
+- Não usar inglês em copy de cliente: `breakdown`, `budget`, `labor`, `client-ready`, `required`, `must`.
+- Em mensagem ambígua, perguntar uma coisa por vez. Ex.: "É instalação, manutenção ou limpeza?"
+- Em reclamação, reconhecer o problema e dar encaminhamento. Não discutir culpa.
+- Toda resposta precisa terminar com próximo passo claro: pedir bairro/modelo/foto, sugerir vistoria, confirmar agenda ou transferir para humano.
+
+O loop `refinar.py --loop 50` agora audita essas regras. O modo estrito transforma avisos de qualidade em falha:
+
+```bash
+python3 refinar.py --loop 50 --strict-ptbr
+```
+
+Fontes usadas como base: Linguagem Simples do Governo Federal, Programa de Linguagem Simples da Prefeitura de São Paulo, boas práticas do Sebrae para WhatsApp, Decreto SAC/CDC e referência sociolinguística USP sobre uso de `você/cê` em São Paulo.
+
+## 0.2 Política comercial e qualificação
+
+Pesquisa aplicada em 25/05/2026: venda consultiva em serviço técnico deve investigar necessidade real antes de vender; WhatsApp com IA deve responder rápido, qualificar lead, coletar dados, organizar agendamento e transferir só o que precisa de humano.
+
+Regra comercial fixa da Refrimix:
+
+- Só existem dois preços fechados sem visita: instalação de split high-wall com acesso simples e higienização de split high-wall.
+- Instalação high-wall simples: `R$800` no Guarujá ou `R$850` em Santos, São Vicente e Praia Grande.
+- Higienização de split high-wall: `R$200` por aparelho.
+- Todo o resto vira análise técnica de `R$50`, abatida se o cliente aprovar o orçamento final.
+- Casos fora do preço fixo: telhado, escada alta, fachada, distância grande, ponto elétrico duvidoso, dreno sem destino, cassete, splitão, VRV/VRF, dutos, galpão, PMOC, manutenção corretiva, carga de gás, projeto e laudo.
+- Para instalação, coletar no WhatsApp: cidade/bairro, BTU/modelo, foto da unidade interna, foto da unidade externa, foto do quadro de luz/ponto elétrico e destino do dreno.
+- Nunca prometer `visita gratuita`; use `análise técnica de R$50 abatível`.
+- Cliente com serviço em andamento não é lead novo. Responder como acompanhamento, não como venda, e sinalizar o gerente em paralelo.
+
 ## 1. Testando como lead
 
 A instância `RefrimixLead` está conectada (`state: open`).  
@@ -66,7 +105,7 @@ curl -X POST "http://localhost:8000/test/refine?message=O+ar+ta+com+barulho"
 
 ```
 Nível 1 — Tom e persona     →  WILL_SYSTEM_PROMPT  (nodes.py)
-Nível 2 — Conhecimento RAG  →  chunks no Qdrant    (seed_hvac.py)
+Nível 2 — Conhecimento RAG  →  top100 FAQ no Qdrant (hvac_top100.py + seed_hvac.py)
 Nível 3 — Classificação     →  keyword scoring     (classify_service)
 Nível 4 — Modelo LLM        →  .env MINIMAX_MODEL
 ```
@@ -114,42 +153,46 @@ curl -X POST "http://localhost:8000/test/chat?message=Quero+instalar+ar+split&se
 
 ## 4. Nível 2 — Refinando o conhecimento RAG
 
-**Arquivo:** `qdrant/seed_hvac.py` — lista `CHUNKS`
+**Arquivo:** `qdrant/hvac_top100.py` — lista `TOP100_FAQ`
 
 **Quando usar:** bot dando informação errada, omitindo detalhe importante, sem contexto sobre preços/condições/regiões.
 
-**Estrutura de um chunk:**
+**Estrutura de uma pergunta/resposta:**
 ```python
-{
-    "service_name": "instalacao",   # filtra por serviço no Qdrant
-    "text": "A gente instala split...",  # o que o LLM vai ler como contexto
-    "outcome": "analise_tecnica",   # guia o CTA da resposta
-    "source": "manual_will_2026",
-}
+faq(
+    "Quanto custa para instalar um split?",
+    "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. Qual a cidade e o modelo do aparelho?",
+    "instalacao",
+    "analise_tecnica",
+    5,
+    ("preco",),
+)
 ```
 
-**Adicionando um chunk:**
+**Adicionando ou ajustando FAQ:**
 ```python
-# Abre seed_hvac.py e adiciona na lista CHUNKS
-{
-    "service_name": "manutencao",
-    "text": "Cobro R$150 a visita técnica diagnóstica. Se fechar o serviço na hora, desconto na visita.",
-    "outcome": "analise_tecnica",
-    "source": "tabela_precos_2026",
-},
+# Abre hvac_top100.py e mantenha TOP100_FAQ com exatamente 100 itens.
+faq(
+    "Meu ar não está gelando.",
+    "Quando não gela, pode ser filtro sujo, gás baixo ou falha em componente. Me fala a marca, o BTU e em qual bairro está?",
+    "manutencao",
+    "analise_tecnica",
+    5,
+    ("nao-gela",),
+),
 ```
 
-**Re-seed (não apaga, faz upsert):**
+**Re-seed limpo:**
 ```bash
 source .venv/bin/activate
-python qdrant/seed_hvac.py
+python qdrant/seed_hvac.py --prune-legacy
 
 # Confirma quantos pontos tem
-curl -s http://localhost:6333/collections/whatsapp_rag | python3 -c \
+curl -s http://localhost:6333/collections/hermes_hvac_rag_service_staging | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('Pontos:', d['result']['points_count'])"
 ```
 
-**Não precisa rebuildar** — o Qdrant é consultado em runtime.
+**Não precisa rebuildar** — o Qdrant é consultado em runtime. O seed recria a coleção alvo com 100 pontos e `--prune-legacy` remove coleções antigas/sandbox que não são usadas pelo runtime.
 
 ---
 
@@ -241,7 +284,7 @@ GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile  # mais inteligente, ainda rápido
         ↓
 3. Identifica o nível:
    - Tom/persona errado?     → Nível 1 (WILL_SYSTEM_PROMPT)
-   - Info faltando/errada?   → Nível 2 (Qdrant chunk)
+   - Info faltando/errada?   → Nível 2 (Qdrant top100 FAQ)
    - Intent classificado mal? → Nível 3 (SCORE_MAP)
    - Resposta lenta/cara?    → Nível 4 (modelo)
         ↓
@@ -260,9 +303,10 @@ Loop semântico obrigatório quando pedir "50 vezes":
 
 ```bash
 python3 refinar.py --loop 50
+python3 refinar.py --loop 50 --strict-ptbr
 ```
 
-Esse loop usa `send=false`, então não manda WhatsApp real.
+Esse loop usa `send=false`, então não manda WhatsApp real. O primeiro comando valida intenção, resposta e handoff; o segundo também reprova respostas longas, sem próximo passo claro ou com sinais de PT-PT/formalismo.
 
 ---
 

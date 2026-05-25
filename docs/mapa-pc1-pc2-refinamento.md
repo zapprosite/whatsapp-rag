@@ -91,6 +91,7 @@ O que normalmente depende do PC1:
 - Locks de conversa para evitar resposta concorrente.
 - Deduplicação de mensagem.
 - Dados PostgreSQL/Prisma.
+- Estado de cliente com serviço em andamento (`customer_services`) para diferenciar pós-venda de lead novo.
 - Voz do Will quando a resposta é áudio.
 - Alguns modelos locais usados como fallback/classificador/polidor.
 
@@ -333,7 +334,7 @@ Peso recomendado:
 Arquivo:
 
 ```text
-qdrant/seed_hvac.py
+qdrant/hvac_top100.py
 ```
 
 Use quando a resposta precisa de conhecimento técnico/comercial:
@@ -349,10 +350,27 @@ Depois de editar:
 
 ```bash
 source .venv/bin/activate
-python qdrant/seed_hvac.py
+python qdrant/seed_hvac.py --prune-legacy
 ```
 
-RAG é runtime: normalmente não precisa rebuildar container, só reindexar o Qdrant.
+RAG é runtime: normalmente não precisa rebuildar container, só reindexar o Qdrant. O seed recria `hermes_hvac_rag_service_staging` com o top100 versionado e remove coleções antigas/sandbox quando usado com `--prune-legacy`.
+
+### 7. Cliente com serviço em andamento
+
+Tabela:
+
+```text
+customer_services
+```
+
+Script operacional:
+
+```bash
+.venv/bin/python scripts/customer-service.py upsert --phone NUMERO --service instalacao --status scheduled --window "terça à tarde"
+.venv/bin/python scripts/customer-service.py close --phone NUMERO
+```
+
+Quando o número tem status `scheduled`, `in_progress`, `awaiting_parts`, `awaiting_customer`, `approved` ou `active`, o bot responde como acompanhamento de serviço e alerta o gerente no `OWNER_PHONE`, sem vender de novo.
 
 ## Como Refinar Atendimento
 
@@ -365,7 +383,7 @@ Use sempre o nível mais baixo que resolve o problema.
 | Handoff/reclamação ruim | `_handoff_*` ou `_light_complaint_response` | Sim |
 | Preço fixo errado | `_direct_price_response` ou RAG | Sim se código; não se RAG |
 | Serviço classificado errado | `SCORE_MAP` | Sim |
-| Informação técnica/comercial faltando | `qdrant/seed_hvac.py` | Não, só re-seed |
+| Informação técnica/comercial faltando | `qdrant/hvac_top100.py` | Não, só re-seed |
 | Variação inconsistente do LLM | exemplo validado no prompt ou resposta determinística | Sim |
 
 ### Fluxo Manual Seguro
@@ -499,7 +517,8 @@ docker logs -f whatsapp-rag-fastapi-rag-1 2>&1 | grep -E "INFO|ERROR|WARNING" | 
 | `app/worker.py` | Consumo da fila e envio WhatsApp |
 | `agent_graph/graph/graph.py` | StateGraph e roteamento |
 | `agent_graph/nodes/nodes.py` | Nós do grafo, prompt, semântico, RAG e respostas |
-| `qdrant/seed_hvac.py` | Base de conhecimento RAG |
+| `qdrant/hvac_top100.py` | Top100 FAQ de atendimento, onboarding e venda |
+| `qdrant/seed_hvac.py` | Recria a coleção RAG e remove legado/sandbox quando solicitado |
 | `refinar.py` | Refinamento manual e loop semântico |
 | `refinar_llm.py` | Refinamento automático com juiz LLM |
 | `sre/probes.py` | Smoke/stress operacional |

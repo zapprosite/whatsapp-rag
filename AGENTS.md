@@ -30,5 +30,5 @@ Esse mapa é a referência obrigatória para entender PC1, PC2, dependências do
 - Testes de atendimento devem usar `/test/chat?...&send=false` para não enviar WhatsApp real.
 - Auditoria de voz/PC1/PC2 deve usar `.venv/bin/python -m sre.probes tts-audit`; para gerar sample local sem WhatsApp real, use `--synthesize`.
 - Mudanças em `agent_graph/nodes/nodes.py` exigem rebuild/restart do container para produção.
-- Mudanças em `qdrant/seed_hvac.py` exigem re-seed do Qdrant.
+- Mudanças em `qdrant/hvac_top100.py` ou `qdrant/seed_hvac.py` exigem re-seed do Qdrant.
 - Antes de finalizar alterações de código, rode `.venv/bin/python -m pytest`.

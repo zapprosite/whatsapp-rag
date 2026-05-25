@@ -40,6 +40,13 @@ _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
 _LOCK_REQUEUE_DELAY = float(os.getenv("CONV_LOCK_REQUEUE_DELAY_SECONDS", "0.4"))
 _HANDOFF_ALERT_TTL = int(os.getenv("HANDOFF_ALERT_TTL_SECONDS", "21600"))
+_ACTIVE_SERVICE_STATUSES = tuple(
+    s.strip() for s in os.getenv(
+        "ACTIVE_SERVICE_STATUSES",
+        "scheduled,in_progress,awaiting_parts,awaiting_customer,approved,active",
+    ).split(",")
+    if s.strip()
+)
 
 _BOT_OFF_MSG = os.getenv(
     "BOT_OFF_MESSAGE",
@@ -142,6 +149,52 @@ def _safe_fallback_response(message_text: str) -> str:
         "Recebi sua mensagem. Tive uma instabilidade rápida pra consultar os detalhes agora, "
         "mas já consigo adiantar: isso é instalação, manutenção ou higienização? Me passa também sua cidade/bairro."
     )
+
+
+async def load_active_customer_service(phone: str) -> dict[str, Any] | None:
+    """Carrega serviço em andamento para o número, quando houver."""
+    if not os.getenv("DATABASE_URL") or not _ACTIVE_SERVICE_STATUSES:
+        return None
+
+    try:
+        from prisma import Prisma
+
+        db = Prisma()
+        await db.connect()
+        try:
+            placeholders = ", ".join(f"${idx}" for idx in range(2, len(_ACTIVE_SERVICE_STATUSES) + 2))
+            rows = await db.query_raw(
+                f"""
+                SELECT id, phone, service, status, address, scheduled_window, notes, updated_at
+                FROM customer_services
+                WHERE phone = $1
+                  AND status IN ({placeholders})
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                phone,
+                *_ACTIVE_SERVICE_STATUSES,
+            )
+        finally:
+            await db.disconnect()
+    except Exception as e:
+        logger.warning("Não consegui consultar serviço ativo de %s: %s", phone, e)
+        return None
+
+    if not rows:
+        return None
+
+    row = rows[0]
+    return {
+        "id": str(row.get("id") or ""),
+        "phone": str(row.get("phone") or phone),
+        "service": row.get("service"),
+        "status": row.get("status"),
+        "address": row.get("address"),
+        "scheduled_window": row.get("scheduled_window"),
+        "notes": row.get("notes"),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
 
 
 @asynccontextmanager
@@ -252,7 +305,12 @@ async def notify_owner(
 ) -> bool:
     """Notifica o dono (Will) sobre handoff real ou alerta soft de alto valor."""
     owner_phone = os.getenv("OWNER_PHONE", "5513996659382")
-    title = "ALERTA DE HANDOFF" if handoff_mode == "hard_transfer" else "ALERTA DE LEAD ALTO VALOR"
+    if handoff_mode == "hard_transfer":
+        title = "ALERTA DE HANDOFF"
+    elif reason == "active_service_followup":
+        title = "ALERTA DE CLIENTE COM SERVIÇO EM ANDAMENTO"
+    else:
+        title = "ALERTA DE LEAD ALTO VALOR"
     text = (
         f"🚨 *{title}* 🚨\n\n"
         f"Telefone: {lead_phone}\n"
@@ -283,6 +341,8 @@ def _handoff_next_step(handoff_mode: str, reason: str) -> str:
         return "Assumir a conversa no WhatsApp Web; o bot já pediu serviço e cidade para adiantar."
     if reason == "light_complaint":
         return "Acompanhar em paralelo; o bot pediu detalhes para adiantar a análise."
+    if reason == "active_service_followup":
+        return "Verificar serviço em andamento, agenda e pendências; cliente já não deve ser tratado como lead novo."
     return "Acompanhar sem interromper o bot; revisar dados de qualificação e entrar se fizer sentido."
 
 
@@ -463,6 +523,14 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
         history = await load_history(phone, r)
         is_first_message = len(history) == 0
         messages_with_history = history + [HumanMessage(content=message_text)]
+        active_service = await load_active_customer_service(phone)
+        if active_service:
+            logger.info(
+                "Cliente %s tem serviço ativo: %s/%s",
+                phone,
+                active_service.get("service") or "-",
+                active_service.get("status") or "-",
+            )
 
         initial_state = {
             "messages": messages_with_history,
@@ -473,7 +541,11 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             "handoff_reason": None,
             "handoff_already_notified": False,
             "rag_context": [],
-            "customer_data": {"phone": phone, "is_first_message": is_first_message},
+            "customer_data": {
+                "phone": phone,
+                "is_first_message": is_first_message,
+                "active_service": active_service,
+            },
             "is_human": False,
             "confidence": 1.0,
             "message_type": payload.message_type,

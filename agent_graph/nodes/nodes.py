@@ -41,6 +41,9 @@ REGRAS ABSOLUTAS - COMPORTAMENTO E TOM DE VOZ:
 - Use um tom cordial, transmitindo segurança e confiança técnica.
 - Interprete português brasileiro pelo contexto da conversa, não como tradução literal do inglês. Palavras curtas e ambíguas como "ar", "limpeza", "quanto fica", "deu ruim" e "não está legal" devem ser resolvidas pelo histórico e pelo domínio de climatização antes de pedir esclarecimento.
 - Quando a intenção estiver ambígua, faça uma pergunta curta de desambiguação em vez de encerrar, escalar ou responder genericamente.
+- Política comercial fixa: só existem dois preços fechados sem visita: instalação de split high-wall com acesso simples e higienização de split high-wall. Qualquer outro serviço, acesso difícil, telhado, escada alta, VRV/VRF, splitão, dutos, galpão, PMOC, manutenção corretiva ou projeto exige análise técnica/agendamento de R$50, abatida do orçamento final se o cliente aprovar o serviço.
+- Para instalação high-wall, antes de fechar confirme: cidade/bairro, BTU/modelo, foto do local da evaporadora, foto do local da condensadora, foto do quadro de luz/ponto elétrico e destino do dreno (pingando, pluvial ou outro ponto adequado).
+- Nunca diga "visita gratuita". Use "análise técnica de R$50, abatida se aprovar o orçamento" quando o caso não for um dos dois preços fixos.
 
 REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO E VISÃO (MULTIMODAL):
 - VOCÊ É ESTRITAMENTE PROIBIDO DE INVENTAR PREÇOS, PRAZOS, SERVIÇOS OU PROCEDIMENTOS TÉCNICOS.
@@ -51,7 +54,7 @@ REGRAS ABSOLUTAS - ANTI-ALUCINAÇÃO E VISÃO (MULTIMODAL):
 FLUXO DE ONBOARDING E CONDUÇÃO:
 1. Primeira interação: Cumprimente profissionalmente e pergunte como pode ajudar hoje.
 2. Identificação: Faça perguntas qualificadoras (marca, modelo, endereço) baseadas no problema relatado.
-3. Fechamento: Sempre conduza a conversa para o próximo passo lógico (agendar visita técnica, coletar informações adicionais ou orçamento). Aja proativamente.
+3. Fechamento: Sempre conduza a conversa para o próximo passo lógico: fechar preço fixo quando for high-wall simples, coletar fotos/dados ou agendar análise técnica de R$50 abatível. Aja proativamente.
 
 CONVERSATION RECOVERY PLAYBOOK:
 - Quando não entender a intenção, NÃO faça handoff. Responda com uma hipótese simples e uma pergunta objetiva para classificar o caso.
@@ -65,77 +68,31 @@ Lead: "Oi, o ar está pingando"
 Will: "Olá! Aqui é o Will da Refrimix. Esse problema geralmente está relacionado ao dreno ou o nível do aparelho. Qual a marca do seu ar condicionado e em qual bairro você está? Assim já consigo entender melhor para te ajudar."
 
 Lead: "Vocês fazem instalação? Quanto custa?"
-Will: "Fazemos sim! O valor da instalação depende do tipo de aparelho e da infraestrutura do local. Você poderia me confirmar quantos BTUs tem o equipamento e o endereço da instalação para eu te passar um orçamento preciso?"
-(Nota: Se o contexto trouxer o preço exato da instalação, o Will citará o preço. O exemplo acima se aplica quando o sistema requer mais dados para precificar).
+Will: "Fazemos sim. Se for split high-wall com acesso simples, a instalação fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Me manda a cidade, o BTU e fotos de onde vão ficar a evaporadora e a condensadora?"
+(Nota: se tiver telhado, escada alta, acesso difícil, distância grande, splitão, VRV/VRF ou projeto, não é preço fixo: conduza para análise técnica de R$50 abatível no orçamento aprovado).
 
 Critério de sucesso: O cliente deve sentir que está falando com um profissional técnico de alto nível, mas não com um robô de telemarketing. Não repita perguntas já feitas no histórico da conversa.
 
 # EXEMPLOS_VALIDADOS_START
-# Exemplos validados pelo Will — adicionados via refinar.py:
-
-Lead: "O ar tá com barulho"
-Will: "Oi! Sou o Will da Refrimix. Barulho estranho pode ser algo simples na turbina ou um problema de fixação no motor. Você consegue gravar um vídeo curto com o som ou mandar uma foto da máquina pra mim? Assim já consigo ter uma ideia do problema antes de marcarmos a visita técnica gratuita."
-
-Lead: "Qual a diferença de limpeza e higienização?"
-Will: "Ei! Sou o Will da Refrimix. A higienização é uma limpeza profunda com produto bacteriostático que mata ácaros, fungos e bactérias. Você precisa de quantos aparelhos para agendar? A higienização custa R$200 por unidade aqui no Guarujá e região. Qual a localização e qual a marca do aparelho?"
-
-Lead: "Meu split fica desligando sozinho depois de 10 minutos."
-Will: "Ei! Desligar sozinho pode ser falta de manutenção ou problema no termostato. A gente faz manutenção por R$200 a unidade. Posso agendar uma visita técnica gratuita pra resolver isso? Qual é o endereço onde fica o seu split?"
-
-Lead: "Vi um anúncio aqui por R$400 a instalação. Vocês fazem por esse valor?"
-Will: "Will ideal: 'Esse valor é para equipamentos simples, como janela ou split básico de 7.500 a 9.000 BTU. Cada caso é diferente, dependendo da marca, potência e metragem. Se a gente for até você, levantamos o orçamento real e sem compromisso. Quer que eu mande um técnico fazer esse levantamento no seu espaço?'"
-
-Lead: "Tá caro. Consegue fazer mais barato?"
-Will: "Entendido! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Qual a BTU e a marca do equipo? Pergunto pra já verificar o acesso e confirmar o prazo."
-
-Lead: "Preciso pensar, vou ver com minha esposa."
-Will: "Entendido! Só avisa que a agenda tá enchendo rápido pro verão. Quando decidir me chama que a gente encaixa."
-
-Lead: "Bom dia! Vocês atendem em Praia Grande?"
-Will: "Bom dia! Sou o Will da Refrimix, aventuremos! Você está precisando de um serviço relacionado a ar condicionado em Praia Grande? Qual o serviço exato que precisa?"
-
-Lead: "Olha, eu preciso instalar um ar condicionado na minha sala, mas não sei se vale a pena pagar R$800, pois o meu amigo pagou R$500 com um outro cara"
-Will: "Olha, instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Me manda o tamanho da tua sala e quantas pessoas usam o espaço que a gente faz um orçamento justo, sem compromisso."
+# Exemplos validados pelo Will — manter alinhado com a política comercial.
 
 Lead: "Quanto custa pra instalar ar condicionado?"
-Will: "Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros. Me passa onde fica e a BTU do equipo que confirmo se tem algum custo adicional de acesso."
+Will: "Se for split high-wall com acesso simples, fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. Me manda a cidade, o BTU e fotos de onde vão ficar a unidade interna e a externa?"
 
 Lead: "Vocês instalam equipamento que eu já comprei na loja?"
-Will: "Sim, a gente instala equipamentos que você comprou na loja. A instalação é importante porque o equipamento precisa de um setup correto para funcionar corretamente e manter a garantia. Se for instalar em uma área grande, também precisará de ajustes adicionais. Gostaria de saber o endereço onde você planeja instalar o equipamento para agendar uma visita técnica gratuita? Qual a BTU e a marca do equipo? Pergunto pra já verificar o acesso e confirmar o prazo."
-
-Lead: "Faz higienização com ozônio? Tenho criança em casa."
-Will: "Olá! Sou o Will da Refrimix. A higienização com ozônio é uma opção adicional que mata ácaros, fungos e bactérias, além de eliminar cheiro e microorganismos na superfície interna. Para quantos aparelhos você precisa agendar? Onde fica o local e qual a marca do aparelho?"
+Will: "Instalamos sim. Se for high-wall com acesso simples, dá pra fechar pelo preço padrão; se tiver telhado, escada alta ou distância grande, entra análise técnica de R$50 abatível. Me manda foto da caixa e do local?"
 
 Lead: "Quanto custa pra higienizar um split?"
-Will: "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. Inclui mão de obra e material básico de instalação. Qual a cidade e o modelo do aparelho? Tem urgência?"
+Will: "Higienização de split high-wall fica R$200 por aparelho. Quantos aparelhos são e em qual cidade fica?"
 
-Lead: "O ar não tá gelando mais, o que pode ser?"
-Will: "Entendi. Quando o ar não gela, pode ser falta de limpeza, gás baixo ou falha em componente, mas preciso ver melhor. Me fala a marca do aparelho e em qual cidade/bairro ele está?"
+Lead: "Meu ar não tá gelando mais, quanto fica?"
+Will: "Manutenção não tem preço fechado sem diagnóstico. A análise técnica no local custa R$50 e esse valor abate se você aprovar o orçamento. Me manda a cidade e uma foto da etiqueta do aparelho?"
 
-Lead: "Tá pingando água dentro de casa."
-Will: "Entendi. Pingando dentro de casa costuma ter relação com dreno ou nivelamento do aparelho. Você consegue me mandar uma foto ou vídeo curto do vazamento e dizer em qual bairro fica?"
+Lead: "Quero VRF para escritório."
+Will: "VRF/VRV precisa de projeto e levantamento técnico, não dá pra chutar por WhatsApp. Me manda planta, metragem e quantidade de ambientes para eu adiantar a análise e ver agenda?"
 
-Lead: "Me manda um orçamento por escrito."
-Will: "Entendido! Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros no cartão. Me passa onde fica e a BTU do equipo que confirmo se tem algum custo adicional de acesso."
-
-Lead: "Olha, eu preciso instalar um ar condicionado na minha sala, mas tá muito caro o que eu vi até agora. Vocês podem fazer por menos de R$500?"
-Will: "Olá! Instalação padrão de ar condicionado na sua sala custa R$800 no Guarujá. Para Santos, São Vicente e Praia Grande, é R$850 devido ao deslocamento. Para confirmar, preciso do endereço e do tipo do aparelho. Quer agendar uma visita técnica gratuita para avaliar?"
-
-Lead: "Eu tenho um ar condicionado que não está funcionando direito, mas eu não sei se é problema do aparelho ou da instalação. Vocês podem me dar uma ideia do que pode ser?"
-Will: "Olá! Aqui é o Will da Refrimix. Um problema com o ar condicionado pode ser causado pelo equipamento ou pela instalação. Para ter certeza, precisamos fazer uma análise técnica. Precisa que mande o modelo e marca do seu aparelho? Além disso, gostaria de saber se você já comprou o ar condicionado na loja ou se precisa da nossa ajuda também com a compra? Vamos agendar uma visita técnica gratuita para resolver o problema."
-
-Lead: "Eu tenho um amigo que é técnico de ar condicionado e ele disse que pode instalar um ar condicionado por R$400. Vocês podem fazer pelo mesmo preço?"
-Will: "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. Inclui mão de obra e material básico de instalação. Qual a cidade e o modelo do aparelho? Se tiver acesso difícil, a gente confirma na visita que é gratuita."
-
-Lead: "Eu tenho um ar condicionado que está com cheiro de mofo. Eu não sei se é problema do aparelho ou da instalação. Vocês podem me ajudar a resolver isso?"
-Will: "Olá! Sou o Will da Refrimix. Um cheiro de mofo pode ser sintoma de problema na instalação ou no aparelho. Precisamos verificar melhor o seu caso. Podemos agendar uma visita técnica gratuita para avaliar e diagnosticar o problema? Qual é o endereço onde você se encontra com o aparelho? Instalação padrão high-wall fica R$800 à vista ou R$850 em 3x sem juros no cartão."
-
-Lead: "Eu estou procurando por um serviço de manutenção preventiva para o meu ar condicionado. Vocês oferecem isso? E se oferecerem, quanto custa?"
-Will: "Oi! Somos a Refrimix e sim, fazemos manutenção preventiva — é o nosso serviço de PMOC, que inclui visitas trimestrais, laudos, ART e certificado pro órgão regulador.
-
-O valor depende da quantidade de equipamentos e do tipo de estabelecimento. Quanto mais aparelhos, mais desconto progressivo você tem.
-
-Para eu montar um orçamento preciso, me diz: 'onde fica o seu estabelecimento e quantos aparelhos precisa manter?'"
+Lead: "Dá pra instalar no telhado?"
+Will: "Telhado e escada alta saem do preço fixo por segurança e acesso. Nesse caso fazemos análise técnica de R$50, abatida se aprovar o orçamento. Me manda foto do acesso e da condensadora?"
 # EXEMPLOS_VALIDADOS_END
 """
 
@@ -392,17 +349,105 @@ def _direct_price_response(service: str | None, text: str) -> str | None:
         return None
     if service == "instalacao":
         return (
-            "Instalação padrão no Guarujá fica R$800. Pra Santos, São Vicente e Praia Grande fica R$850 por causa do deslocamento. "
-            "Inclui mão de obra e material básico de instalação. "
-            "Qual a cidade e o modelo do aparelho?"
+            "Se for split high-wall com acesso simples, a instalação fica R$800 no Guarujá ou R$850 em Santos, São Vicente e Praia Grande. "
+            "Se tiver telhado, escada alta, distância grande ou outro tipo de sistema, a análise técnica no local custa R$50 e abate se aprovar o orçamento. "
+            "Me manda a cidade, o BTU e fotos da unidade interna, externa, quadro de luz e ponto de dreno?"
         )
     if service == "higienizacao":
         return (
-            "Higienização de split fica R$200 por aparelho. "
-            "É limpeza profunda com produto bacteriostático, não só lavar filtro. "
-            "Quantos aparelhos são?"
+            "Higienização de split high-wall fica R$200 por aparelho. "
+            "Para cassete, duto, splitão ou acesso difícil, precisa análise técnica de R$50 abatível. "
+            "Quantos aparelhos high-wall são e em qual cidade fica?"
+        )
+    if service in {"manutencao", "pmoc", "consultoria", "projeto-central"}:
+        return (
+            "Nesse serviço eu não chuto valor por WhatsApp. A análise técnica no local custa R$50 e esse valor abate se você aprovar o orçamento. "
+            "Me passa cidade, bairro, tipo de equipamento e uma foto para eu adiantar a triagem?"
         )
     return None
+
+
+def _active_service_response(user_text: str, active_service: dict[str, Any]) -> str:
+    service = _normalize_service(active_service.get("service")) or "serviço"
+    status = str(active_service.get("status") or "em andamento").replace("_", " ")
+    scheduled = active_service.get("scheduled_window")
+    address = active_service.get("address")
+    notes = active_service.get("notes")
+    lowered = _normalize_text(user_text)
+
+    base = f"Já identifiquei aqui que você tem um serviço de {service} {status} com a Refrimix."
+    if scheduled:
+        base += f" Está previsto para {scheduled}."
+    if address:
+        base += f" Local: {address}."
+    if notes:
+        base += f" Observação registrada: {notes}."
+
+    if _contains_any(lowered, ("atras", "demor", "nao veio", "não veio", "sumiu", "retorno")):
+        return (
+            f"{base} Vou tratar isso como acompanhamento do serviço, não como venda nova. "
+            "Me manda uma foto ou me diz o que mudou para eu sinalizar o gerente agora?"
+        )
+
+    if _contains_any(lowered, ("mudar horario", "trocar horario", "remarcar", "reagendar", "agenda")):
+        return (
+            f"{base} Consigo ajudar a remarcar ou confirmar a janela. "
+            "Qual melhor período para você: manhã ou tarde?"
+        )
+
+    return (
+        f"{base} Vou seguir por acompanhamento, sem te passar orçamento novo. "
+        "Me fala o que você precisa atualizar nesse serviço?"
+    )
+
+
+def _default_whatsapp_cta(outcome: str | None) -> str:
+    return {
+        "onboarding": "Qual serviço você precisa?",
+        "analise_tecnica": "Me fala a cidade, o modelo e manda uma foto do aparelho?",
+        "higienizacao_preventiva": "Quantos aparelhos são?",
+        "reuniao_projeto": "Me manda a planta, metragem e quantidade de ambientes?",
+        "duvida": "Qual detalhe você quer resolver primeiro?",
+        "escalar_humano": "Me passa seu nome e o endereço do atendimento?",
+    }.get(outcome or "", "Me fala a cidade, o modelo e manda uma foto do aparelho?")
+
+
+def _shape_whatsapp_response(text: str, outcome: str | None, max_chars: int = 650) -> str:
+    """Mantém a resposta no formato WhatsApp: curta, sem lista e com CTA."""
+    cleaned_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^[-*•]\s*", "", line).strip()
+        line = line.strip("*_ ")
+        line = re.sub(r"^(pergunta-chave|me fala aí|pra eu te ajudar melhor):\s*", "", line, flags=re.I)
+        if line.endswith(":") and len(line) <= 80:
+            continue
+        cleaned_lines.append(line)
+
+    shaped = " ".join(cleaned_lines).strip()
+    shaped = re.sub(r"\s+", " ", shaped)
+    if not shaped:
+        return _default_whatsapp_cta(outcome)
+
+    if shaped.count("?") > 2:
+        parts = shaped.split("?")
+        shaped = "?".join(parts[:2]).strip() + "?"
+
+    cta = _default_whatsapp_cta(outcome)
+    if "?" not in shaped:
+        shaped = f"{shaped} {cta}"
+
+    if len(shaped) > max_chars:
+        base = shaped[: max_chars - len(cta) - 2].strip()
+        base = base.rsplit(".", 1)[0].strip() or base.rsplit(" ", 1)[0].strip()
+        shaped = f"{base}. {cta}"
+
+    if len(shaped) > max_chars:
+        shaped = shaped[: max_chars - 3].rstrip() + "..."
+
+    return shaped.strip()
 
 
 async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
@@ -534,6 +579,7 @@ async def prisma_save_interaction(data: dict[str, Any]) -> None:
             "service": data.get("service"),
             "response": data.get("ai_message", ""),
             "is_human": data.get("is_human", False),
+            "metadata": data.get("metadata"),
         })
     finally:
         await prisma.disconnect()
@@ -605,6 +651,21 @@ _LIGHT_COMPLAINT_TRIGGERS = (
     "atrasou",
     "atrasado",
     "preciso que volte",
+)
+
+_SCHEDULING_TERMS = (
+    "agenda",
+    "agendar",
+    "horario",
+    "horário",
+    "disponibilidade",
+    "quando consegue",
+    "quando pode",
+    "visita",
+    "analise tecnica",
+    "análise técnica",
+    "tecnico vem",
+    "técnico vem",
 )
 
 _HIGH_VALUE_KEYWORDS: tuple[tuple[str, str], ...] = (
@@ -1095,6 +1156,17 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
 
     last_message = messages[-1]
     user_text = _message_text(last_message)
+    active_service = (state.get("customer_data") or {}).get("active_service")
+    if isinstance(active_service, dict) and active_service.get("status"):
+        ai_message = AIMessage(content=_active_service_response(user_text, active_service))
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service or _normalize_service(active_service.get("service")),
+            "outcome": "acompanhamento_servico",
+            "handoff_mode": "soft_alert",
+            "handoff_reason": "active_service_followup",
+        }
 
     if handoff_reason == "light_complaint":
         ai_message = AIMessage(content=_light_complaint_response(user_text))
@@ -1152,13 +1224,24 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         title = payload.get("title", "contexto")
         context_parts.append(f"[{doc_type} | {title}]\n{text}")
     context_str = "\n---\n".join(context_parts) or ""
+    if _contains_any(_normalize_text(user_text), _SCHEDULING_TERMS):
+        try:
+            from agent_graph.services.calendar import get_availability_summary
+
+            availability = await get_availability_summary()
+        except Exception:
+            availability = ""
+        if availability:
+            context_str = "\n---\n".join(
+                part for part in (context_str, f"[agenda | disponibilidade]\n{availability}") if part
+            )
 
     # CTA por outcome — guia o Will a conduzir o lead pro próximo passo certo
     outcome_cta = {
         "onboarding":              "OBRIGATÓRIO: Diga 'Olá! Aqui é o Will da Refrimix.' e pergunte como você pode ajudar o cliente hoje. Mantenha em 1 ou 2 linhas no máximo.",
-        "analise_tecnica":         "Finalize sugerindo agendar uma visita técnica gratuita e pedindo o endereço do cliente.",
-        "higienizacao_preventiva": "Finalize propondo agendar a higienização e perguntando a quantidade e marca dos aparelhos.",
-        "reuniao_projeto":         "Finalize propondo marcar uma reunião técnica (online ou presencial) sem compromisso.",
+        "analise_tecnica":         "Finalize oferecendo análise técnica no local por R$50, abatida se aprovar o orçamento, e peça cidade/bairro, modelo e foto do equipamento.",
+        "higienizacao_preventiva": "Se for split high-wall, cite R$200 por aparelho e peça quantidade/cidade. Se não for high-wall, conduza para análise técnica de R$50 abatível.",
+        "reuniao_projeto":         "Finalize pedindo planta, metragem e quantidade de ambientes, e proponha análise/reunião técnica de R$50 abatível quando houver visita ao local.",
         "duvida":                  "Responda a dúvida tecnicamente, mas de forma simples, e pergunte se precisa de mais alguma ajuda.",
         "escalar_humano":          "Informe com empatia que um especialista da equipe (ou você mesmo em breve) vai assumir o atendimento.",
     }.get(outcome, "Avance a conversa fazendo uma pergunta técnica simples para qualificar o problema do cliente.")
@@ -1200,7 +1283,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"2. ATENÇÃO MÁXIMA: Se o cliente perguntar preço/prazo/detalhe que NÃO está explícito no bloco de contexto acima, VOCÊ NÃO PODE INVENTAR. Responda elegantemente que precisa calcular ou avaliar os detalhes.\n"
         f"3. Faça no máximo UMA pergunta ao final para avançar a conversa.\n"
         f"4. Não repita informações ou perguntas que já constam no histórico da conversa.\n"
-        f"5. Não ofereça handoff humano, especialista ou atendimento manual quando o modo de handoff for 'none' ou 'soft_alert'."
+        f"5. Não ofereça handoff humano, especialista ou atendimento manual quando o modo de handoff for 'none' ou 'soft_alert'.\n"
+        f"6. Nunca diga visita gratuita. Fora os dois preços fixos, conduza para análise técnica de R$50 abatível no orçamento aprovado."
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
@@ -1211,7 +1295,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         response = {
             "analise_tecnica": (
                 "Pode deixar que a gente resolve! "
-                "Me manda o endereço e os detalhes do equipamento que eu já marco a visita técnica — é gratuita."
+                "A análise técnica no local custa R$50 e abate se você aprovar o orçamento. Me manda a cidade e o modelo do aparelho?"
             ),
             "higienizacao_preventiva": (
                 "Ótimo! A higienização é fundamental pra qualidade do ar. "
@@ -1219,7 +1303,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             ),
             "reuniao_projeto": (
                 "Pra esse tipo de projeto, melhor a gente sentar e conversar com a planta em mãos. "
-                "Posso marcar uma reunião técnica sem compromisso — qual a melhor data pra você?"
+                "Me manda planta, metragem e quantidade de ambientes para eu ver agenda e adiantar a análise?"
             ),
         }.get(outcome or "", "Me manda mais detalhes que eu te ajudo!")
 
@@ -1311,6 +1395,7 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     # Normaliza múltiplas linhas em branco
     formatted = re.sub(r"\n{3,}", "\n\n", formatted)
     formatted = formatted.strip()
+    formatted = _shape_whatsapp_response(formatted, state.get("outcome"))
 
     # Se muito longo (>1500 chars), trunca com gancho
     if len(formatted) > 1500:
@@ -1340,6 +1425,12 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
             "service": service,
             "ai_message": ai_message or "",
             "is_human": state.get("is_human", False),
+            "metadata": {
+                "outcome": outcome,
+                "handoff_mode": state.get("handoff_mode"),
+                "handoff_reason": state.get("handoff_reason"),
+                "active_service": customer_data.get("active_service"),
+            },
         })
     except Exception as e:
         logger.error(f"Falha ao salvar interação: {e}")

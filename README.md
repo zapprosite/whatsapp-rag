@@ -56,6 +56,7 @@ whatsapp-rag/
 ├── git.sh                        # save / push / merge rápido
 ├── refinar.py                    # loop interativo de refinamento
 ├── sync.sh                       # gera CLAUDE.md e espelha Gitea -> GitHub
+├── scripts/customer-service.py    # marca cliente com serviço em andamento
 │
 ├── sre/
 │   └── probes.py                 # smoke, stress e probes Evolution sem coleta pytest
@@ -89,7 +90,8 @@ whatsapp-rag/
 │   └── schema.prisma             # Interaction + Lead models
 │
 ├── qdrant/
-│   └── seed_hvac.py              # chunks de conhecimento (upsert)
+│   ├── hvac_top100.py            # top100 FAQ pt-BR/SP para RAG
+│   └── seed_hvac.py              # recria coleção RAG e remove legado/sandbox
 │
 └── .context/
     └── docs/
@@ -122,7 +124,13 @@ QDRANT_COLLECTION=hermes_hvac_rag_service_staging
 DATABASE_URL=postgresql://USER:PASS@192.168.15.83:5432/whatsapp_rag
 
 # Alertas
-OWNER_PHONE=5513974139382
+OWNER_PHONE=5513996659382
+
+# Agenda opcional
+GOOGLE_CALENDAR_ENABLED=0
+GOOGLE_CALENDAR_ID=
+GOOGLE_SERVICE_ACCOUNT_FILE=
+GOOGLE_CALENDAR_TIMEZONE=America/Sao_Paulo
 
 # Bot (opcional)
 BOT_OFF_MESSAGE=Oi! Estou em atendimento agora, te respondo em breve 🙂
@@ -241,6 +249,9 @@ python3 refinar.py "O ar tá fazendo barulho"
 
 # Bateria semântica sem interação: 50 mensagens pt-BR/SP
 python3 refinar.py --loop 50
+
+# Mesma bateria reprovando também avisos de linguagem PT-BR/SP
+python3 refinar.py --loop 50 --strict-ptbr
 ```
 
 O script mostra a resposta do Will + intent + RAG hits e pergunta o que ficou errado:
@@ -258,6 +269,26 @@ Depois de refinar, ainda no loop:
 > rebuild       ← aplica tudo (faz build + restart do container)
 > commit        ← salva na feature branch sem rebuild
 > sair          ← pergunta se quer rebuild antes de sair
+```
+
+### Cliente com serviço em andamento
+
+Quando o cliente já fechou e voltar no WhatsApp, cadastre o serviço para o bot responder como acompanhamento, não como lead novo:
+
+```bash
+.venv/bin/python scripts/customer-service.py upsert \
+  --phone 5513999999999 \
+  --service instalacao \
+  --status scheduled \
+  --address "Santos" \
+  --window "terça à tarde" \
+  --notes "instalação high-wall aprovada"
+```
+
+Para encerrar:
+
+```bash
+.venv/bin/python scripts/customer-service.py close --phone 5513999999999
 ```
 
 ### Testar sem WhatsApp
@@ -318,16 +349,16 @@ Will: "Ei! Sou o Will da Refrimix — cuida do seu ar aqui no Guarujá e região
 Ou adicione/remova regras na seção `REGRAS ABSOLUTAS`.  
 **Exige rebuild.**
 
-### Nível 2 — Conhecimento RAG (sem rebuild)
+### Nível 2 — Conhecimento RAG top100 (sem rebuild)
 
-Edite `qdrant/seed_hvac.py` → lista `CHUNKS`. Depois re-indexe:
+Edite `qdrant/hvac_top100.py` → lista `TOP100_FAQ`. Depois re-indexe:
 
 ```bash
 source .venv/bin/activate
-python3 qdrant/seed_hvac.py
+python3 qdrant/seed_hvac.py --prune-legacy
 ```
 
-O Qdrant é consultado em runtime — não precisa rebuildar o container.
+O Qdrant é consultado em runtime — não precisa rebuildar o container. O `--prune-legacy` remove coleções antigas/sandbox que não são usadas pelo runtime.
 
 ### Nível 3 — Classificação de intent
 

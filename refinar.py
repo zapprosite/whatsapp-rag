@@ -6,6 +6,7 @@ Uso:
   python3 refinar.py
   python3 refinar.py "O ar tá fazendo barulho"
   python3 refinar.py --loop 50
+  python3 refinar.py --loop 50 --strict-ptbr
 """
 from __future__ import annotations
 import argparse
@@ -26,6 +27,8 @@ NODES_FILE = ROOT / "agent_graph/nodes/nodes.py"
 SEED_FILE  = ROOT / "qdrant/seed_hvac.py"
 SYNC_SCRIPT = ROOT / "sync.sh"
 GIT_MIRROR_ENABLED = os.getenv("REFINAR_GIT_MIRROR", "1") != "0"
+PTBR_MAX_RESPONSE_CHARS = int(os.getenv("REFINAR_MAX_RESPONSE_CHARS", "650"))
+PTBR_MAX_QUESTION_MARKS = int(os.getenv("REFINAR_MAX_QUESTIONS", "2"))
 
 # Marcadores no WILL_SYSTEM_PROMPT para a seção de exemplos validados
 MARKER_START = "# EXEMPLOS_VALIDADOS_START"
@@ -86,10 +89,110 @@ REFINEMENT_CASES: list[tuple[str, str]] = [
     ("onboarding", "bom dia, tudo bem?"),
     ("explicit_handoff", "quero falar com atendente humano"),
     ("sensitive_complaint", "ninguém retornou meu orçamento"),
+    ("instalacao", "tô em Santos, quanto fica pra instalar um split de 12 mil BTU?"),
+    ("manutencao", "meu ar tá vazando água aqui no Guarujá, consegue ver?"),
+    ("higienizacao", "faz limpeza no ar do quarto em São Vicente?"),
+    ("pmoc", "sou de uma loja em SP e preciso regularizar PMOC"),
+    ("unknown", "quanto fica aí pra ver meu ar?"),
 ]
+
+PTBR_SP_BLOCKED_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\bestou a\s+\w+", "estrutura de português europeu: 'estou a ...'"),
+    (r"\btelem[oó]vel\b", "termo de português europeu: 'telemóvel'"),
+    (r"\bcontacto\b", "termo de português europeu: 'contacto'"),
+    (r"\bmorada\b", "termo de português europeu: 'morada'"),
+    (r"\bavaria\b", "termo de português europeu: 'avaria'"),
+    (r"\bfrigor[ií]fico\b", "termo de português europeu: 'frigorífico'"),
+    (r"\bautocarro\b", "termo de português europeu: 'autocarro'"),
+    (r"\bpequeno-?almo[cç]o\b", "termo de português europeu: 'pequeno-almoço'"),
+    (r"\bprezad[oa]s?\b", "formalismo antigo: 'prezado/prezada'"),
+    (r"\bestimad[oa]s?\s+clientes?\b", "formalismo antigo: 'estimado cliente'"),
+    (r"\bcar[oa]\s+cliente\b", "formalismo antigo: 'caro cliente'"),
+    (r"\batenciosamente\b", "fechamento formal demais para WhatsApp"),
+    (r"\bcordialmente\b", "fechamento formal demais para WhatsApp"),
+    (r"\bconforme solicitado\b", "tom burocrático para WhatsApp"),
+    (r"\bvisita\s+t[eé]cnica\s+gratuita\b", "política comercial inválida: use análise técnica de R$50 abatível"),
+    (r"\bvisita\s+gratuita\b", "política comercial inválida: use análise técnica de R$50 abatível"),
+    (r"\b(?:breakdown|budget|labor|client-ready|required|must)\b", "inglês exposto em copy de cliente"),
+)
+
+PTBR_NEXT_STEP_PATTERNS: tuple[str, ...] = (
+    r"\bme manda\b",
+    r"\bme passa\b",
+    r"\bme conta\b",
+    r"\bme fala\b",
+    r"\bme diz\b",
+    r"\bme envia\b",
+    r"\bpode me\b",
+    r"\bconsegue\b",
+    r"\bpra eu\b",
+    r"\bpara eu\b",
+    r"\bqual\b",
+    r"\bquantos?\b",
+    r"\bquando\b",
+    r"\bem qual\b",
+    r"\bposso\b",
+    r"\bconsigo\b",
+    r"\bagendar\b",
+    r"\bvamos\b",
+    r"\bretorno\b",
+)
+
 
 def c(color: str, text: str) -> str:
     return f"{color}{text}{R}"
+
+
+def evaluate_ptbr_quality(
+    response: str,
+    expected_intent: str = "",
+    message: str = "",
+) -> tuple[list[str], list[str]]:
+    """Valida se a resposta está no padrão WhatsApp pt-BR/SP da Refrimix.
+
+    Bloqueia marcas claras de português europeu, inglês em copy e formalismo
+    antigo. Gera avisos para sinais de resposta pouco prática no WhatsApp.
+    """
+    text = (response or "").strip()
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if not text:
+        return ["resposta vazia"], warnings
+
+    for pattern, reason in PTBR_SP_BLOCKED_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            blockers.append(reason)
+
+    if len(text) > PTBR_MAX_RESPONSE_CHARS:
+        warnings.append(
+            f"resposta longa para WhatsApp ({len(text)} chars; limite {PTBR_MAX_RESPONSE_CHARS})"
+        )
+
+    question_marks = text.count("?")
+    if question_marks > PTBR_MAX_QUESTION_MARKS:
+        warnings.append(
+            f"perguntas demais na mesma resposta ({question_marks}; limite {PTBR_MAX_QUESTION_MARKS})"
+        )
+
+    if re.search(r"\b(?:sir|madam|dear|regards|hello)\b", text, flags=re.IGNORECASE):
+        warnings.append("termo em inglês solto na resposta ao cliente")
+
+    should_have_next_step = expected_intent not in {
+        "explicit_handoff",
+        "sensitive_complaint",
+    }
+    has_next_step = any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in PTBR_NEXT_STEP_PATTERNS
+    ) or question_marks > 0
+    if should_have_next_step and not has_next_step:
+        warnings.append("sem próximo passo claro para o lead")
+
+    if expected_intent == "unknown" and question_marks == 0:
+        warnings.append("mensagem ambígua deveria virar pergunta curta de desambiguação")
+
+    return blockers, warnings
 
 
 # ── API helpers ───────────────────────────────────────────────────────────────
@@ -123,7 +226,7 @@ def health_ok() -> bool:
         return False
 
 
-def run_refinement_loop(count: int) -> int:
+def run_refinement_loop(count: int, strict_ptbr: bool = False) -> int:
     if count <= 0:
         print(c(RED, "Loop precisa ser maior que zero."))
         return 2
@@ -133,8 +236,11 @@ def run_refinement_loop(count: int) -> int:
 
     print(c(GREEN, f"✓ API online em {BASE_URL}"))
     print(c(CYAN, f"Rodando loop semântico de refinamento: {count} mensagens\n"))
+    if strict_ptbr:
+        print(c(YELLOW, "Modo estrito PT-BR/SP ativo: avisos de linguagem também falham.\n"))
 
     failures: list[dict[str, str]] = []
+    quality_warnings: list[dict[str, str]] = []
     for index in range(count):
         expected, message = REFINEMENT_CASES[index % len(REFINEMENT_CASES)]
         data = call_bot(message)
@@ -150,8 +256,28 @@ def run_refinement_loop(count: int) -> int:
         else:
             ok = ok and intent == expected and handoff_mode != "hard_transfer"
 
+        blockers, warnings = evaluate_ptbr_quality(response, expected, message)
+        if blockers or (strict_ptbr and warnings):
+            ok = False
+        elif warnings:
+            quality_warnings.append({
+                "message": message,
+                "expected": expected,
+                "warnings": "; ".join(warnings),
+                "response": response[:220],
+            })
+
         status = c(GREEN, "OK") if ok else c(RED, "FAIL")
-        print(f"{index + 1:02d}/{count:02d} [{status}] esperado={expected} intent={intent or '-'} handoff={handoff_mode} :: {message}")
+        if blockers:
+            ptbr_status = c(RED, f"ptbr=BLOCK {len(blockers)}")
+        elif warnings:
+            ptbr_status = c(YELLOW, f"ptbr=WARN {len(warnings)}")
+        else:
+            ptbr_status = c(GREEN, "ptbr=OK")
+        print(
+            f"{index + 1:02d}/{count:02d} [{status}] {ptbr_status} "
+            f"esperado={expected} intent={intent or '-'} handoff={handoff_mode} :: {message}"
+        )
 
         if not ok:
             failures.append({
@@ -159,6 +285,8 @@ def run_refinement_loop(count: int) -> int:
                 "expected": expected,
                 "intent": intent,
                 "handoff_mode": handoff_mode,
+                "ptbr_blockers": "; ".join(blockers),
+                "ptbr_warnings": "; ".join(warnings),
                 "response": response[:220],
             })
 
@@ -168,6 +296,12 @@ def run_refinement_loop(count: int) -> int:
         for failure in failures[:10]:
             print(json.dumps(failure, ensure_ascii=False))
         return 1
+
+    if quality_warnings:
+        print(c(YELLOW, f"Avisos PT-BR/SP: {len(quality_warnings)}/{count}"))
+        for warning in quality_warnings[:10]:
+            print(json.dumps(warning, ensure_ascii=False))
+        print(c(DIM, "Use --strict-ptbr para transformar esses avisos em falha."))
 
     print(c(GREEN, f"Loop verde: {count}/{count} respostas válidas e sem handoff indevido."))
     return 0
@@ -416,6 +550,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("message", nargs="*", help="Mensagem única para testar no modo interativo.")
     parser.add_argument("--base-url", default=BASE_URL, help="URL da API FastAPI.")
     parser.add_argument("--loop", type=int, default=0, help="Roda N cenários semânticos sem interação.")
+    parser.add_argument(
+        "--strict-ptbr",
+        action="store_true",
+        help="Faz avisos de qualidade PT-BR/SP falharem no loop semântico.",
+    )
     return parser.parse_args(argv)
 
 
@@ -430,7 +569,7 @@ def main(argv: list[str] | None = None):
     print(f"{BOLD}{MAGENTA}╚══════════════════════════════════════════╝{R}")
 
     if args.loop:
-        sys.exit(run_refinement_loop(args.loop))
+        sys.exit(run_refinement_loop(args.loop, strict_ptbr=args.strict_ptbr))
 
     if not health_ok():
         print(c(RED, f"\n✗ API não está respondendo em {BASE_URL}"))
