@@ -22,6 +22,9 @@ O Will responde leads automaticamente, coleta dados de agendamento e escala para
 Mapa operacional detalhado de PC1/PC2, dependências e refinamento:
 [docs/mapa-pc1-pc2-refinamento.md](docs/mapa-pc1-pc2-refinamento.md).
 
+Regra de copy e atendimento:
+[.rules/pt-br.md](.rules/pt-br.md). Tudo que chega ao cliente deve nascer em português brasileiro; inglês fica restrito a termos técnicos inevitáveis.
+
 ### LangGraph — 8 nós em sequência
 
 ```
@@ -129,9 +132,7 @@ TTS_ENGINE=chatterbox
 TTS_LOCALE=pt-BR
 OMNIVOICE_URL=http://127.0.0.1:8202
 CHATTERBOX_URL=http://127.0.0.1:8200
-XTTS_URL=http://localhost:8020
-TTS_VOICES_PATH=/srv/data/tts/voices
-TTS_ALLOW_XTTS_PT_FALLBACK=0
+TTS_CHATTERBOX_LANGUAGE=pt
 TTS_ALLOW_CHATTERBOX_PTBR=1
 SSH_HOST_PC1=will-zappro@192.168.15.83
 ```
@@ -142,7 +143,7 @@ SSH_HOST_PC1=will-zappro@192.168.15.83
 
 O TTS de produção é `Chatterbox Multilingual` no PC1, acessado via SSH porque a API roda em `127.0.0.1:8200` naquela máquina. O texto passa por normalização de fala brasileira antes da síntese: moeda, `3x`, `PMOC`, `ART`, `CREA`, `BTU`, links e markdown são convertidos para áudio mais natural.
 
-`OmniVoice` fica como fallback seguro. `XTTS` continua bloqueado por padrão para pt-BR porque trabalha com código genérico `pt`. Só mantenha Chatterbox como primário se a auditoria confirmar modelo multilíngue/português:
+`OmniVoice` fica como fallback seguro. `XTTS` foi removido do caminho de produção para não reintroduzir português genérico/locale errado. Só mantenha Chatterbox como primário se a auditoria confirmar modelo multilíngue/português:
 
 ```bash
 .venv/bin/python -m sre.probes tts-audit

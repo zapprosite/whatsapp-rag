@@ -7,16 +7,13 @@ import os
 import re
 import shlex
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 # TTS local/PC1. Chatterbox Multilingual é primário; OmniVoice é fallback seguro.
-_XTTS_URL = "http://localhost:8020"
 _OMNIVOICE_URL = "http://127.0.0.1:8202"
 _CHATTERBOX_URL = "http://127.0.0.1:8200"
 _DEFAULT_LOCALE = "pt-BR"
-_XTTS_LANGUAGE = "pt"
+_CHATTERBOX_LANGUAGE = "pt"
 _TTS_TIMEOUT = 30.0
 _MIN_AUDIO_BYTES = 512
 _DEFAULT_MAX_CHARS = 420
@@ -195,23 +192,16 @@ class TTSService:
     """Síntese de voz com clone do Will via Chatterbox/OmniVoice e fallbacks controlados."""
 
     def __init__(self) -> None:
-        self._engine = os.getenv("TTS_ENGINE", "omnivoice").lower().strip()
-        self._xtts_url = os.getenv("XTTS_URL", _XTTS_URL)
+        self._engine = os.getenv("TTS_ENGINE", "chatterbox").lower().strip()
         self._omnivoice_url = os.getenv("OMNIVOICE_URL", _OMNIVOICE_URL)
         self._chatterbox_url = os.getenv("CHATTERBOX_URL", _CHATTERBOX_URL)
-        self._voices_path = os.getenv("TTS_VOICES_PATH", "/srv/data/tts/voices")
         self._locale = os.getenv("TTS_LOCALE", _DEFAULT_LOCALE).strip() or _DEFAULT_LOCALE
-        self._xtts_language = os.getenv("TTS_XTTS_LANGUAGE", _XTTS_LANGUAGE).strip() or _XTTS_LANGUAGE
-        self._allow_xtts_pt_fallback = _env_bool("TTS_ALLOW_XTTS_PT_FALLBACK", False)
+        self._chatterbox_language = os.getenv("TTS_CHATTERBOX_LANGUAGE", _CHATTERBOX_LANGUAGE).strip() or _CHATTERBOX_LANGUAGE
         self._allow_chatterbox_ptbr = _env_bool("TTS_ALLOW_CHATTERBOX_PTBR", False)
         self._max_chars = _env_int("TTS_MAX_CHARS", _DEFAULT_MAX_CHARS)
 
     def _voice_name(self, style: str) -> str:
         return _VOICE_STYLES.get(style, _VOICE_STYLES[_DEFAULT_STYLE])
-
-    def _speaker_wav_path(self, style: str) -> str:
-        name = self._voice_name(style)
-        return os.path.join(self._voices_path, f"{name}.wav")
 
     def _target_is_ptbr(self) -> bool:
         return self._locale.lower().replace("_", "-") == "pt-br"
@@ -352,7 +342,7 @@ sys.stdout.write(response.text)
             "voice_mode": "predefined",
             "predefined_voice_id": voice,
             "output_format": "wav",
-            "language": self._xtts_language,
+            "language": self._chatterbox_language,
             "split_text": True,
             "chunk_size": 120,
         }
@@ -360,31 +350,8 @@ sys.stdout.write(response.text)
             self._chatterbox_url,
             "/tts",
             payload,
-            f"Chatterbox voice={voice} language={self._xtts_language}",
+            f"Chatterbox voice={voice} language={self._chatterbox_language}",
         )
-
-    async def _synthesize_xtts(self, text: str, voice_style: str) -> bytes | None:
-        speaker_wav = self._speaker_wav_path(voice_style)
-
-        try:
-            async with httpx.AsyncClient(timeout=_TTS_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._xtts_url}/tts",
-                    json={
-                        "text": text,
-                        "language": self._xtts_language,
-                        "speaker_wav": speaker_wav,
-                    },
-                )
-                if resp.status_code == 200 and len(resp.content) > _MIN_AUDIO_BYTES:
-                    logger.info("XTTS OK: %s bytes (style=%s, language=%s)", len(resp.content), voice_style, self._xtts_language)
-                    return resp.content
-                logger.warning("XTTS /tts retornou %s: %s", resp.status_code, resp.text[:100])
-        except httpx.ConnectError:
-            logger.warning("XTTS indisponível em %s; resposta será texto", self._xtts_url)
-        except Exception as e:
-            logger.error("XTTS erro: %s", e)
-        return None
 
     async def synthesize(
         self,
@@ -403,19 +370,7 @@ sys.stdout.write(response.text)
             audio = await self._synthesize_omnivoice(prepared_text, voice_style)
             if audio:
                 return audio
-            if self._allow_xtts_pt_fallback:
-                return await self._synthesize_xtts(prepared_text, voice_style)
-            logger.warning("OmniVoice falhou; fallback XTTS bloqueado para manter pt-BR/SP")
-            return None
-
-        if self._engine == "xtts":
-            if self._target_is_ptbr() and not self._allow_xtts_pt_fallback:
-                logger.warning("XTTS bloqueado como engine primário para pt-BR; tentando OmniVoice")
-                return await self._synthesize_omnivoice(prepared_text, voice_style)
-            audio = await self._synthesize_xtts(prepared_text, voice_style)
-            if audio:
-                return audio
-            return await self._synthesize_omnivoice(prepared_text, voice_style)
+            return await self._synthesize_chatterbox(prepared_text, voice_style)
 
         if self._engine == "chatterbox":
             audio = await self._synthesize_chatterbox(prepared_text, voice_style)
@@ -423,7 +378,10 @@ sys.stdout.write(response.text)
                 return audio
             return await self._synthesize_omnivoice(prepared_text, voice_style)
 
-        logger.warning("TTS_ENGINE inválido: %s; tentando OmniVoice", self._engine)
+        logger.warning("TTS_ENGINE inválido: %s; tentando Chatterbox e depois OmniVoice", self._engine)
+        audio = await self._synthesize_chatterbox(prepared_text, voice_style)
+        if audio:
+            return audio
         return await self._synthesize_omnivoice(prepared_text, voice_style)
 
     async def health(self) -> bool:
@@ -439,12 +397,8 @@ sys.stdout.write(response.text)
                 return bool(info.get("loaded")) and isinstance(languages, dict) and "pt" in languages
             return bool(info.get("loaded", True))
 
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{self._xtts_url}/health")
-                return resp.status_code == 200
-        except Exception:
-            return False
+        logger.warning("TTS_ENGINE inválido no health: %s", self._engine)
+        return False
 
 
 def choose_voice_style(intent: str | None, outcome: str | None) -> str:

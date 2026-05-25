@@ -27,6 +27,28 @@ def test_parse_conversation_payload_normalizes_phone():
     assert parsed.msg_id == "msg-1"
 
 
+def test_parse_evolution_lid_payload_prefers_phone_alt():
+    payload = {
+        "instance": "RefrimixLead",
+        "data": {
+            "key": {
+                "remoteJid": "47554347716639@lid",
+                "remoteJidAlt": "5513996659382@s.whatsapp.net",
+                "id": "lid-msg-1",
+                "fromMe": False,
+            },
+            "message": {"conversation": "Oi, quero instalar um split"},
+            "messageType": "conversation",
+        },
+    }
+
+    parsed, skipped = parse_evolution_webhook(payload)
+
+    assert skipped is None
+    assert parsed is not None
+    assert parsed.phone == "5513996659382"
+
+
 def test_parse_image_payload_uses_caption_and_media_url():
     payload = {
         "instanceName": "RefrimixLead",
@@ -82,3 +104,47 @@ def test_parse_group_and_from_me_are_skipped():
 
     assert parse_evolution_webhook(group_payload)[1] == "group"
     assert parse_evolution_webhook(own_payload)[1] == "fromMe"
+
+
+def test_parse_from_me_refrimix_qr_number_is_skipped_even_with_alt():
+    payload = {
+        "instance": "RefrimixLead",
+        "data": {
+            "key": {
+                "remoteJid": "47554347716639@lid",
+                "remoteJidAlt": "5513996659382@s.whatsapp.net",
+                "fromMe": True,
+                "id": "own-message",
+            },
+            "message": {"conversation": "Olá"},
+            "messageType": "conversation",
+        },
+        "sender": "5513974139382@s.whatsapp.net",
+    }
+
+    parsed, skipped = parse_evolution_webhook(payload)
+
+    assert parsed is None
+    assert skipped == "fromMe"
+
+
+def test_parse_from_me_manager_cron_number_is_skipped_even_with_lid():
+    payload = {
+        "instance": "RefrimixLead",
+        "data": {
+            "key": {
+                "remoteJid": "5513996659382@s.whatsapp.net",
+                "remoteJidAlt": "47554347716639@lid",
+                "fromMe": True,
+                "id": "manager-cron",
+            },
+            "message": {"conversation": "Resumo do cron"},
+            "messageType": "conversation",
+        },
+        "sender": "5513974139382@s.whatsapp.net",
+    }
+
+    parsed, skipped = parse_evolution_webhook(payload)
+
+    assert parsed is None
+    assert skipped == "fromMe"

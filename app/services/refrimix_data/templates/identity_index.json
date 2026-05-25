@@ -1,8 +1,8 @@
 {
   "version": "2026-05-23",
   "security": {
-    "rule": "Never store CPF, secrets, cookies, tokens or auth headers here.",
-    "personal_document_source": "Use hermes-vault or direct user input at runtime only."
+    "rule": "Nunca armazene CPF, segredos, cookies, tokens ou cabeçalhos de autenticação aqui.",
+    "personal_document_source": "Use hermes-vault ou entrada direta do usuário apenas em tempo de execução."
   },
   "assistants": {
     "will_pessoal": {
@@ -12,9 +12,9 @@
       "document_id_value": "{SECRET:WILL_CPF}",
       "document_id_storage": "hermes-vault",
       "allowed_use": [
-        "personal reminders",
-        "personal documents explicitly requested by Will",
-        "runtime-only document filling"
+        "lembretes pessoais",
+        "documentos pessoais explicitamente solicitados pelo Will",
+        "preenchimento de documento apenas em tempo de execução"
       ]
     },
     "refrimix_tecnologia": {
@@ -23,22 +23,22 @@
       "role": "Assistente corporativo Refrimix",
       "document_id_kind": "CNPJ",
       "document_id_value": "37.308.021/0001-89",
-      "city": "Guaruja - SP",
+      "city": "Guarujá - SP",
       "instagram": "@willrefrimix",
       "logo_path": "/home/will/Imagens/Refrimix Tecnologia- Identiidade visual/logo.jpeg",
       "allowed_use": [
-        "technical proposals",
-        "contracts",
-        "service orders",
-        "material budgets",
-        "labor budgets",
-        "Instagram and brand content"
+        "propostas técnicas",
+        "contratos",
+        "ordens de serviço",
+        "orçamentos de materiais",
+        "orçamentos de mão de obra",
+        "conteúdo de Instagram e marca"
       ]
     }
   },
   "routing": {
     "default_for_pdf": "refrimix_tecnologia",
     "default_for_personal_tasks": "will_pessoal",
-    "if_document_requires_cpf": "Ask for runtime value or use hermes-vault; do not persist in files."
+    "if_document_requires_cpf": "Peça o valor em tempo de execução ou use hermes-vault; não persista em arquivos."
   }
 }

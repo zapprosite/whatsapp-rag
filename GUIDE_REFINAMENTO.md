@@ -311,6 +311,6 @@ Cada linha que você adiciona vira um teste permanente. Nunca remove — o objet
 [ ] save_interaction gravando no PostgreSQL (vê via psql)
 [ ] Alertas chegando no WhatsApp do dono quando lead manda endereço
 [ ] `.venv/bin/python -m sre.probes tts-audit` verde
-[ ] `Chatterbox Multilingual` primário em pt-BR; `OmniVoice` fallback; `XTTS` sem fallback pt-BR automático
+[ ] `Chatterbox Multilingual` primário em pt-BR; `OmniVoice` fallback; `XTTS` fora do caminho de produção
 [ ] `.venv/bin/python -m sre.probes tts-audit --synthesize` gera áudio sem enviar WhatsApp real
 ```

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Master Document Compiler — Refrimix Tecnologia (Padrão 05/2026)
+Compilador mestre de documentos — Refrimix Tecnologia (Padrão 05/2026)
 Gera Propostas, Contratos, Ordens de Serviço e Orçamentos com identidade visual ultra-premium.
 """
 
@@ -852,7 +852,7 @@ def build_master_document(config):
         )
         story.append(create_branded_header("ORÇAMENTO DE MATERIAIS E INSUMOS", mat_subtitle, style_header_title, style_body))
         
-        story.append(Paragraph("Breakdown de Materiais e Insumos Especiais:", style_h1))
+        story.append(Paragraph("DETALHAMENTO DE MATERIAIS E INSUMOS ESPECIAIS", style_h1))
         
         mat_rows = [
             [Paragraph("<b>Item / Insumo Técnico</b>", style_table_header), Paragraph("<b>Descrição do Material</b>", style_table_header), Paragraph("<b>Valor</b>", style_table_header)],
@@ -864,7 +864,7 @@ def build_master_document(config):
         for item in config["dutos_extras"]:
             mat_rows.append([
                 Paragraph(f"<font color='#2e7d32'>➕ <b>Extra: {item['desc']}</b></font>", style_table_text),
-                Paragraph("Insumo / Acessório adicional para o duto.", style_table_text),
+                Paragraph("Insumo ou acessório adicional para o duto.", style_table_text),
                 Paragraph(f"<font color='#2e7d32'><b>{format_currency(item['valor'])}</b></font>", style_table_text_bold)
             ])
             
@@ -902,12 +902,12 @@ def build_master_document(config):
         )
         story.append(create_branded_header("ORÇAMENTO DE MÃO DE OBRA E EXECUÇÃO", labor_subtitle, style_header_title, style_body))
         
-        story.append(Paragraph("Breakdown de Horas e Gestão de Engenharia:", style_h1))
+        story.append(Paragraph("DETALHAMENTO DE HORAS TÉCNICAS E GESTÃO DE ENGENHARIA", style_h1))
         
         labor_rows = [
             [Paragraph("<b>Serviço / Atividade Técnica</b>", style_table_header), Paragraph("<b>Horas/Regime</b>", style_table_header), Paragraph("<b>Valor</b>", style_table_header)],
             [Paragraph("Engenharia SRE e Dimensionamento de Fluido", style_table_text), Paragraph("Dedicado (Fase de Planejamento)", style_table_text), Paragraph(format_currency(config["gestao_valor"] * 0.4), style_table_text_bold)],
-            [Paragraph("Instalação, Brasagem e Interligação Frigorígena", style_table_text), Paragraph("Equipe de Instalação Premium", style_table_text), Paragraph(format_currency(config["gestao_valor"] * 0.6), style_table_text_bold)],
+            [Paragraph("Instalação, Brasagem e Interligação Frigorígena", style_table_text), Paragraph("Equipe própria de instalação especializada", style_table_text), Paragraph(format_currency(config["gestao_valor"] * 0.6), style_table_text_bold)],
             [Paragraph("Comissionamento Técnico, PMOC e Emissão de ART", style_table_text), Paragraph("Engenheiro Mecânico CREA Ativo", style_table_text), Paragraph(format_currency(2500.00), style_table_text_bold)],
         ]
         
@@ -1139,4 +1139,3 @@ async def send_pdf_via_evolution(phone: str, pdf_bytes: bytes, filename: str = "
     except Exception as e:
         logger.error(f"Falha ao enviar PDF para {phone}: {e}")
         return False
-

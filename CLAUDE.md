@@ -1,5 +1,5 @@
 <!-- GENERATED FILE: do not edit manually. Source: .context/docs/*.md. Run ./sync.sh. -->
-> Auto-generated from .context/docs | fingerprint: d4c0c8b9fdd8a4f5
+> Auto-generated from .context/docs | fingerprint: 511e6fd31ed53ec4
 ## modelos_ptbr_huggingface
 
 ---
@@ -220,6 +220,8 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 7. Salvar histórico limpo: `messages_with_history + [AIMessage(ai_message)]` — não `messages_out`
 8. Voz em produção deve ficar em `TTS_ENGINE=chatterbox` + `TTS_LOCALE=pt-BR` enquanto `.venv/bin/python -m sre.probes tts-audit --require-chatterbox-pt` estiver verde; `OmniVoice` é fallback seguro.
 9. Antes de aceitar mudança de voz/PC1/PC2, rode `.venv/bin/python -m sre.probes tts-audit`; para sample local sem WhatsApp real, use `--synthesize`.
+10. `5513974139382` é a linha Refrimix/QR lido; `5513996659382` é gerente/crons. Eventos `fromMe=true` desses números devem ser ignorados pelo bot.
+11. Copy, PDF, prompts e mensagens de cliente devem seguir `.rules/pt-br.md`: português brasileiro por padrão; inglês só para termos técnicos inevitáveis.
 
 ## Documentação e Espelho Git
 
@@ -230,6 +232,42 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 - Para publicar mudanças: `./sync.sh --message "sync: descreve a mudança"`.
 - Para espelhar algo que já está no Gitea: `./sync.sh --mirror-only`.
 - O GitHub não é fonte primária; ele é espelho do Gitea.
+
+---
+
+## ptbr_guardrails
+
+---
+source: .rules/pt-br.md
+type: generic
+---
+
+# Guardrails PT-BR
+
+## Regra Principal
+
+Todo atendimento, prompt, documento, PDF, copy e instrução para LLM deve ser produzido em português brasileiro moderno. Inglês só é permitido para nomes técnicos inevitáveis de APIs, bibliotecas, comandos, variáveis, classes, modelos ou protocolos.
+
+## Copy De Cliente
+
+- WhatsApp: natural, curto, com jeito brasileiro de atendimento.
+- PDF comercial: português técnico claro, formal o suficiente, sem inglês decorativo.
+- Evitar termos como `Breakdown`, `budget`, `labor`, `client-ready`, `Must` e `Required` em qualquer copy final.
+- Usar `detalhamento`, `orçamento`, `mão de obra`, `pronto para o cliente final`, `deve` e `obrigatório`.
+
+## Números Fixos
+
+- `5513974139382`: linha Refrimix Tecnologia, QR code lido na Evolution API.
+- `5513996659382`: gerente, usado para receber crons e alertas.
+- Eventos `fromMe=true` desses números são mensagens enviadas pela operação e devem ser ignorados pelo bot.
+
+## Validação
+
+Antes de finalizar mudança de copy ou documento:
+
+```bash
+.venv/bin/python -m pytest
+```
 
 ---
 
@@ -297,7 +335,7 @@ O loop usa `/test/chat?send=false`; ele não envia WhatsApp real. Quando houver 
 .venv/bin/python -m sre.probes tts-audit --synthesize
 ```
 
-Se a voz soar portuguesa ou robótica, verifique primeiro se o Chatterbox está em modo multilíngue e se algum fallback genérico foi habilitado. Para produção, mantenha `TTS_ENGINE=chatterbox`, `TTS_LOCALE=pt-BR`, `TTS_ALLOW_XTTS_PT_FALLBACK=0` e `TTS_ALLOW_CHATTERBOX_PTBR=1`. Se o probe Chatterbox falhar, volte temporariamente para `TTS_ENGINE=omnivoice`.
+Se a voz soar portuguesa ou robótica, verifique primeiro se o Chatterbox está em modo multilíngue e se algum fallback genérico foi reintroduzido. Para produção, mantenha `TTS_ENGINE=chatterbox`, `TTS_LOCALE=pt-BR`, `TTS_CHATTERBOX_LANGUAGE=pt` e `TTS_ALLOW_CHATTERBOX_PTBR=1`. Se o probe Chatterbox falhar, volte temporariamente para `TTS_ENGINE=omnivoice`.
 
 ---
 
@@ -314,8 +352,8 @@ type: generic
 
 - TTS de produção: `Chatterbox Multilingual` no PC1.
 - Locale obrigatório do atendimento: `pt-BR`.
-- `XTTS` é legado e não deve ser fallback automático para pt-BR, porque opera com código genérico `pt`.
 - `OmniVoice` fica como fallback seguro quando Chatterbox falhar.
+- `XTTS` foi removido do caminho de produção; não usar como fallback pt-BR.
 
 ## Estado PC1 Auditado Em 2026-05-25
 
@@ -331,9 +369,7 @@ TTS_ENGINE=chatterbox
 TTS_LOCALE=pt-BR
 OMNIVOICE_URL=http://127.0.0.1:8202
 CHATTERBOX_URL=http://127.0.0.1:8200
-XTTS_URL=http://localhost:8020
-TTS_VOICES_PATH=/srv/data/tts/voices
-TTS_ALLOW_XTTS_PT_FALLBACK=0
+TTS_CHATTERBOX_LANGUAGE=pt
 TTS_ALLOW_CHATTERBOX_PTBR=1
 TTS_MAX_CHARS=420
 SSH_HOST_PC1=will-zappro@192.168.15.83

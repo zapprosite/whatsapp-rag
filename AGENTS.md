@@ -1,5 +1,11 @@
 # Obrigatório Para Agentes
 
+## Regra Zero: Português Brasileiro
+
+Todo atendimento, prompt, documento, PDF, copy, log operacional legível por cliente e regra deste repositório deve ser pensado primeiro em português brasileiro moderno. Inglês só é permitido para nomes técnicos inevitáveis de APIs, bibliotecas, comandos, variáveis, classes, modelos ou protocolos.
+
+Antes de criar ou alterar copy de cliente, leia [.rules/pt-br.md](.rules/pt-br.md).
+
 ## Fechamento Obrigatório Da Tarefa
 
 No fim de qualquer tarefa com alteração de arquivo:

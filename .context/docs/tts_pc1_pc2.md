@@ -9,8 +9,8 @@ type: generic
 
 - TTS de produção: `Chatterbox Multilingual` no PC1.
 - Locale obrigatório do atendimento: `pt-BR`.
-- `XTTS` é legado e não deve ser fallback automático para pt-BR, porque opera com código genérico `pt`.
 - `OmniVoice` fica como fallback seguro quando Chatterbox falhar.
+- `XTTS` foi removido do caminho de produção; não usar como fallback pt-BR.
 
 ## Estado PC1 Auditado Em 2026-05-25
 
@@ -26,9 +26,7 @@ TTS_ENGINE=chatterbox
 TTS_LOCALE=pt-BR
 OMNIVOICE_URL=http://127.0.0.1:8202
 CHATTERBOX_URL=http://127.0.0.1:8200
-XTTS_URL=http://localhost:8020
-TTS_VOICES_PATH=/srv/data/tts/voices
-TTS_ALLOW_XTTS_PT_FALLBACK=0
+TTS_CHATTERBOX_LANGUAGE=pt
 TTS_ALLOW_CHATTERBOX_PTBR=1
 TTS_MAX_CHARS=420
 SSH_HOST_PC1=will-zappro@192.168.15.83

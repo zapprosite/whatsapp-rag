@@ -37,39 +37,52 @@ def test_tts_truncates_at_sentence_boundary():
     assert truncated == "Primeira frase curta."
 
 
-def test_omnivoice_does_not_fallback_to_generic_xtts_for_ptbr(monkeypatch):
-    monkeypatch.setenv("TTS_ENGINE", "omnivoice")
+def test_chatterbox_falls_back_to_omnivoice_without_xtts(monkeypatch):
+    monkeypatch.setenv("TTS_ENGINE", "chatterbox")
     monkeypatch.setenv("TTS_LOCALE", "pt-BR")
-    monkeypatch.setenv("TTS_ALLOW_XTTS_PT_FALLBACK", "0")
+    monkeypatch.setenv("TTS_ALLOW_CHATTERBOX_PTBR", "1")
     service = TTSService()
 
     async def no_audio(text: str, voice_style: str) -> bytes | None:
         return None
 
-    async def forbidden_xtts(text: str, voice_style: str) -> bytes | None:
-        raise AssertionError("XTTS fallback must stay disabled for pt-BR")
+    async def omni_audio(text: str, voice_style: str) -> bytes | None:
+        assert "P M O C" in text
+        return b"o" * 1024
+
+    monkeypatch.setattr(service, "_synthesize_chatterbox", no_audio)
+    monkeypatch.setattr(service, "_synthesize_omnivoice", omni_audio)
+
+    assert run(service.synthesize("Preciso de PMOC", "influencer")) == b"o" * 1024
+
+
+def test_omnivoice_falls_back_to_chatterbox_without_xtts(monkeypatch):
+    monkeypatch.setenv("TTS_ENGINE", "omnivoice")
+    monkeypatch.setenv("TTS_LOCALE", "pt-BR")
+    monkeypatch.setenv("TTS_ALLOW_CHATTERBOX_PTBR", "1")
+    service = TTSService()
+
+    async def no_audio(text: str, voice_style: str) -> bytes | None:
+        return None
+
+    async def chatterbox_audio(text: str, voice_style: str) -> bytes | None:
+        return b"c" * 1024
 
     monkeypatch.setattr(service, "_synthesize_omnivoice", no_audio)
-    monkeypatch.setattr(service, "_synthesize_xtts", forbidden_xtts)
+    monkeypatch.setattr(service, "_synthesize_chatterbox", chatterbox_audio)
 
-    assert run(service.synthesize("Oi, tudo bem?", "influencer")) is None
+    assert run(service.synthesize("Oi, tudo bem?", "influencer")) == b"c" * 1024
 
 
-def test_omnivoice_can_use_xtts_when_explicitly_enabled(monkeypatch):
-    monkeypatch.setenv("TTS_ENGINE", "omnivoice")
-    monkeypatch.setenv("TTS_LOCALE", "pt-BR")
-    monkeypatch.setenv("TTS_ALLOW_XTTS_PT_FALLBACK", "1")
+def test_xtts_engine_name_is_pruned_and_uses_safe_chain(monkeypatch):
+    monkeypatch.setenv("TTS_ENGINE", "xtts")
+    monkeypatch.setenv("TTS_ALLOW_CHATTERBOX_PTBR", "1")
     service = TTSService()
 
-    async def no_audio(text: str, voice_style: str) -> bytes | None:
-        return None
-
-    async def xtts_audio(text: str, voice_style: str) -> bytes | None:
-        assert "P M O C" in text
+    async def chatterbox_audio(text: str, voice_style: str) -> bytes | None:
         return b"x" * 1024
 
-    monkeypatch.setattr(service, "_synthesize_omnivoice", no_audio)
-    monkeypatch.setattr(service, "_synthesize_xtts", xtts_audio)
+    monkeypatch.setattr(service, "_synthesize_chatterbox", chatterbox_audio)
 
     assert run(service.synthesize("Preciso de PMOC", "influencer")) == b"x" * 1024
 

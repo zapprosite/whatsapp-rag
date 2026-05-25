@@ -53,6 +53,8 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 7. Salvar histórico limpo: `messages_with_history + [AIMessage(ai_message)]` — não `messages_out`
 8. Voz em produção deve ficar em `TTS_ENGINE=chatterbox` + `TTS_LOCALE=pt-BR` enquanto `.venv/bin/python -m sre.probes tts-audit --require-chatterbox-pt` estiver verde; `OmniVoice` é fallback seguro.
 9. Antes de aceitar mudança de voz/PC1/PC2, rode `.venv/bin/python -m sre.probes tts-audit`; para sample local sem WhatsApp real, use `--synthesize`.
+10. `5513974139382` é a linha Refrimix/QR lido; `5513996659382` é gerente/crons. Eventos `fromMe=true` desses números devem ser ignorados pelo bot.
+11. Copy, PDF, prompts e mensagens de cliente devem seguir `.rules/pt-br.md`: português brasileiro por padrão; inglês só para termos técnicos inevitáveis.
 
 ## Documentação e Espelho Git
 

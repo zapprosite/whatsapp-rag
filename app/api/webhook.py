@@ -99,11 +99,17 @@ def _extract_phone(body: dict[str, Any], data_block: dict[str, Any], key_block: 
     sender = _as_dict(body.get("sender"))
     data_sender = _as_dict(data_block.get("sender"))
     return _first_text(
+        key_block.get("remoteJidAlt"),
+        key_block.get("participantAlt"),
         key_block.get("remote"),
         key_block.get("remoteJid"),
         key_block.get("participant"),
+        sender.get("remoteJidAlt"),
+        sender.get("participantAlt"),
         sender.get("remote"),
         sender.get("id"),
+        data_sender.get("remoteJidAlt"),
+        data_sender.get("participantAlt"),
         data_sender.get("remote"),
         data_sender.get("id"),
         data_block.get("from"),
