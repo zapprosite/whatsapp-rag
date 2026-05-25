@@ -1,0 +1,28 @@
+high_value:
+  hard_signals:
+    vrf: high_value_vrf
+    vrv: high_value_vrv
+    duto: high_value_duto
+    dutado: high_value_duto
+    splitão: high_value_splitao
+    splitao: high_value_splitao
+    pmoc: high_value_pmoc
+    art: high_value_art
+    laudo: high_value_laudo
+    contrato: high_value_contract
+  context_signals:
+    - restaurante
+    - hotel
+    - condomínio
+    - clínica
+    - hospital
+    - galpão
+    - mercado
+    - escritório grande
+    - obra comercial
+    - alto padrão
+    - arquiteto
+    - engenheiro
+  numeric_rules:
+    multiple_devices_min: 3
+    high_btu_min: 48000

@@ -1,0 +1,13 @@
+objections:
+  caro:
+    response_goal: explicar valor sem atacar concorrente
+    guidance: Reforce etapa técnica, vácuo, dreno, suporte, teste e segurança.
+  preco_baixo_concorrente:
+    response_goal: diferenciar qualidade sem desmerecer
+    guidance: Explique risco de vazamento, ruído, perda de garantia e retrabalho.
+  quero_desconto:
+    response_goal: pedir contexto para avaliar condição
+    guidance: Pergunte quantidade, cidade e tipo de serviço antes de prometer condição.
+  pressa:
+    response_goal: qualificar urgência e agenda
+    guidance: Peça cidade, bairro, sintoma e risco operacional.

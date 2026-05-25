@@ -1,0 +1,36 @@
+services:
+  instalacao:
+    label: instalacao de ar-condicionado
+    default_goal: qualify_quote
+    fixed_price_rule: split_simples
+    stages: [qualification, price, scheduling]
+  higienizacao:
+    label: higienizacao de split
+    default_goal: qualify_quote
+    fixed_price_rule: split_padrao
+    stages: [qualification, price, scheduling]
+  manutencao:
+    label: manutencao corretiva
+    default_goal: qualify_quote
+    fixed_price_rule: analysis_required
+    stages: [qualification, technical_triage, scheduling]
+  conserto:
+    label: conserto de ar-condicionado
+    default_goal: qualify_quote
+    fixed_price_rule: analysis_required
+    stages: [technical_triage, scheduling]
+  eletrica:
+    label: avaliacao eletrica para climatizacao
+    default_goal: safety_warning
+    fixed_price_rule: analysis_required
+    stages: [safety, technical_triage, scheduling]
+  pmoc:
+    label: PMOC
+    default_goal: high_value_project
+    fixed_price_rule: analysis_required
+    stages: [high_value_triage, qualification, scheduling]
+  projeto-central:
+    label: projeto de climatizacao central
+    default_goal: high_value_project
+    fixed_price_rule: analysis_required
+    stages: [high_value_triage, qualification, scheduling]

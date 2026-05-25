@@ -1,0 +1,26 @@
+tts_policy:
+  default:
+    max_chars: 420
+    no_lists: true
+    no_markdown: true
+    expand_money: true
+    expand_acronyms: true
+    sentence_max_words: 18
+    style: calm_consultative
+  by_goal:
+    qualify_quote:
+      style: calm_consultative
+      pace: normal
+      emotion: neutral_friendly
+    schedule_service:
+      style: friendly_short
+      pace: normal
+      emotion: confident
+    high_value_project:
+      style: high_value_project
+      pace: slightly_slower
+      emotion: professional
+    safety_warning:
+      style: urgent_safety
+      pace: slower
+      emotion: serious

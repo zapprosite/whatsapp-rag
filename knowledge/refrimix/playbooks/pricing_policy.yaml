@@ -1,0 +1,23 @@
+pricing_policy:
+  instalacao_split_simples:
+    guaruja: R$800
+    santos_sao_vicente_praia_grande: R$850
+    requires_analysis_when:
+      - telhado
+      - altura
+      - acesso dificil
+      - distancia grande
+      - ponto eletrico fora do padrao
+      - dreno pendente
+      - VRF ou sistema central
+  higienizacao_split:
+    standard: R$200 por aparelho
+  analise_tecnica:
+    value: R$50
+    rule: abate se aprovar o orçamento
+  never_guess_price_for:
+    - VRF
+    - duto
+    - PMOC
+    - projeto central
+    - corretiva sem diagnostico

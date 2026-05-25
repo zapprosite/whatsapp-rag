@@ -1,0 +1,71 @@
+instalacao:
+  residential_common:
+    priority:
+      - cidade_bairro
+      - btus
+      - foto_local_interno
+      - foto_local_externo
+      - ponto_eletrico_exclusivo
+      - distancia_aproximada
+  residential_high_end:
+    priority:
+      - cidade_bairro
+      - planta_ou_fotos
+      - quantidade_ambientes
+      - local_condensadora
+      - restricao_condominio
+      - acabamento_desejado
+      - infraestrutura_existente
+  commercial_common:
+    priority:
+      - cidade_bairro
+      - quantidade_aparelhos
+      - tipo_ambiente
+      - horario_funcionamento
+      - nota_fiscal
+  commercial_high_value:
+    priority:
+      - tipo_estabelecimento
+      - quantidade_ambientes
+      - planta
+      - carga_termica_existente
+      - prazo
+      - funcionamento_do_local
+higienizacao:
+  residential_common:
+    priority:
+      - cidade_bairro
+      - quantidade_aparelhos
+      - tempo_sem_manutencao
+      - cheiro_ruim
+      - foto_aparelho
+  commercial_common:
+    priority:
+      - cidade_bairro
+      - quantidade_aparelhos
+      - tipo_estabelecimento
+      - horario_funcionamento
+      - nota_fiscal
+manutencao:
+  residential_common:
+    priority:
+      - cidade_bairro
+      - sintoma
+      - marca
+      - btus
+      - foto_aparelho
+  commercial_high_value:
+    priority:
+      - tipo_estabelecimento
+      - quantidade_aparelhos
+      - impacto_operacional
+      - urgencia
+      - fotos_ou_videos
+pmoc:
+  commercial_high_value:
+    priority:
+      - tipo_estabelecimento
+      - quantidade_aparelhos
+      - btus_totais
+      - cidade_bairro
+      - exigencia_ou_prazo

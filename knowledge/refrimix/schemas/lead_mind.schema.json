@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://refrimix.local/schemas/lead_mind.schema.json",
+  "title": "Mente interna do lead Refrimix",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "lead_profile": {"type": "object"},
+    "intent": {"type": "object"},
+    "segment": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "market": {"enum": ["residential", "commercial", "mixed", "unknown"]},
+        "tier": {"enum": ["common", "high_end", "high_value", "unknown"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "signals": {"type": "array", "items": {"type": "string"}},
+        "do_not_say_to_customer": {"const": true}
+      }
+    },
+    "commercial_context": {"type": "object"},
+    "technical_context": {"type": "object"},
+    "memory": {
+      "type": "object",
+      "properties": {
+        "conversation_summary": {"type": "string"},
+        "facts": {"type": "array", "items": {"type": "string"}},
+        "do_not_ask": {"type": "array", "items": {"type": "string"}},
+        "missing_fields": {"type": "array", "items": {"type": "string"}},
+        "last_asked_field": {"type": ["string", "null"]},
+        "ask_count_by_field": {"type": "object"}
+      }
+    },
+    "risk": {"type": "object"},
+    "tts": {"type": "object"},
+    "compaction": {"type": "object"}
+  }
+}
