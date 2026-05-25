@@ -174,7 +174,7 @@ stage_operational_files() {
   git add \
     CLAUDE.md GUIDE_REFINAMENTO.md README.md AGENTS.md \
     .context/docs/*.md docs/*.md \
-    sync.sh refinar.py refinar_llm.py requirements.txt \
+    sync.sh git.sh refinar.py refinar_llm.py requirements.txt \
     agent_graph/ app/ qdrant/ prisma/ sre/ tests/ \
     .env.example prisma/.env.example 2>/dev/null || true
 }

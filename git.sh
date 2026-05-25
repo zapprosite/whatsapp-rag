@@ -1,32 +1,53 @@
 #!/usr/bin/env bash
-# git.sh — atalhos rápidos para o ciclo de versioning do whatsapp-rag
-set -e
+# git.sh — atalhos compatíveis; o fluxo real é sync.sh (Gitea -> GitHub).
+set -euo pipefail
 
-BRANCH_FEATURE="agent/refinar-respostas-texto"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYNC="$ROOT/sync.sh"
+BRANCH_FEATURE="${BRANCH_FEATURE:-agent/refinar-respostas-texto}"
+
+usage() {
+  cat <<'EOF'
+Uso: ./git.sh <comando> [mensagem]
+
+Comandos:
+  save "msg"  — gera CLAUDE.md, commita, push no Gitea e espelha no GitHub
+  push        — espelha origin/branch -> github/branch
+  sync "msg"  — alias de save
+  status      — arquivos modificados + últimos commits
+  merge       — merge feature -> main e publica via sync.sh
+  log         — histórico visual
+  diff        — resumo do diff
+
+Regra:
+  origin = Gitea primário
+  github = espelho GitHub
+EOF
+}
+
+require_sync() {
+  [ -x "$SYNC" ] || {
+    echo "Erro: $SYNC não existe ou não está executável" >&2
+    exit 1
+  }
+}
 
 cmd="${1:-help}"
 msg="${2:-}"
 
 case "$cmd" in
-
-  save)
-    # Commita tudo que mudou na feature branch
+  save|sync)
     if [ -z "$msg" ]; then
-      echo "Uso: ./git.sh save \"mensagem do commit\""
-      exit 1
+      echo "Uso: ./git.sh $cmd \"mensagem do commit\"" >&2
+      exit 2
     fi
-    git add agent_graph/ app/ prisma/ qdrant/ requirements.txt \
-            docker-compose.yml CLAUDE.md GUIDE_REFINAMENTO.md README.md \
-            .gitignore .env.example prisma/.env.example 2>/dev/null || true
-    git commit -m "$msg"
-    git push
-    echo "✓ Commit e push feitos na branch $(git branch --show-current)"
+    require_sync
+    "$SYNC" --message "$msg"
     ;;
 
   push)
-    # Push simples da branch atual
-    git push
-    echo "✓ Push feito"
+    require_sync
+    "$SYNC" --mirror-only
     ;;
 
   status)
@@ -35,15 +56,15 @@ case "$cmd" in
     ;;
 
   merge)
-    # Faz merge da feature branch para main e volta para feature
-    CURRENT=$(git branch --show-current)
-    echo "→ Mergeando $BRANCH_FEATURE → main"
+    require_sync
+    current=$(git branch --show-current)
+    echo "→ Mergeando $BRANCH_FEATURE -> main"
     git checkout main
-    git pull
-    git merge --no-ff "$BRANCH_FEATURE" -m "merge: $BRANCH_FEATURE → main"
-    git push
-    git checkout "$CURRENT"
-    echo "✓ Merge concluído. Voltou para $CURRENT"
+    git pull origin main
+    git merge --no-ff "$BRANCH_FEATURE" -m "merge: $BRANCH_FEATURE -> main"
+    "$SYNC" --message "merge: $BRANCH_FEATURE -> main"
+    git checkout "$current"
+    echo "✓ Merge concluído. Voltou para $current"
     ;;
 
   log)
@@ -54,14 +75,12 @@ case "$cmd" in
     git diff --stat
     ;;
 
+  help|-h|--help)
+    usage
+    ;;
+
   *)
-    echo "Uso: ./git.sh <comando> [mensagem]"
-    echo ""
-    echo "  save \"msg\"  — add + commit + push tudo na feature branch"
-    echo "  push        — push da branch atual"
-    echo "  merge       — merge feature → main (e volta pra feature)"
-    echo "  status      — arquivos modificados + últimos commits"
-    echo "  log         — histórico visual das branches"
-    echo "  diff        — o que mudou (resumo)"
+    usage
+    exit 2
     ;;
 esac
