@@ -351,8 +351,8 @@ sys.stdout.write(response.text)
         voice = f"{self._voice_name(voice_style)}.wav"
         payload: dict[str, object] = {
             "text": text,
-            "voice_mode": "predefined",
-            "predefined_voice_id": voice,
+            "voice_mode": "clone",
+            "reference_audio_filename": voice,
             "output_format": "wav",
             "language": self._chatterbox_language,
             "split_text": True,
