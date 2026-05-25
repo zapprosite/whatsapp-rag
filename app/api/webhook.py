@@ -122,6 +122,10 @@ def _extract_phone(body: dict[str, Any], data_block: dict[str, Any], key_block: 
 
 
 def parse_evolution_webhook(body: dict[str, Any]) -> tuple[IncomingWebhook | None, str | None]:
+    event = body.get("event")
+    if event and event != "messages.upsert":
+        return None, f"ignored event: {event}"
+
     data_block = _as_dict(body.get("data"))
     key_block = _as_dict(data_block.get("key"))
     msg_block = _unwrap_message_block(_as_dict(data_block.get("message")))
