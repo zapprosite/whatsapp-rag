@@ -32,6 +32,14 @@ def _format_owner_alert(alert: dict[str, Any]) -> str:
     for label, value in fields:
         if value:
             lines.append(f"{label}: {value}")
+    command = alert.get("takeover_command")
+    release_command = alert.get("release_command")
+    if command:
+        lines.append("")
+        lines.append("Comando no WhatsApp:")
+        lines.append(f"- Assumir só este lead: {command}")
+        if release_command:
+            lines.append(f"- Liberar a IA neste lead: {release_command}")
     return "\n".join(lines)[:3500]
 
 
@@ -67,13 +75,13 @@ async def send_agenda_group_message(text: str) -> bool:
 
 
 async def send_appointment_alert(lead_data: dict) -> bool:
-    """Compatibilidade: alerta de lead pronto para agenda continua indo ao owner."""
+    """Alerta o owner apenas quando há sinal claro de agendamento confirmado."""
     return await send_owner_alert(
         {
-            "title": "LEAD PRONTO PARA AGENDAR",
+            "title": "AGENDAMENTO CONFIRMADO",
             "phone": lead_data.get("phone"),
             "name": lead_data.get("name"),
-            "reason": "appointment_ready",
+            "reason": lead_data.get("reason") or "appointment_confirmed",
             "service": lead_data.get("service"),
             "city_bairro": lead_data.get("address"),
             "last_message": lead_data.get("last_message") or "não informada",
@@ -81,7 +89,7 @@ async def send_appointment_alert(lead_data: dict) -> bool:
                 f"{lead_data.get('name') or 'sem nome'}; serviço {lead_data.get('service') or 'não classificado'}; "
                 f"local {lead_data.get('address') or 'não informado'}; janela {lead_data.get('window') or 'a combinar'}."
             ),
-            "next_step": "Confirmar agenda direto no WhatsApp do cliente.",
+            "next_step": "Confirmar execução e janela diretamente no WhatsApp do cliente.",
             "priority": "normal",
             "instance": lead_data.get("instance") or "default",
         }

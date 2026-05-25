@@ -369,7 +369,7 @@ def test_worker_manual_takeover_blocks_graph_and_response(monkeypatch):
     assert sent == []
 
 
-def test_appointment_ready_notifies_owner(monkeypatch):
+def test_appointment_ready_does_not_notify_owner_until_confirmed(monkeypatch):
     from app import worker
 
     class FakeRedis:
@@ -406,6 +406,5 @@ def test_appointment_ready_notifies_owner(monkeypatch):
         instance="test",
     ))
 
-    assert notified is True
-    assert sent[0]["reason"] == "appointment_ready"
-    assert "Confirmar janela" in sent[0]["next_step"]
+    assert notified is False
+    assert sent == []

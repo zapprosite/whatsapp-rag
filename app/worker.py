@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from agent_graph.graph.graph import build_graph
 from agent_graph.services.alerts import send_owner_alert
+from agent_graph.services.conversation_memory import build_canonical_history
 from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,6 @@ _OWNER_WORTHY_REASONS = {
     "no_context_needs_human_review",
     "active_service_followup",
     "high_value_lead",
-    "appointment_ready",
     "electrical_risk",
     "repeated_missing_critical_field",
 }
@@ -432,6 +432,8 @@ async def notify_owner(
 ) -> bool:
     """Notifica o dono (Will) sobre handoff real ou alerta soft de alto valor."""
     title = _alert_title(reason, handoff_mode)
+    takeover_command = f"assumir {lead_phone}" if reason.startswith("high_value") else ""
+    release_command = f"liberar {lead_phone}" if takeover_command else ""
     return await send_owner_alert(
         {
             "title": title,
@@ -442,6 +444,8 @@ async def notify_owner(
             "next_step": next_step or "acompanhar pelo WhatsApp Web",
             "priority": "high" if reason.startswith("high_value") else "normal",
             "instance": instance,
+            "takeover_command": takeover_command,
+            "release_command": release_command,
         }
     )
 
@@ -460,7 +464,7 @@ def _summarize_conversation(messages: list[BaseMessage]) -> str:
 
 def _alert_title(reason: str, handoff_mode: str) -> str:
     titles = {
-        "appointment_ready": "LEAD PRONTO PARA AGENDAR",
+        "appointment_confirmed": "AGENDAMENTO CONFIRMADO",
         "no_context_needs_human_review": "REVISÃO HUMANA",
         "active_service_followup": "CLIENTE EM ATENDIMENTO",
         "complaint_or_risk": "RECLAMAÇÃO OU RISCO",
@@ -489,8 +493,8 @@ def _handoff_next_step(handoff_mode: str, reason: str) -> str:
         if reason in {"sensitive_complaint", "complaint_or_risk"}:
             return "Assumir a conversa, pedir dados do orçamento/serviço e dar retorno claro."
         return "Assumir a conversa no WhatsApp Web; o bot já pediu serviço e cidade para adiantar."
-    if reason == "appointment_ready":
-        return "Confirmar janela de agenda e assumir se o cliente responder horário preferido."
+    if reason == "appointment_confirmed":
+        return "Confirmar execução e janela diretamente no WhatsApp do cliente."
     if reason == "no_context_needs_human_review":
         return "Ler o histórico e responder manualmente se a intenção continuar incerta."
     if reason == "light_complaint":
@@ -498,7 +502,7 @@ def _handoff_next_step(handoff_mode: str, reason: str) -> str:
     if reason == "active_service_followup":
         return "Verificar serviço em andamento, agenda e pendências; cliente já não deve ser tratado como lead novo."
     if reason.startswith("high_value"):
-        return "Assumir ou acompanhar de perto; pedir planta/fotos, quantidade de ambientes e objetivo do sistema."
+        return "Acompanhar de perto. Se quiser interromper a IA só neste lead, responda no WhatsApp: assumir TELEFONE_DO_LEAD."
     return "Acompanhar sem interromper o bot; revisar dados de qualificação e entrar se fizer sentido."
 
 
@@ -686,9 +690,10 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             logger.info("Humano assumiu; IA pausada para este contato: %s", phone)
             return
 
-        history = await load_history(phone, r)
-        is_first_message = len(history) == 0
-        messages_with_history = history + [HumanMessage(content=message_text)]
+        redis_history = await load_history(phone, r)
+        canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
+        is_first_message = not bool(memory_meta.get("is_conversation_started"))
+        messages_with_history = canonical_history + [HumanMessage(content=message_text)]
         active_service = await load_active_customer_service(phone)
         last_service = None if active_service else await load_last_customer_service(phone)
         if active_service:
@@ -720,6 +725,7 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
                 "is_first_message": is_first_message,
                 "active_service": active_service,
                 "last_service": last_service,
+                "memory": memory_meta,
             },
             "is_human": False,
             "confidence": 1.0,

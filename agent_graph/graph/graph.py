@@ -11,6 +11,7 @@ from agent_graph.nodes.nodes import (
     retrieve_knowledge,
     generate_response,
     language_guard_check,
+    response_guard_check,
     format_whatsapp,
     decide_response_modality,
     tts_voice_clone,
@@ -62,6 +63,11 @@ class AgentState(TypedDict):
     missing_fields: list[str] | None
     do_not_ask: list[str] | None
     conversation_summary: str | None
+    conversation_objective: str | None
+    security_guard: dict[str, Any] | None
+    safe_response: str | None
+    continuation_response: str | None
+    response_guard_violations: list[str] | None
 
 
 def route_after_classify(state: AgentState) -> str:
@@ -69,7 +75,7 @@ def route_after_classify(state: AgentState) -> str:
     intent = state.get("intent")
     if handoff_mode == "hard_transfer":
         return "route_human"
-    if intent == "onboarding":
+    if intent in {"onboarding", "security_rejected"}:
         # Saudação — pula RAG, vai direto pra geração (resposta de apresentação)
         return "generate_response"
     return "retrieve_knowledge"
@@ -91,6 +97,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("retrieve_knowledge",       retrieve_knowledge)
     workflow.add_node("generate_response",        generate_response)
     workflow.add_node("language_guard_check",     language_guard_check)
+    workflow.add_node("response_guard_check",     response_guard_check)
     workflow.add_node("format_whatsapp",          format_whatsapp)
     workflow.add_node("decide_response_modality", decide_response_modality)
     workflow.add_node("tts_voice_clone",          tts_voice_clone)
@@ -117,7 +124,8 @@ def build_graph() -> StateGraph:
 
     workflow.add_edge("retrieve_knowledge",   "generate_response")
     workflow.add_edge("generate_response",    "language_guard_check")
-    workflow.add_edge("language_guard_check", "format_whatsapp")
+    workflow.add_edge("language_guard_check", "response_guard_check")
+    workflow.add_edge("response_guard_check", "format_whatsapp")
     workflow.add_edge("format_whatsapp",      "decide_response_modality")
 
     workflow.add_conditional_edges(

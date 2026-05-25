@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,9 +12,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 try:
-    from runtime import get_redis, normalize_whatsapp_number, queue_key
+    from runtime import get_redis, normalize_whatsapp_number, queue_key, send_whatsapp_message, set_manual_takeover
 except ModuleNotFoundError:
-    from app.runtime import get_redis, normalize_whatsapp_number, queue_key
+    from app.runtime import get_redis, normalize_whatsapp_number, queue_key, send_whatsapp_message, set_manual_takeover
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -121,6 +122,46 @@ def _extract_phone(body: dict[str, Any], data_block: dict[str, Any], key_block: 
     )
 
 
+def _owner_phone() -> str:
+    return normalize_whatsapp_number(os.getenv("OWNER_PHONE", ""))
+
+
+def _manual_takeover_command(text: str) -> tuple[str, str] | None:
+    normalized = text.strip().lower()
+    match = re.search(r"\b(assumir|pausar|humano|liberar|retomar)\b\s+(\+?\d[\d\s().-]{8,})", normalized)
+    if not match:
+        return None
+    action = match.group(1)
+    phone = normalize_whatsapp_number(match.group(2))
+    if not phone:
+        return None
+    if action in {"assumir", "pausar", "humano"}:
+        return "assumir", phone
+    return "liberar", phone
+
+
+async def _handle_owner_command(parsed: IncomingWebhook) -> bool:
+    owner = _owner_phone()
+    if not owner or parsed.phone != owner:
+        return False
+    command = _manual_takeover_command(parsed.message)
+    if not command:
+        return False
+    action, lead_phone = command
+    r = await get_redis()
+    enabled = action == "assumir"
+    await set_manual_takeover(r, lead_phone, enabled)
+    if enabled:
+        response = (
+            f"IA pausada só para o lead {lead_phone}.\n\n"
+            f"Responda o cliente manualmente. Para liberar depois, envie: liberar {lead_phone}"
+        )
+    else:
+        response = f"IA liberada novamente para o lead {lead_phone}."
+    await send_whatsapp_message(parsed.phone, response, parsed.instance)
+    return True
+
+
 def parse_evolution_webhook(body: dict[str, Any]) -> tuple[IncomingWebhook | None, str | None]:
     event = body.get("event")
     if event and event != "messages.upsert":
@@ -220,6 +261,9 @@ async def receive_webhook(request: Request) -> JSONResponse:
                        parsed.phone, _as_dict(_as_dict(body.get("data")).get("key")), body.get("sender"))
 
     assert parsed is not None
+    if await _handle_owner_command(parsed):
+        return JSONResponse({"status": "ok", "skipped": "owner_command"})
+
     payload = {
         "phone": parsed.phone,
         "message": parsed.message,

@@ -122,3 +122,4 @@ def test_owner_alert_dedup(monkeypatch):
     assert first is True
     assert second is False
     assert len(sent) == 1
+    assert "assumir" in sent[0]["next_step"].lower()
