@@ -568,10 +568,14 @@ def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def prisma_save_interaction(data: dict[str, Any]) -> None:
-    from prisma import Prisma
+    from prisma import Prisma, Json
     prisma = Prisma()
     await prisma.connect()
     try:
+        meta = data.get("metadata")
+        if meta is not None:
+            meta = Json(meta)
+            
         await prisma.interaction.create(data={
             "phone": data.get("phone", "unknown"),
             "message": data.get("user_message", ""),
@@ -579,7 +583,7 @@ async def prisma_save_interaction(data: dict[str, Any]) -> None:
             "service": data.get("service"),
             "response": data.get("ai_message", ""),
             "is_human": data.get("is_human", False),
-            "metadata": data.get("metadata"),
+            "metadata": meta,
         })
     finally:
         await prisma.disconnect()
