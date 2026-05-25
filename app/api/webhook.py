@@ -130,6 +130,20 @@ def parse_evolution_webhook(body: dict[str, Any]) -> tuple[IncomingWebhook | Non
     key_block = _as_dict(data_block.get("key"))
     msg_block = _unwrap_message_block(_as_dict(data_block.get("message")))
 
+    # Ignorar grupos de forma robusta e precoce
+    is_group = False
+    for jid in (
+        key_block.get("remoteJid"),
+        key_block.get("remote"),
+        key_block.get("remoteJidAlt"),
+        body.get("sender", {}).get("remoteJid") if isinstance(body.get("sender"), dict) else None,
+    ):
+        if jid and ("@g.us" in str(jid) or "group" in str(jid).lower()):
+            is_group = True
+            break
+    if is_group:
+        return None, "group"
+
     if key_block.get("fromMe", False):
         return None, "fromMe"
 
