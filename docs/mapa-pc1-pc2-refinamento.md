@@ -121,7 +121,7 @@ Estado auditado em 2026-05-25:
 - `OmniVoice` está ativo no PC1 em `127.0.0.1:8202`, com CUDA, 1 voz em `/srv/data/tts/voices`, e fica como fallback.
 - Voz única ativa: `willrefrimix-influencer.wav` (11 vozes extras removidas em 2026-05-25).
 - Textos de referência ficam em `/srv/data/voice-instance/ref_texts`.
-- Backups do ajuste Chatterbox no PC1: `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060856-pre-multilingual` e `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060930-selector-repoid`.
+- Backups do ajuste Chatterbox no PC1: `config.yaml.bak-20260525-060856-pre-multilingual`, `config.yaml.bak-20260525-060930-selector-repoid`, `config.yaml.bak-20260525-094333-pre-singlevoice`.
 - `XTTS` foi removido do caminho de produção; Chatterbox Multilingual + OmniVoice são suficientes.
 
 Variáveis obrigatórias de voz:
