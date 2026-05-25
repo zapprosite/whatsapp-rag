@@ -101,3 +101,15 @@ Coleção de produção: `hermes_hvac_rag_service_staging`.
 ```
 
 Se a voz soar portuguesa ou robótica, verifique primeiro se o Chatterbox está em modo multilíngue e se algum fallback genérico foi reintroduzido. Para produção, mantenha `TTS_ENGINE=chatterbox`, `TTS_LOCALE=pt-BR`, `TTS_CHATTERBOX_LANGUAGE=pt` e `TTS_ALLOW_CHATTERBOX_PTBR=1`. Se o probe Chatterbox falhar, volte temporariamente para `TTS_ENGINE=omnivoice`.
+
+Voz única ativa desde 2026-05-25: `willrefrimix-influencer.wav`. Parâmetros tuned para influencer WhatsApp pt-BR:
+
+```env
+TTS_CHATTERBOX_CHUNK_SIZE=400
+TTS_CHATTERBOX_TEMPERATURE=0.75
+TTS_CHATTERBOX_EXAGGERATION=0.5
+TTS_CHATTERBOX_CFG_WEIGHT=0.35
+TTS_CHATTERBOX_SPEED_FACTOR=1.05
+```
+
+`chunk_size=400` elimina pausa de concatenação entre frases (todo o texto ≤420 chars vira 1 chunk). `exaggeration=0.5` dá prosódia natural; abaixar para 0.3 deixa mais neutro/robótico.

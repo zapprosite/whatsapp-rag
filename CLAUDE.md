@@ -1,5 +1,5 @@
 <!-- GENERATED FILE: do not edit manually. Source: .context/docs/*.md. Run ./sync.sh. -->
-> Auto-generated from .context/docs | fingerprint: 4d39f6debe536ab9
+> Auto-generated from .context/docs | fingerprint: 601a7cb98deeb355
 ## modelos_ptbr_huggingface
 
 ---
@@ -427,6 +427,18 @@ Coleção de produção: `hermes_hvac_rag_service_staging`.
 
 Se a voz soar portuguesa ou robótica, verifique primeiro se o Chatterbox está em modo multilíngue e se algum fallback genérico foi reintroduzido. Para produção, mantenha `TTS_ENGINE=chatterbox`, `TTS_LOCALE=pt-BR`, `TTS_CHATTERBOX_LANGUAGE=pt` e `TTS_ALLOW_CHATTERBOX_PTBR=1`. Se o probe Chatterbox falhar, volte temporariamente para `TTS_ENGINE=omnivoice`.
 
+Voz única ativa desde 2026-05-25: `willrefrimix-influencer.wav`. Parâmetros tuned para influencer WhatsApp pt-BR:
+
+```env
+TTS_CHATTERBOX_CHUNK_SIZE=400
+TTS_CHATTERBOX_TEMPERATURE=0.75
+TTS_CHATTERBOX_EXAGGERATION=0.5
+TTS_CHATTERBOX_CFG_WEIGHT=0.35
+TTS_CHATTERBOX_SPEED_FACTOR=1.05
+```
+
+`chunk_size=400` elimina pausa de concatenação entre frases (todo o texto ≤420 chars vira 1 chunk). `exaggeration=0.5` dá prosódia natural; abaixar para 0.3 deixa mais neutro/robótico.
+
 ---
 
 ## tts_pc1_pc2
@@ -448,9 +460,24 @@ type: generic
 ## Estado PC1 Auditado Em 2026-05-25
 
 - `Chatterbox`: `127.0.0.1:8200`, API ativa como `ChatterboxMultilingualTTS`, com `pt` habilitado.
-- `OmniVoice`: `127.0.0.1:8202`, CUDA, 12 vozes em `/srv/data/tts/voices`, fallback.
-- Textos de referência: `/srv/data/voice-instance/ref_texts`.
-- Backups do ajuste no PC1: `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060856-pre-multilingual` e `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060930-selector-repoid`.
+- `OmniVoice`: `127.0.0.1:8202`, CUDA, fallback.
+- Voz única ativa: `willrefrimix-influencer.wav` em `/srv/data/tts/voices` (11 vozes extras removidas em 2026-05-25).
+- Textos de referência: `/srv/data/voice-instance/ref_texts/willrefrimix-influencer.txt`.
+- Backups do ajuste no PC1: `config.yaml.bak-20260525-060856-pre-multilingual`, `config.yaml.bak-20260525-060930-selector-repoid`, `config.yaml.bak-20260525-094333-pre-singlevoice`.
+
+## Parâmetros de Geração (pt-BR influencer WhatsApp)
+
+| Parâmetro | Valor | Motivo |
+|---|---|---|
+| `temperature` | 0.75 | prosódia natural sem variação excessiva |
+| `exaggeration` | 0.5 | expressividade de influencer, não robótico |
+| `cfg_weight` | 0.35 | pacing rápido mantendo aderência à voz |
+| `seed` | 0 | variação natural por chamada |
+| `speed_factor` | 1.05 | fala levemente mais rápida, estilo WhatsApp |
+| `chunk_size` | 400 | 1 chunk único até 420 chars → sem pausa de concatenação |
+| `language` | pt | único código aceito pelo multilingual model |
+
+Todos os parâmetros são configuráveis via `.env` sem rebuild de container (ver `.env.example`).
 
 ## Variáveis Obrigatórias
 
@@ -463,6 +490,11 @@ TTS_CHATTERBOX_LANGUAGE=pt
 TTS_ALLOW_CHATTERBOX_PTBR=1
 TTS_MAX_CHARS=420
 SSH_HOST_PC1=will-zappro@192.168.15.83
+TTS_CHATTERBOX_CHUNK_SIZE=400
+TTS_CHATTERBOX_TEMPERATURE=0.75
+TTS_CHATTERBOX_EXAGGERATION=0.5
+TTS_CHATTERBOX_CFG_WEIGHT=0.35
+TTS_CHATTERBOX_SPEED_FACTOR=1.05
 ```
 
 ## Auditoria SRE

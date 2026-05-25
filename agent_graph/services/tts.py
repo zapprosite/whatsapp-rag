@@ -18,14 +18,8 @@ _TTS_TIMEOUT = 30.0
 _MIN_AUDIO_BYTES = 512
 _DEFAULT_MAX_CHARS = 420
 
-# Estilos de voz mapeados para samples WAV no PC1
 _VOICE_STYLES: dict[str, str] = {
     "influencer": "willrefrimix-influencer",
-    "tecnico":    "willrefrimix-tecnico",
-    "calmo":      "willrefrimix-calmo",
-    "animado":    "willrefrimix-animado",
-    "normal":     "willrefrimix-normal",
-    "serio":      "willrefrimix-serio",
 }
 _DEFAULT_STYLE = "influencer"
 
@@ -97,6 +91,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)).strip())
+    except (AttributeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)).strip())
     except (AttributeError, ValueError):
         return default
 
@@ -344,7 +345,11 @@ sys.stdout.write(response.text)
             "output_format": "wav",
             "language": self._chatterbox_language,
             "split_text": True,
-            "chunk_size": 120,
+            "chunk_size": _env_int("TTS_CHATTERBOX_CHUNK_SIZE", 400),
+            "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", 0.75),
+            "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", 0.5),
+            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", 0.35),
+            "speed_factor": _env_float("TTS_CHATTERBOX_SPEED_FACTOR", 1.05),
         }
         return await self._post_pc1_audio(
             self._chatterbox_url,
