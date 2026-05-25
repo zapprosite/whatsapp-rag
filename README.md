@@ -67,7 +67,7 @@ whatsapp-rag/
 │   └── services/
 │       ├── alerts.py             # alerta WhatsApp dono + upsert lead Prisma
 │       ├── stt.py                # Groq Whisper (transcrição de áudio)
-│       ├── tts.py                # Coqui XTTS v2 (voz do Will)
+│       ├── tts.py                # Chatterbox Multilingual primário + OmniVoice fallback
 │       └── vision.py             # Groq Vision (análise de imagens)
 │
 ├── app/
@@ -123,6 +123,36 @@ OWNER_PHONE=5513974139382
 
 # Bot (opcional)
 BOT_OFF_MESSAGE=Oi! Estou em atendimento agora, te respondo em breve 🙂
+
+# Voz / TTS PC1
+TTS_ENGINE=chatterbox
+TTS_LOCALE=pt-BR
+OMNIVOICE_URL=http://127.0.0.1:8202
+CHATTERBOX_URL=http://127.0.0.1:8200
+XTTS_URL=http://localhost:8020
+TTS_VOICES_PATH=/srv/data/tts/voices
+TTS_ALLOW_XTTS_PT_FALLBACK=0
+TTS_ALLOW_CHATTERBOX_PTBR=1
+SSH_HOST_PC1=will-zappro@192.168.15.83
+```
+
+---
+
+## Voz PT-BR / PC1
+
+O TTS de produção é `Chatterbox Multilingual` no PC1, acessado via SSH porque a API roda em `127.0.0.1:8200` naquela máquina. O texto passa por normalização de fala brasileira antes da síntese: moeda, `3x`, `PMOC`, `ART`, `CREA`, `BTU`, links e markdown são convertidos para áudio mais natural.
+
+`OmniVoice` fica como fallback seguro. `XTTS` continua bloqueado por padrão para pt-BR porque trabalha com código genérico `pt`. Só mantenha Chatterbox como primário se a auditoria confirmar modelo multilíngue/português:
+
+```bash
+.venv/bin/python -m sre.probes tts-audit
+.venv/bin/python -m sre.probes tts-audit --synthesize
+```
+
+Para testar sem mandar WhatsApp real:
+
+```bash
+curl -X POST "http://localhost:8000/test/chat?message=Opa,+tudo+bem?&send=false"
 ```
 
 ---
@@ -258,6 +288,9 @@ Os antigos scripts soltos da raiz foram consolidados em `sre.probes`. Eles são 
 
 # Endpoints de audio da Evolution API
 EVOLUTION_API_KEY=... .venv/bin/python -m sre.probes evolution-audio --phone 5513996659382
+
+# Auditoria PC2 + TTS PC1 (OmniVoice/Chatterbox/vozes)
+.venv/bin/python -m sre.probes tts-audit
 ```
 
 ### Vault Local

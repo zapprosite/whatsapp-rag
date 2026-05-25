@@ -310,5 +310,7 @@ Cada linha que você adiciona vira um teste permanente. Nunca remove — o objet
 [ ] Nenhum WARNING de drift CJK/árabe nos logs
 [ ] save_interaction gravando no PostgreSQL (vê via psql)
 [ ] Alertas chegando no WhatsApp do dono quando lead manda endereço
-[ ] XTTS funcionando (quando PC1 montar /srv/data/tts/voices)
+[ ] `.venv/bin/python -m sre.probes tts-audit` verde
+[ ] `Chatterbox Multilingual` primário em pt-BR; `OmniVoice` fallback; `XTTS` sem fallback pt-BR automático
+[ ] `.venv/bin/python -m sre.probes tts-audit --synthesize` gera áudio sem enviar WhatsApp real
 ```

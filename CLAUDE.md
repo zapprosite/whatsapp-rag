@@ -1,5 +1,5 @@
 <!-- GENERATED FILE: do not edit manually. Source: .context/docs/*.md. Run ./sync.sh. -->
-> Auto-generated from .context/docs | fingerprint: 4e9d5544e0ad16a8
+> Auto-generated from .context/docs | fingerprint: d4c0c8b9fdd8a4f5
 ## modelos_ptbr_huggingface
 
 ---
@@ -218,6 +218,8 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 5. Não modificar Evolution API docker-compose
 6. Histórico de conversa: sliding window 6 turnos, TTL 30min, chave `conv_history:{phone}`
 7. Salvar histórico limpo: `messages_with_history + [AIMessage(ai_message)]` — não `messages_out`
+8. Voz em produção deve ficar em `TTS_ENGINE=chatterbox` + `TTS_LOCALE=pt-BR` enquanto `.venv/bin/python -m sre.probes tts-audit --require-chatterbox-pt` estiver verde; `OmniVoice` é fallback seguro.
+9. Antes de aceitar mudança de voz/PC1/PC2, rode `.venv/bin/python -m sre.probes tts-audit`; para sample local sem WhatsApp real, use `--synthesize`.
 
 ## Documentação e Espelho Git
 
@@ -287,5 +289,69 @@ python3 refinar.py --loop 50
 ```
 
 O loop usa `/test/chat?send=false`; ele não envia WhatsApp real. Quando houver mudança aceita no refinamento, use o comando `commit` no `refinar.py` ou deixe o `refinar_llm.py` salvar no final do ciclo. Os dois fluxos chamam `sync.sh`, publicam no Gitea e espelham no GitHub.
+
+## Voz PT-BR
+
+```bash
+.venv/bin/python -m sre.probes tts-audit
+.venv/bin/python -m sre.probes tts-audit --synthesize
+```
+
+Se a voz soar portuguesa ou robótica, verifique primeiro se o Chatterbox está em modo multilíngue e se algum fallback genérico foi habilitado. Para produção, mantenha `TTS_ENGINE=chatterbox`, `TTS_LOCALE=pt-BR`, `TTS_ALLOW_XTTS_PT_FALLBACK=0` e `TTS_ALLOW_CHATTERBOX_PTBR=1`. Se o probe Chatterbox falhar, volte temporariamente para `TTS_ENGINE=omnivoice`.
+
+---
+
+## tts_pc1_pc2
+
+---
+source: docs/mapa-pc1-pc2-refinamento.md
+type: generic
+---
+
+# Voz PT-BR / TTS PC1-PC2
+
+## Decisão Operacional
+
+- TTS de produção: `Chatterbox Multilingual` no PC1.
+- Locale obrigatório do atendimento: `pt-BR`.
+- `XTTS` é legado e não deve ser fallback automático para pt-BR, porque opera com código genérico `pt`.
+- `OmniVoice` fica como fallback seguro quando Chatterbox falhar.
+
+## Estado PC1 Auditado Em 2026-05-25
+
+- `Chatterbox`: `127.0.0.1:8200`, API ativa como `ChatterboxMultilingualTTS`, com `pt` habilitado.
+- `OmniVoice`: `127.0.0.1:8202`, CUDA, 12 vozes em `/srv/data/tts/voices`, fallback.
+- Textos de referência: `/srv/data/voice-instance/ref_texts`.
+- Backups do ajuste no PC1: `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060856-pre-multilingual` e `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060930-selector-repoid`.
+
+## Variáveis Obrigatórias
+
+```env
+TTS_ENGINE=chatterbox
+TTS_LOCALE=pt-BR
+OMNIVOICE_URL=http://127.0.0.1:8202
+CHATTERBOX_URL=http://127.0.0.1:8200
+XTTS_URL=http://localhost:8020
+TTS_VOICES_PATH=/srv/data/tts/voices
+TTS_ALLOW_XTTS_PT_FALLBACK=0
+TTS_ALLOW_CHATTERBOX_PTBR=1
+TTS_MAX_CHARS=420
+SSH_HOST_PC1=will-zappro@192.168.15.83
+```
+
+## Auditoria SRE
+
+```bash
+.venv/bin/python -m sre.probes tts-audit
+.venv/bin/python -m sre.probes tts-audit --synthesize
+```
+
+Regra: Chatterbox só fica primário enquanto este comando estiver verde:
+
+```bash
+.venv/bin/python -m sre.probes tts-audit --require-chatterbox-pt
+```
+
+Se falhar, volte para `TTS_ENGINE=omnivoice`.
 
 ---

@@ -82,7 +82,7 @@ O projeto referencia PC1 como:
 - Serviços locais de IA/voz, quando expostos por túnel:
   - Qwen local OpenAI-compatible.
   - Modelo auxiliar PT-BR.
-  - OmniVoice/XTTS.
+  - OmniVoice/XTTS/Chatterbox.
 
 O que normalmente depende do PC1:
 
@@ -109,7 +109,44 @@ O que normalmente depende do PC1:
 | Groq | externo | STT, Vision e fallback | `GROQ_*` |
 | Qwen local | PC1/túnel | Classificação/fallback local | `LOCAL_QWEN_*` |
 | PT-BR local | PC1/túnel | Polimento opcional offline/experimental | `LOCAL_PTBR_*`, `PTBR_POLISH_ENABLED` |
-| OmniVoice/XTTS | PC1 | TTS/voz do Will | `TTS_*`, `OMNIVOICE_URL`, `XTTS_URL`, `SSH_HOST_PC1` |
+| Chatterbox Multilingual | PC1 | TTS primário/voz do Will pt-BR | `TTS_ENGINE=chatterbox`, `CHATTERBOX_URL`, `TTS_ALLOW_CHATTERBOX_PTBR=1` |
+| OmniVoice | PC1 | Fallback seguro/voz do Will pt-BR | `OMNIVOICE_URL`, `SSH_HOST_PC1` |
+| XTTS | PC1/legado | Fallback TTS somente se habilitado explicitamente | `XTTS_URL`, `TTS_ALLOW_XTTS_PT_FALLBACK` |
+
+## Voz PT-BR e TTS
+
+Estado auditado em 2026-05-25:
+
+- `Chatterbox` está ativo no PC1 em `127.0.0.1:8200` como `ChatterboxMultilingualTTS`, com `pt` habilitado.
+- `OmniVoice` está ativo no PC1 em `127.0.0.1:8202`, com CUDA, 12 vozes em `/srv/data/tts/voices`, e fica como fallback.
+- Vozes disponíveis: `willrefrimix-*` e `refrimix-*` nos estilos `influencer`, `animado`, `calmo`, `normal`, `serio`, `tecnico`.
+- Textos de referência ficam em `/srv/data/voice-instance/ref_texts`.
+- Backups do ajuste Chatterbox no PC1: `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060856-pre-multilingual` e `/srv/apps/chatterbox-tts/config.yaml.bak-20260525-060930-selector-repoid`.
+- `XTTS` usa código genérico `pt`; para evitar voz com sotaque/locale errado, o repo bloqueia fallback XTTS por padrão.
+
+Variáveis obrigatórias de voz:
+
+```env
+TTS_ENGINE=chatterbox
+TTS_LOCALE=pt-BR
+OMNIVOICE_URL=http://127.0.0.1:8202
+CHATTERBOX_URL=http://127.0.0.1:8200
+XTTS_URL=http://localhost:8020
+TTS_VOICES_PATH=/srv/data/tts/voices
+TTS_ALLOW_XTTS_PT_FALLBACK=0
+TTS_ALLOW_CHATTERBOX_PTBR=1
+TTS_MAX_CHARS=420
+SSH_HOST_PC1=will-zappro@192.168.15.83
+```
+
+Auditoria repetível:
+
+```bash
+.venv/bin/python -m sre.probes tts-audit
+.venv/bin/python -m sre.probes tts-audit --synthesize
+```
+
+Regra SRE: se `tts-audit --require-chatterbox-pt` falhar, volte `TTS_ENGINE=omnivoice` até corrigir o PC1.
 
 ## Fluxo do Webhook
 
