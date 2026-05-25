@@ -19,10 +19,13 @@ except ImportError:
     import httpx
 
 # ── Config ────────────────────────────────────────────────────────────────────
+ROOT = Path(__file__).parent
 BASE_URL   = os.getenv("REFINAR_BASE_URL", "http://localhost:8000").rstrip("/")
 CALL_TIMEOUT_SECONDS = float(os.getenv("REFINAR_TIMEOUT_SECONDS", "90"))
-NODES_FILE = Path(__file__).parent / "agent_graph/nodes/nodes.py"
-SEED_FILE  = Path(__file__).parent / "qdrant/seed_hvac.py"
+NODES_FILE = ROOT / "agent_graph/nodes/nodes.py"
+SEED_FILE  = ROOT / "qdrant/seed_hvac.py"
+SYNC_SCRIPT = ROOT / "sync.sh"
+GIT_MIRROR_ENABLED = os.getenv("REFINAR_GIT_MIRROR", "1") != "0"
 
 # Marcadores no WILL_SYSTEM_PROMPT para a seção de exemplos validados
 MARKER_START = "# EXEMPLOS_VALIDADOS_START"
@@ -285,7 +288,7 @@ def rebuild_container():
     print(c(YELLOW, "\n  ⟳ Rebuilding container..."))
     r1 = subprocess.run(
         ["docker", "compose", "build", "fastapi-rag"],
-        cwd=Path(__file__).parent,
+        cwd=ROOT,
         capture_output=True, text=True
     )
     if r1.returncode != 0:
@@ -294,7 +297,7 @@ def rebuild_container():
 
     subprocess.run(["docker", "rm", "-f", "whatsapp-rag-fastapi-rag-1"],
                    capture_output=True)
-    env = Path(__file__).parent / ".env"
+    env = ROOT / ".env"
     subprocess.run([
         "docker", "run", "-d",
         "--name", "whatsapp-rag-fastapi-rag-1",
@@ -318,8 +321,21 @@ def rebuild_container():
 
 
 def git_save(message: str):
-    cwd = Path(__file__).parent
-    subprocess.run(["bash", "git.sh", "save", message], cwd=cwd)
+    if not GIT_MIRROR_ENABLED:
+        print(c(YELLOW, "  ↷ Git mirror desativado por REFINAR_GIT_MIRROR=0"))
+        return
+
+    if not SYNC_SCRIPT.exists():
+        print(c(RED, f"  ✗ sync.sh não encontrado em {SYNC_SCRIPT}"))
+        return
+
+    result = subprocess.run(
+        ["bash", str(SYNC_SCRIPT), "--message", message],
+        cwd=ROOT,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(c(RED, "  ✗ Falha ao publicar Gitea -> GitHub via sync.sh"))
 
 
 # ── Menu de refinamento ───────────────────────────────────────────────────────
@@ -375,7 +391,7 @@ def menu_refinamento(message: str, resp: str, intent: str, service: str) -> bool
             print(c(YELLOW, "\n  ⟳ Re-indexando Qdrant..."))
             r = subprocess.run(
                 [sys.executable, "qdrant/seed_hvac.py"],
-                cwd=Path(__file__).parent,
+                cwd=ROOT,
                 capture_output=True, text=True
             )
             if r.returncode == 0:

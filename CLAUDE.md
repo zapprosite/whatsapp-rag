@@ -1,12 +1,11 @@
-> Auto-generated from .context/docs on 2026-05-24T16:24:17Z
-
+<!-- GENERATED FILE: do not edit manually. Source: .context/docs/*.md. Run ./sync.sh. -->
+> Auto-generated from .context/docs | fingerprint: 4e9d5544e0ad16a8
 ## modelos_ptbr_huggingface
 
 ---
 source: modelos_ptbr_huggingface.md
 type: generic
 ---
-
 
 # Modelos PT-BR testados no Hugging Face
 
@@ -40,7 +39,6 @@ Objetivo: reduzir português genérico no atendimento da Refrimix sem piorar lat
 source: playbook_vendas.md
 type: generic
 ---
-
 
 # Playbook de Vendas — Refrimix Tecnologia
 
@@ -172,7 +170,6 @@ source: CLAUDE.md
 type: generic
 ---
 
-
 # WhatsApp RAG Lead — Refrimix
 
 ## Contexto
@@ -183,6 +180,8 @@ Seis serviços KB: instalacao, consultoria, manutencao, pmoc, projeto-central, h
 Coleção Qdrant: `hermes_hvac_rag_service_staging` — 768 dimensões, cosine, 55 pontos.
 Redis PC1: 192.168.15.83:6379.
 PostgreSQL whatsapp_rag: 192.168.15.83:5432.
+Repositório primário: Gitea remoto `origin`.
+Espelho público/externo: GitHub remoto `github` (`https://github.com/zapprosite/whatsapp-rag.git`).
 
 ## Arquitetura
 
@@ -191,12 +190,12 @@ PostgreSQL whatsapp_rag: 192.168.15.83:5432.
                   ↓ webhook POST
             [FastAPI + LangGraph :8000]
               ↓ Redis queue     ↓ worker_loop
-         [Redis PC1:6379]   [LangGraph 7 nós]
+         [Redis PC1:6379]   [LangGraph 8 nós]
                                   ↓
                  [Qdrant :6333] + [MiniMax/Groq]
 ```
 
-## LangGraph — 7 Nós
+## LangGraph — 8 Nós
 
 ```
 preprocess_input → classify_service → retrieve_knowledge → generate_response
@@ -220,6 +219,16 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 6. Histórico de conversa: sliding window 6 turnos, TTL 30min, chave `conv_history:{phone}`
 7. Salvar histórico limpo: `messages_with_history + [AIMessage(ai_message)]` — não `messages_out`
 
+## Documentação e Espelho Git
+
+- `AGENTS.md` é a primeira leitura obrigatória para qualquer agente.
+- `CLAUDE.md` é arquivo gerado. A fonte canônica fica em `.context/docs/*.md`.
+- Nunca edite `CLAUDE.md` manualmente. Edite `.context/docs/*.md` e rode `./sync.sh`.
+- O fluxo correto de publicação é `origin` (Gitea) primeiro e `github` depois.
+- Para publicar mudanças: `./sync.sh --message "sync: descreve a mudança"`.
+- Para espelhar algo que já está no Gitea: `./sync.sh --mirror-only`.
+- O GitHub não é fonte primária; ele é espelho do Gitea.
+
 ---
 
 ## refinamento
@@ -228,7 +237,6 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 source: GUIDE_REFINAMENTO.md
 type: generic
 ---
-
 
 # Refinamento — Refrimix WhatsApp RAG
 
@@ -253,24 +261,31 @@ curl -X POST "http://localhost:8000/test/e2e?start=0&limit=35&delay=0"
 ## Git rápido
 
 ```bash
-./git.sh save "refina: mensagem do que mudou"
-./git.sh merge   # joga para main quando aprovado
+# Gera CLAUDE.md, commita, publica no Gitea e espelha no GitHub
+./sync.sh --message "refina: mensagem do que mudou"
+
+# Se a mudança já está no Gitea e só falta atualizar o GitHub
+./sync.sh --mirror-only
 ```
+
+Regra de espelho: `origin` é o Gitea primário; `github` é espelho. Nunca trate o GitHub como fonte principal.
 
 ## Container
 
 ```bash
 # Rebuild após mudança em nodes.py
-docker compose build fastapi-rag && \
-docker rm -f whatsapp-rag-fastapi-rag-1 && \
-docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-stopped \
-  --env-file /home/will/whatsapp-rag/.env \
-  -e QDRANT_URL=http://127.0.0.1:6333 \
-  -e QDRANT_COLLECTION=hermes_hvac_rag_service_staging \
-  whatsapp-rag-fastapi-rag:latest
+docker compose up -d --build --no-deps fastapi-rag
 
 # Logs ao vivo
 docker logs -f whatsapp-rag-fastapi-rag-1 2>&1 | grep -E "INFO|ERROR|WARNING" | grep -v "HTTP Request"
 ```
+
+## Loop 50x
+
+```bash
+python3 refinar.py --loop 50
+```
+
+O loop usa `/test/chat?send=false`; ele não envia WhatsApp real. Quando houver mudança aceita no refinamento, use o comando `commit` no `refinar.py` ou deixe o `refinar_llm.py` salvar no final do ciclo. Os dois fluxos chamam `sync.sh`, publicam no Gitea e espelham no GitHub.
 
 ---

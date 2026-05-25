@@ -27,10 +27,13 @@ except ImportError:
     import httpx
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_URL     = "http://localhost:8000"
-PLAYBOOK     = Path(__file__).parent / ".context/docs/playbook_vendas.md"
-NODES_FILE   = Path(__file__).parent / "agent_graph/nodes/nodes.py"
-LOG_FILE     = Path(__file__).parent / ".context/refinamento_log.jsonl"
+ROOT         = Path(__file__).parent
+BASE_URL     = os.getenv("REFINAR_BASE_URL", "http://localhost:8000").rstrip("/")
+PLAYBOOK     = ROOT / ".context/docs/playbook_vendas.md"
+NODES_FILE   = ROOT / "agent_graph/nodes/nodes.py"
+LOG_FILE     = ROOT / ".context/refinamento_log.jsonl"
+SYNC_SCRIPT  = ROOT / "sync.sh"
+GIT_MIRROR_ENABLED = os.getenv("REFINAR_GIT_MIRROR", "1") != "0"
 SCORE_META   = 8.5   # meta de score médio para convergência
 MARKER_START = "# EXEMPLOS_VALIDADOS_START"
 MARKER_END   = "# EXEMPLOS_VALIDADOS_END"
@@ -61,7 +64,12 @@ def load_playbook() -> str:
 def call_will(message: str, media_type: str = "conversation", media_url: str = "") -> dict:
     try:
         r = httpx.post(f"{BASE_URL}/test/chat",
-                       params={"message": message, "media_type": media_type, "media_url": media_url}, timeout=90)
+                       params={
+                           "message": message,
+                           "media_type": media_type,
+                           "media_url": media_url,
+                           "send": "false",
+                       }, timeout=90)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -511,14 +519,14 @@ def rebuild_container():
     print(c(YL, "  ⟳ Aplicando melhorias no container..."))
     r1 = subprocess.run(
         ["docker", "compose", "build", "fastapi-rag"],
-        cwd=Path(__file__).parent, capture_output=True, text=True
+        cwd=ROOT, capture_output=True, text=True
     )
     if r1.returncode != 0:
         print(c(RD, f"  ✗ Build falhou:\n{r1.stderr[-400:]}"))
         return False
     subprocess.run(["docker", "rm", "-f", "whatsapp-rag-fastapi-rag-1"],
                    capture_output=True)
-    env = Path(__file__).parent / ".env"
+    env = ROOT / ".env"
     subprocess.run([
         "docker", "run", "-d",
         "--name", "whatsapp-rag-fastapi-rag-1",
@@ -542,11 +550,18 @@ def rebuild_container():
 
 
 def git_salvar(ciclo: int, score: float):
-    subprocess.run(
-        ["bash", "git.sh", "save",
-         f"refina[llm]: ciclo {ciclo}, score médio {score:.1f}/10"],
-        cwd=Path(__file__).parent, capture_output=True
-    )
+    if not GIT_MIRROR_ENABLED:
+        print(c(YL, "  ↷ Git mirror desativado por REFINAR_GIT_MIRROR=0"))
+        return
+
+    if not SYNC_SCRIPT.exists():
+        print(c(RD, f"  ✗ sync.sh não encontrado em {SYNC_SCRIPT}"))
+        return
+
+    message = f"refina[llm]: ciclo {ciclo}, score médio {score:.1f}/10"
+    result = subprocess.run(["bash", str(SYNC_SCRIPT), "--message", message], cwd=ROOT, text=True)
+    if result.returncode != 0:
+        print(c(RD, "  ✗ Falha ao publicar Gitea -> GitHub via sync.sh"))
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

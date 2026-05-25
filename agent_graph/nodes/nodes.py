@@ -685,6 +685,46 @@ def _fallback_service_for_high_value(text: str) -> str | None:
     return None
 
 
+def _looks_like_pmoc_preventive_plan(text: str) -> bool:
+    has_preventive_term = any(
+        term in text
+        for term in (
+            "manutencao preventiva",
+            "preventiva",
+            "preventivo",
+            "preventivo trimestral",
+            "manutencao trimestral",
+            "programa preventivo",
+        )
+    )
+    if not has_preventive_term:
+        return False
+
+    has_multiple_devices = bool(
+        re.search(
+            r"\b([2-9]|[1-9][0-9])\s*(aparelhos?|equipamentos?|equipos?|splits?|maquinas?|evaporadoras?)\b",
+            text,
+        )
+    )
+    has_business_context = any(
+        term in text
+        for term in (
+            "empresa",
+            "loja",
+            "clinica",
+            "condominio",
+            "restaurante",
+            "contrato",
+            "laudo",
+            "art",
+            "certificado",
+            "alvara",
+            "trimestral",
+        )
+    )
+    return has_multiple_devices or has_business_context
+
+
 def _handoff_state_key(phone: str) -> str:
     safe_phone = re.sub(r"[^0-9A-Za-z_:+@.-]", "_", phone.strip())[:160] or "unknown"
     return f"handoff_state:{safe_phone}"
@@ -950,6 +990,9 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
                     intent = intent_llm
     except Exception as e:
         logger.warning(f"LLM classify falhou, mantendo keyword: {e}")
+
+    if _looks_like_pmoc_preventive_plan(semantic_text):
+        intent = "pmoc"
 
     # Se intent ainda None (sem keywords e LLM falhou) → recuperação conversacional, não handoff.
     if intent is None:

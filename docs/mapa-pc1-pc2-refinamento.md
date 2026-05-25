@@ -44,6 +44,11 @@ No PC2 ficam:
 - Scripts de refinamento:
   - `refinar.py`
   - `refinar_llm.py`
+- Espelho Git:
+  - Gitea primário: remoto `origin`.
+  - GitHub espelho: remoto `github`.
+  - Publicação correta: `./sync.sh --message "..."`.
+  - Espelho sem commit local: `./sync.sh --mirror-only`.
 - Probes SRE:
   - `python -m sre.probes webhook-smoke`
   - `python -m sre.probes webhook-stress`
@@ -466,3 +471,5 @@ docker logs -f whatsapp-rag-fastapi-rag-1 2>&1 | grep -E "INFO|ERROR|WARNING" | 
 - `.env.example` deve conter somente `{SECRET}` para valores reais.
 - Use `scripts/env-vault.sh sync` depois de alterar `.env`.
 - Testes e `/test/chat` devem usar `send=false` para não mandar WhatsApp real.
+- `CLAUDE.md` é gerado; altere `.context/docs/*.md` e rode `./sync.sh`.
+- GitHub é espelho do Gitea. O fluxo correto é `origin` -> `github`.

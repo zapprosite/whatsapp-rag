@@ -1,5 +1,36 @@
 # Guia de Refinamento Infinito — Refrimix WhatsApp RAG
 
+## 0. Fonte Canônica e Espelho Git
+
+`CLAUDE.md` é gerado. Não edite esse arquivo na mão.
+
+Fonte canônica:
+
+```text
+.context/docs/*.md
+```
+
+Fluxo correto de publicação:
+
+```text
+Gitea origin/main -> GitHub github/main
+```
+
+Use:
+
+```bash
+# Gera CLAUDE.md, commita, publica no Gitea e espelha no GitHub
+./sync.sh --message "refina: descreve o que mudou"
+
+# Se a mudança já está no Gitea, só atualiza o espelho GitHub
+./sync.sh --mirror-only
+
+# Só regenera CLAUDE.md localmente, sem commit/push
+./sync.sh --no-git
+```
+
+O GitHub é espelho. A fonte primária é o Gitea (`origin`).
+
 ## 1. Testando como lead
 
 A instância `RefrimixLead` está conectada (`state: open`).  
@@ -65,16 +96,10 @@ WILL_SYSTEM_PROMPT = """
 """
 ```
 
-**Aplica sem rebuild:**
+**Aplica em produção:**
 ```bash
-# Como o código está montado no container via volume? 
-# Se não estiver: rebuild rápido (só copia código, sem reinstalar deps)
-docker compose build fastapi-rag && \
-docker rm -f whatsapp-rag-fastapi-rag-1 && \
-docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-stopped \
-  --env-file /home/will/whatsapp-rag/.env \
-  -e QDRANT_URL=http://127.0.0.1:6333 -e QDRANT_COLLECTION=whatsapp_rag \
-  whatsapp-rag-fastapi-rag:latest
+# Rebuild/restart correto do serviço FastAPI sem recriar Evolution
+docker compose up -d --build --no-deps fastapi-rag
 
 # Confirma health
 curl -s http://localhost:8000/health
@@ -226,8 +251,18 @@ GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile  # mais inteligente, ainda rápido
         ↓
 6. Roda /test/e2e para garantir que não quebrou outros cenários
         ↓
-7. Volta ao passo 1
+7. Roda ./sync.sh --message "refina: ..." para publicar Gitea -> GitHub
+        ↓
+8. Volta ao passo 1
 ```
+
+Loop semântico obrigatório quando pedir "50 vezes":
+
+```bash
+python3 refinar.py --loop 50
+```
+
+Esse loop usa `send=false`, então não manda WhatsApp real.
 
 ---
 

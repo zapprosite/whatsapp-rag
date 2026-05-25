@@ -1,5 +1,16 @@
 # Obrigatório Para Agentes
 
+## Fechamento Obrigatório Da Tarefa
+
+No fim de qualquer tarefa com alteração de arquivo:
+
+1. Rode a validação necessária, no mínimo `.venv/bin/python -m pytest` quando houver código Python.
+2. Rode `./sync.sh --message "tipo: resumo objetivo"` para gerar `CLAUDE.md`, commitar, publicar no Gitea e espelhar no GitHub.
+3. Se a mudança já estiver no Gitea e só faltar espelho, rode `./sync.sh --mirror-only`.
+4. Confirme `git status --short` limpo antes da resposta final.
+
+`origin` é o Gitea primário. `github` é apenas espelho.
+
 Antes de qualquer alteração neste repositório, leia primeiro:
 
 [docs/mapa-pc1-pc2-refinamento.md](docs/mapa-pc1-pc2-refinamento.md)

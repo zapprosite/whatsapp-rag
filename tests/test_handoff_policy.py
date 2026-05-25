@@ -91,6 +91,17 @@ def test_classify_pmoc_high_value_is_soft_alert(monkeypatch):
     assert result["handoff_reason"].startswith("high_value")
 
 
+def test_classify_preventive_multi_device_plan_is_pmoc(monkeypatch):
+    patch_classifier_llm(monkeypatch, "manutencao")
+
+    result = run(nodes.classify_service(base_state("tenho 12 aparelhos e preciso de manutenção preventiva")))
+
+    assert result["intent"] == "pmoc"
+    assert result["service"] == "pmoc"
+    assert result["handoff_mode"] == "soft_alert"
+    assert result["handoff_reason"].startswith("high_value")
+
+
 def test_classify_restaurant_central_system_is_soft_alert(monkeypatch):
     patch_classifier_llm(monkeypatch, "unknown")
 

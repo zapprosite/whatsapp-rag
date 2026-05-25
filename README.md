@@ -52,7 +52,7 @@ whatsapp-rag/
 ├── bot.sh                        # liga/desliga IA em tempo real
 ├── git.sh                        # save / push / merge rápido
 ├── refinar.py                    # loop interativo de refinamento
-├── sync.sh                       # gera CLAUDE.md a partir de .context/docs/
+├── sync.sh                       # gera CLAUDE.md e espelha Gitea -> GitHub
 │
 ├── sre/
 │   └── probes.py                 # smoke, stress e probes Evolution sem coleta pytest
@@ -344,29 +344,24 @@ docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-
 
 ```bash
 # Veja o estado atual
-./git.sh status
+git status --short
 
 # Cria um ponto de retorno
-./git.sh save "backup: antes de refatorar X"
+./sync.sh --message "backup: antes de refatorar X"
 ```
 
 ### Depois de uma mudança
 
 ```bash
-# 1. Rebuilda
-docker compose build fastapi-rag && \
-docker rm -f whatsapp-rag-fastapi-rag-1 && \
-docker run -d --name whatsapp-rag-fastapi-rag-1 --network host --restart unless-stopped \
-  --env-file .env -e QDRANT_URL=http://127.0.0.1:6333 \
-  -e QDRANT_COLLECTION=hermes_hvac_rag_service_staging \
-  whatsapp-rag-fastapi-rag:latest
+# 1. Rebuilda sem recriar Evolution
+docker compose up -d --build --no-deps fastapi-rag
 
 # 2. Confirma que não quebrou nada
 curl -X POST "http://localhost:8000/test/e2e?start=0&limit=34&delay=0" | \
   python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Acerto: {d[\"correct\"]}/{len(d[\"results\"])}')"
 
 # 3. Salva se passou
-./git.sh save "refina: descreve o que mudou"
+./sync.sh --message "refina: descreve o que mudou"
 ```
 
 ### Para voltar uma mudança que quebrou
@@ -374,7 +369,7 @@ curl -X POST "http://localhost:8000/test/e2e?start=0&limit=34&delay=0" | \
 ```bash
 git log --oneline -10      # vê o histórico
 git checkout <hash> -- agent_graph/nodes/nodes.py   # restaura arquivo específico
-./git.sh save "revert: voltou nodes.py para versão estável"
+./sync.sh --message "revert: voltou nodes.py para versão estável"
 ```
 
 ---
@@ -382,13 +377,14 @@ git checkout <hash> -- agent_graph/nodes/nodes.py   # restaura arquivo específi
 ## Git — Fluxo de Trabalho
 
 ```bash
-./git.sh save "mensagem"   # add + commit + push na feature branch
-./git.sh merge             # merge da feature → main (quando aprovado)
-./git.sh status            # arquivos modificados + últimos commits
-./git.sh log               # histórico visual das branches
+./sync.sh --message "mensagem"  # gera CLAUDE.md, publica no Gitea e espelha no GitHub
+./sync.sh --mirror-only         # espelha origin/main -> github/main sem commit local
+git status --short              # arquivos modificados
+git log --oneline -5            # últimos commits
 ```
 
-Repositório: `http://100.87.53.54:3000/hermes-agent/whatsapp-rag`
+Fonte primária: Gitea remoto `origin`.
+Espelho: GitHub remoto `github` (`https://github.com/zapprosite/whatsapp-rag.git`).
 
 ---
 

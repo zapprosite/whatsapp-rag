@@ -13,6 +13,8 @@ Seis serviços KB: instalacao, consultoria, manutencao, pmoc, projeto-central, h
 Coleção Qdrant: `hermes_hvac_rag_service_staging` — 768 dimensões, cosine, 55 pontos.
 Redis PC1: 192.168.15.83:6379.
 PostgreSQL whatsapp_rag: 192.168.15.83:5432.
+Repositório primário: Gitea remoto `origin`.
+Espelho público/externo: GitHub remoto `github` (`https://github.com/zapprosite/whatsapp-rag.git`).
 
 ## Arquitetura
 
@@ -21,12 +23,12 @@ PostgreSQL whatsapp_rag: 192.168.15.83:5432.
                   ↓ webhook POST
             [FastAPI + LangGraph :8000]
               ↓ Redis queue     ↓ worker_loop
-         [Redis PC1:6379]   [LangGraph 7 nós]
+         [Redis PC1:6379]   [LangGraph 8 nós]
                                   ↓
                  [Qdrant :6333] + [MiniMax/Groq]
 ```
 
-## LangGraph — 7 Nós
+## LangGraph — 8 Nós
 
 ```
 preprocess_input → classify_service → retrieve_knowledge → generate_response
@@ -49,3 +51,13 @@ preprocess_input → classify_service → retrieve_knowledge → generate_respon
 5. Não modificar Evolution API docker-compose
 6. Histórico de conversa: sliding window 6 turnos, TTL 30min, chave `conv_history:{phone}`
 7. Salvar histórico limpo: `messages_with_history + [AIMessage(ai_message)]` — não `messages_out`
+
+## Documentação e Espelho Git
+
+- `AGENTS.md` é a primeira leitura obrigatória para qualquer agente.
+- `CLAUDE.md` é arquivo gerado. A fonte canônica fica em `.context/docs/*.md`.
+- Nunca edite `CLAUDE.md` manualmente. Edite `.context/docs/*.md` e rode `./sync.sh`.
+- O fluxo correto de publicação é `origin` (Gitea) primeiro e `github` depois.
+- Para publicar mudanças: `./sync.sh --message "sync: descreve a mudança"`.
+- Para espelhar algo que já está no Gitea: `./sync.sh --mirror-only`.
+- O GitHub não é fonte primária; ele é espelho do Gitea.
