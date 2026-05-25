@@ -20,8 +20,24 @@ _DEFAULT_MAX_CHARS = 420
 
 _VOICE_STYLES: dict[str, str] = {
     "influencer": "willrefrimix-influencer",
+    "calm_consultative": "willrefrimix-influencer",
+    "calm_serious": "willrefrimix-influencer",
+    "professional_consultative": "willrefrimix-influencer",
+    "high_value_project": "willrefrimix-influencer",
+    "urgent_safety": "willrefrimix-influencer",
+    "friendly_short": "willrefrimix-influencer",
 }
 _DEFAULT_STYLE = "influencer"
+
+_CHATTERBOX_STYLE_PARAMS: dict[str, dict[str, float]] = {
+    "calm_consultative": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.50, "speed_factor": 1.0},
+    "calm_serious": {"temperature": 0.45, "exaggeration": 0.35, "cfg_weight": 0.55, "speed_factor": 0.96},
+    "urgent_safety": {"temperature": 0.45, "exaggeration": 0.35, "cfg_weight": 0.55, "speed_factor": 0.94},
+    "professional_consultative": {"temperature": 0.50, "exaggeration": 0.38, "cfg_weight": 0.50, "speed_factor": 0.98},
+    "high_value_project": {"temperature": 0.50, "exaggeration": 0.38, "cfg_weight": 0.50, "speed_factor": 0.98},
+    "friendly_short": {"temperature": 0.60, "exaggeration": 0.45, "cfg_weight": 0.48, "speed_factor": 1.02},
+    "influencer": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.50, "speed_factor": 1.0},
+}
 
 # Mensagens que devem sempre ser respondidas em áudio
 _AUDIO_INTENT_KEYWORDS = frozenset([
@@ -349,6 +365,7 @@ sys.stdout.write(response.text)
             return None
 
         voice = f"{self._voice_name(voice_style)}.wav"
+        style_params = _CHATTERBOX_STYLE_PARAMS.get(voice_style, _CHATTERBOX_STYLE_PARAMS[_DEFAULT_STYLE])
         payload: dict[str, object] = {
             "text": text,
             "voice_mode": "clone",
@@ -357,10 +374,10 @@ sys.stdout.write(response.text)
             "language": self._chatterbox_language,
             "split_text": True,
             "chunk_size": _env_int("TTS_CHATTERBOX_CHUNK_SIZE", 400),
-            "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", 0.55),
-            "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", 0.42),
-            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", 0.50),
-            "speed_factor": _env_float("TTS_CHATTERBOX_SPEED_FACTOR", 1.0),
+            "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", style_params["temperature"]),
+            "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", style_params["exaggeration"]),
+            "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", style_params["cfg_weight"]),
+            "speed_factor": _env_float("TTS_CHATTERBOX_SPEED_FACTOR", style_params["speed_factor"]),
             "seed": _env_int("TTS_CHATTERBOX_SEED", 777),
         }
         return await self._post_pc1_audio(
@@ -420,8 +437,16 @@ sys.stdout.write(response.text)
 
 def choose_voice_style(intent: str | None, outcome: str | None) -> str:
     """Seleciona estilo de voz do Will conforme contexto da conversa."""
-    # O foco do projeto é sempre manter a persona de influenciador/dono da empresa
-    return "influencer"
+    context = " ".join(part for part in (intent, outcome) if part).lower()
+    if any(term in context for term in ("safety", "seguranca", "segurança", "eletrica", "risco")):
+        return "calm_serious"
+    if any(term in context for term in ("high_value", "projeto", "pmoc", "reuniao_projeto", "vrf")):
+        return "professional_consultative"
+    if any(term in context for term in ("schedule", "agenda", "agendamento")):
+        return "friendly_short"
+    if any(term in context for term in ("qualify", "quote", "preco", "preço", "analise_tecnica")):
+        return "calm_consultative"
+    return "calm_consultative"
 
 
 def should_respond_with_audio(

@@ -1042,7 +1042,41 @@ async def redis_set(key: str, value: str, ex: int | None = None) -> None:
 
 _RAG_TIMEOUT_SECONDS = _env_float("RAG_TIMEOUT_SECONDS", 8.0)
 
-def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[dict[str, Any]]:
+
+def _qdrant_search_with_filters(
+    query: str,
+    service: str | None,
+    top_k: int,
+    *,
+    segment_market: str | None = None,
+    segment_tier: str | None = None,
+    goal: str | None = None,
+    stage: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        return qdrant_search(
+            query,
+            service,
+            top_k,
+            segment_market=segment_market,
+            segment_tier=segment_tier,
+            goal=goal,
+            stage=stage,
+        )
+    except TypeError:
+        # Mantém compatibilidade com testes e monkeypatches antigos de qdrant_search.
+        return qdrant_search(query, service, top_k)
+
+def qdrant_search(
+    query: str,
+    service_name: str | None,
+    top_k: int = 5,
+    *,
+    segment_market: str | None = None,
+    segment_tier: str | None = None,
+    goal: str | None = None,
+    stage: str | None = None,
+) -> list[dict[str, Any]]:
     from qdrant_client import QdrantClient
     from fastembed import TextEmbedding
 
@@ -1060,13 +1094,32 @@ def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[
     except Exception:
         return []
 
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import Filter, FieldCondition, MatchAny, MatchValue
 
     filter_conditions = None
+    must_conditions = []
+    should_conditions = []
     if service_name:
-        filter_conditions = Filter(
-            must=[FieldCondition(key="service_name", match=MatchValue(value=service_name))]
+        should_conditions.append(
+            FieldCondition(key="service", match=MatchAny(any=[service_name, "geral", "unknown"]))
         )
+        should_conditions.append(FieldCondition(key="service_name", match=MatchValue(value=service_name)))
+    if segment_market:
+        must_conditions.append(
+            FieldCondition(key="segment_market", match=MatchAny(any=[segment_market, "mixed", "unknown"]))
+        )
+    if segment_tier:
+        must_conditions.append(
+            FieldCondition(key="segment_tier", match=MatchAny(any=[segment_tier, "unknown"]))
+        )
+    if goal:
+        must_conditions.append(FieldCondition(key="goal", match=MatchAny(any=[goal, "geral"])))
+    if stage:
+        must_conditions.append(FieldCondition(key="stage", match=MatchAny(any=[stage, "geral"])))
+    if must_conditions:
+        filter_conditions = Filter(must=must_conditions, should=should_conditions or None)
+    elif should_conditions:
+        filter_conditions = Filter(should=should_conditions)
 
     results = client.query_points(
         collection_name=collection,
@@ -1818,6 +1871,11 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
     """Busca contexto técnico e comercial no Qdrant com FastEmbed."""
     messages = state.get("messages", [])
     service = _normalize_service(state.get("service"))
+    lead_state = state.get("lead_state") or {}
+    lead_mind = lead_state.get("lead_mind") if isinstance(lead_state, dict) else {}
+    segment = (lead_mind or {}).get("segment") or {}
+    conversation_goal = state.get("conversation_objective") or lead_state.get("conversation_goal")
+    stage = lead_state.get("pipeline_stage") or lead_state.get("relationship_type")
 
     if not messages:
         return {"rag_context": [], "messages": messages}
@@ -1832,7 +1890,16 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         rag_context = await asyncio.wait_for(
-            asyncio.to_thread(qdrant_search, query, service, 5),
+            asyncio.to_thread(
+                _qdrant_search_with_filters,
+                query,
+                service,
+                5,
+                segment_market=segment.get("market"),
+                segment_tier=segment.get("tier"),
+                goal=conversation_goal,
+                stage=stage,
+            ),
             timeout=_RAG_TIMEOUT_SECONDS,
         )
         if len(rag_context) < 3:
@@ -2363,7 +2430,18 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
         )
         formatted = f"{formatted}\n\nQual a sua dúvida principal?".strip()
 
-    return {"messages": messages[:-1] + [AIMessage(content=formatted)]}
+    tts_text = None
+    try:
+        from agent_graph.services.speech_adapter import build_tts_text
+
+        lead_state = state.get("lead_state") or {}
+        lead_mind = lead_state.get("lead_mind") if isinstance(lead_state, dict) else None
+        goal = state.get("conversation_objective") or lead_state.get("conversation_goal")
+        tts_text = build_tts_text(formatted, lead_mind if isinstance(lead_mind, dict) else None, goal)
+    except Exception as e:
+        logger.warning("speech_adapter falhou: %s", e)
+
+    return {"messages": messages[:-1] + [AIMessage(content=formatted)], "tts_text": tts_text}
 
 
 async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
@@ -3055,6 +3133,29 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
     lead_state, relationship_type = _apply_relationship_and_appointment(state, lead_state)
     pipeline_stage = "ready_to_schedule" if lead_state.get("appointment_ready") else relationship_type
+    lead_state["pipeline_stage"] = pipeline_stage
+    conversation_goal = compute_conversation_objective(
+        {**state, "service": lead_state.get("tipo_servico") or state.get("service"), "lead_state": lead_state},
+        lead_state,
+    )
+    lead_state["conversation_goal"] = conversation_goal
+
+    try:
+        from agent_graph.domain.lead_mind import compact_lead_mind_if_needed, update_from_lead_state
+
+        lead_mind = update_from_lead_state(
+            lead_state.get("lead_mind") if isinstance(lead_state.get("lead_mind"), dict) else None,
+            lead_state,
+            user_text,
+            phone=phone if phone != "unknown" else None,
+            conversation_goal=conversation_goal,
+            conversation_summary=conversation_summary,
+            do_not_ask=do_not_ask,
+            missing_fields=missing_fields,
+        )
+        lead_state["lead_mind"] = compact_lead_mind_if_needed(lead_mind)
+    except Exception as e:
+        logger.warning("Falha ao atualizar lead_mind: %s", e)
     
     if phone and phone != "unknown" and not diagnostic_no_send:
         from prisma import Prisma
@@ -3096,6 +3197,7 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
         "missing_fields": missing_fields,
         "do_not_ask": do_not_ask,
         "service": lead_state.get("tipo_servico") or state.get("service"),
+        "conversation_objective": conversation_goal,
         "handoff_mode": "soft_alert" if lead_state.get("appointment_ready") else state.get("handoff_mode"),
         "handoff_reason": "appointment_ready" if lead_state.get("appointment_ready") else state.get("handoff_reason"),
     }
@@ -3144,8 +3246,9 @@ async def tts_voice_clone(state: dict[str, Any]) -> dict[str, Any]:
     messages = state.get("messages", [])
     intent = state.get("intent")
     outcome = state.get("outcome")
+    goal = state.get("conversation_objective") or (state.get("lead_state") or {}).get("conversation_goal")
 
-    ai_text = next(
+    ai_text = state.get("tts_text") or next(
         (_message_text(m) for m in reversed(messages) if _is_ai_message(m)),
         "",
     )
@@ -3153,7 +3256,7 @@ async def tts_voice_clone(state: dict[str, Any]) -> dict[str, Any]:
     if not ai_text:
         return {"response_modality": "text"}
 
-    voice_style = choose_voice_style(intent, outcome)
+    voice_style = choose_voice_style(goal or intent, outcome)
     try:
         audio_bytes = await synthesize(ai_text, voice_style)
         if audio_bytes:

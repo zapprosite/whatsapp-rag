@@ -57,6 +57,7 @@ class AgentState(TypedDict):
     # Resposta
     response_modality: Literal["text", "audio"] | None
     audio_bytes: bytes | None      # bytes WAV do TTS (não serializado no Redis)
+    tts_text: str | None
     # Memória operacional Postgres 17
     lead_state: dict[str, Any] | None
     already_asked_fields: list[str] | None
