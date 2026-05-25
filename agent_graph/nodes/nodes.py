@@ -467,10 +467,29 @@ def _normalize_service(service: str | None) -> str | None:
     return service
 
 
-def _sales_cache_key(service: str | None, text: str) -> str:
+def _sales_cache_key(
+    service: str | None,
+    text: str,
+    lead_state: dict[str, Any] | None = None,
+    missing_fields: list[str] | None = None,
+    do_not_ask: list[str] | None = None,
+) -> str:
     normalized = _normalize_text(text)
-    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
-    return f"sales_reply:v1:{service or 'none'}:{digest}"
+    text_digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+    lead_state = lead_state or {}
+    state_fingerprint = {
+        "tipo_servico": lead_state.get("tipo_servico"),
+        "cidade_bairro": lead_state.get("cidade_bairro"),
+        "btus": lead_state.get("btus"),
+        "relationship_type": lead_state.get("relationship_type"),
+        "pipeline_stage": lead_state.get("pipeline_stage"),
+        "missing_fields": list(missing_fields or [])[:3],
+        "do_not_ask": sorted(str(field) for field in (do_not_ask or [])),
+    }
+    state_digest = hashlib.sha256(
+        json.dumps(state_fingerprint, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"sales_reply:v2:{service or 'none'}:{state_digest}:{text_digest}"
 
 
 def _looks_like_price_question(text: str) -> bool:
@@ -537,7 +556,18 @@ def _infer_lead_fields_from_text(lead_state: dict[str, Any], text: str, message_
     return updated
 
 
-def _important_missing_field(missing_fields: list[str], do_not_ask: list[str]) -> str | None:
+def should_avoid_reasking(field: str | None, lead_state: dict[str, Any] | None) -> bool:
+    if not field:
+        return False
+    counts = (lead_state or {}).get("ask_count_by_field") or {}
+    return int(counts.get(field) or 0) >= 2
+
+
+def _important_missing_field(
+    missing_fields: list[str],
+    do_not_ask: list[str],
+    lead_state: dict[str, Any] | None = None,
+) -> str | None:
     priority = [
         "cidade_bairro",
         "btus",
@@ -554,7 +584,7 @@ def _important_missing_field(missing_fields: list[str], do_not_ask: list[str]) -
     ]
     blocked = set(do_not_ask)
     for field in priority:
-        if field in missing_fields and field not in blocked:
+        if field in missing_fields and field not in blocked and not should_avoid_reasking(field, lead_state):
             return field
     return next((field for field in missing_fields if field not in blocked), None)
 
@@ -574,6 +604,37 @@ def _question_for_field(field: str | None) -> str:
         "pinga_agua": "Ele está pingando água?",
         "nome": "Qual é seu nome?",
     }.get(field, "Qual é o próximo detalhe que você já consegue me passar?")
+
+
+def infer_asked_field_from_response(response: str, missing_fields: list[str]) -> str | None:
+    text = _fold_text(response)
+    patterns = {
+        "cidade_bairro": ("cidade", "bairro", "onde fica"),
+        "btus": ("btus", "btu", "capacidade"),
+        "foto_local_interno": ("foto do local interno", "foto interna", "unidade interna"),
+        "foto_local_externo": ("foto do local externo", "foto externa", "condensadora"),
+        "ponto_eletrico_exclusivo": ("ponto eletrico", "ponto elétrico", "energia"),
+        "distancia_aproximada": ("distancia", "distância", "metros"),
+        "tubulacao_existente": ("tubulacao", "tubulação", "infra pronta"),
+        "tempo_sem_manutencao": ("tempo sem manutencao", "tempo sem manutenção", "ultima manutenção", "última manutenção"),
+        "pinga_agua": ("pingando", "vazando agua", "vazando água", "pinga"),
+        "nome": ("nome",),
+    }
+    missing = set(missing_fields or [])
+    for field, terms in patterns.items():
+        if field in missing and any(term in text for term in terms):
+            return field
+    return None
+
+
+def _repeated_field_strategy(field: str | None, lead_state: dict[str, Any]) -> str | None:
+    if not field or not should_avoid_reasking(field, lead_state):
+        return None
+    if field == "cidade_bairro":
+        return "Vou adiantar pelo que já tenho. Quando puder, me manda o bairro/cidade que eu fecho a disponibilidade certinha."
+    if field in {"foto_local_interno", "foto_local_externo", "foto_aparelho"}:
+        return "Vou adiantar pelo que já tenho. Quando puder, me manda as fotos que eu confirmo o melhor caminho sem te passar orientação errada."
+    return "Vou adiantar pelo que já tenho. Quando puder, me manda esse detalhe que eu fecho a orientação certinha."
 
 
 def _city_price_for_installation(lead_state: dict[str, Any], text: str) -> str:
@@ -597,8 +658,12 @@ def _direct_price_response(
     lead_state = lead_state or {}
     missing_fields = missing_fields or []
     do_not_ask = do_not_ask or []
-    next_field = _important_missing_field(missing_fields, do_not_ask)
-    next_question = _question_for_field(next_field) if next_field else "Se quiser, me passa uma janela de horário pra eu verificar agenda."
+    next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
+    repeated_strategy = _repeated_field_strategy(next_field, lead_state)
+    if repeated_strategy:
+        next_question = repeated_strategy
+    else:
+        next_question = _question_for_field(next_field) if next_field else "Se quiser, me passa uma janela de horário pra eu verificar agenda."
     if service == "instalacao":
         return (
             f"{_city_price_for_installation(lead_state, text)} "
@@ -1403,6 +1468,28 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     last_message = messages[-1]
     user_text = _message_text(last_message)
     text_lower = _fold_text(user_text)
+    security = {}
+    try:
+        from agent_graph.guards.security_guard import detect_malicious_or_instruction_injection
+
+        security = detect_malicious_or_instruction_injection(user_text)
+    except Exception as e:
+        logger.warning("Falha no security_guard: %s", e)
+    if security.get("is_malicious") and security.get("risk_level") in {"medium", "high"}:
+        lead_state["security_rejected"] = True
+        return {
+            "intent": "security_rejected",
+            "service": lead_state.get("tipo_servico"),
+            "outcome": "duvida",
+            "messages": messages,
+            "handoff_mode": "soft_alert" if security.get("risk_level") == "high" else "none",
+            "handoff_reason": "malicious_or_injection_attempt" if security.get("risk_level") == "high" else None,
+            "handoff_already_notified": False,
+            "lead_state": lead_state,
+            "security_guard": security,
+            "safe_response": security.get("safe_response"),
+            "conversation_objective": "security_reject",
+        }
     recent_human = [
         _message_text(message)
         for message in messages[-6:]
@@ -1437,6 +1524,8 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
             "lead_state": lead_state,
         }
 
+    conversation_in_progress = is_conversation_in_progress(state, lead_state)
+
     # Saudações e mensagens curtas sem serviço → onboarding (não escalar humano)
     GREETING_WORDS = [
         "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite",
@@ -1445,6 +1534,27 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         "opa",
     ]
     if _contains_any(text_lower, GREETING_WORDS) and len(text_lower.split()) <= 8:
+        if conversation_in_progress:
+            service = lead_state.get("tipo_servico") or state.get("service")
+            intent = service or "duvida"
+            outcome = _OUTCOME_MAP.get(service, "duvida")
+            lead_state, relationship_type = _apply_relationship_and_appointment(
+                {**state, "service": service, "intent": intent},
+                lead_state,
+            )
+            response = _continuation_response(lead_state, state.get("missing_fields") or [], state.get("do_not_ask") or [])
+            return {
+                "intent": intent,
+                "service": service,
+                "outcome": outcome,
+                "messages": messages,
+                "handoff_mode": "none",
+                "handoff_reason": None,
+                "handoff_already_notified": False,
+                "lead_state": lead_state,
+                "continuation_response": response,
+                "conversation_objective": "recover_context",
+            }
         return {
             "intent": "onboarding",
             "service": None,
@@ -1613,6 +1723,18 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     if intent is None:
         intent = _fallback_service_for_high_value(semantic_text) or "unknown"
 
+    current_service = _normalize_service(lead_state.get("tipo_servico"))
+    correction = detect_service_correction(user_text, current_service)
+    if correction and correction != current_service:
+        lead_state["service_changed_by_user"] = True
+        lead_state["previous_tipo_servico"] = current_service
+        lead_state["tipo_servico"] = correction
+        intent = correction
+    elif current_service and intent in _SERVICE_INTENTS and intent != current_service:
+        intent = current_service
+    elif current_service and intent in {None, "unknown"}:
+        intent = current_service
+
     intent = _normalize_service(intent)
     if intent in ("explicit_handoff", "sensitive_complaint"):
         lead_state["human_takeover"] = intent == "explicit_handoff"
@@ -1667,6 +1789,18 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         handoff_reason = "appointment_ready"
         outcome = "analise_tecnica" if outcome == "duvida" else outcome
 
+    conversation_objective = compute_conversation_objective(
+        {
+            **state,
+            "service": service,
+            "intent": intent,
+            "handoff_mode": handoff_mode,
+            "handoff_reason": handoff_reason,
+            "missing_fields": state.get("missing_fields") or [],
+        },
+        lead_state,
+    )
+
     return {
         "intent": intent,
         "service": service,
@@ -1676,6 +1810,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         "handoff_reason": handoff_reason,
         "handoff_already_notified": False,
         "lead_state": lead_state,
+        "conversation_objective": conversation_objective,
     }
 
 
@@ -1742,6 +1877,18 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
     customer_data = state.get("customer_data") or {}
     active_service = customer_data.get("active_service")
     last_service = customer_data.get("last_service")
+    if state.get("intent") == "security_rejected" or state.get("safe_response"):
+        ai_message = AIMessage(content=state.get("safe_response") or "Não consigo seguir com esse pedido por aqui. Posso te ajudar com instalação, manutenção, higienização ou conserto?")
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service or lead_state.get("tipo_servico"),
+            "outcome": "duvida",
+            "handoff_mode": state.get("handoff_mode", "none"),
+            "handoff_reason": state.get("handoff_reason"),
+            "lead_state": lead_state,
+            "conversation_objective": "security_reject",
+        }
     if isinstance(active_service, dict) and active_service.get("status"):
         ai_message = AIMessage(content=_active_service_response(user_text, active_service))
         return {
@@ -1778,6 +1925,32 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             "handoff_reason": "no_context_needs_human_review",
             "lead_state": lead_state,
         }
+
+    if state.get("continuation_response") or (
+        is_conversation_in_progress(state, lead_state)
+        and _is_short_continuation_text(user_text)
+        and (lead_state.get("tipo_servico") or service)
+    ):
+        response = state.get("continuation_response") or _continuation_response(
+            lead_state,
+            state.get("missing_fields") or [],
+            state.get("do_not_ask") or [],
+        )
+        if response:
+            ai_message = AIMessage(content=response)
+            return {
+                "messages": messages + [ai_message],
+                "rag_context": rag_context,
+                "service": service or lead_state.get("tipo_servico"),
+                "outcome": outcome,
+                "handoff_mode": handoff_mode,
+                "handoff_reason": handoff_reason,
+                "lead_state": lead_state,
+                "already_asked_fields": state.get("already_asked_fields") or [],
+                "missing_fields": state.get("missing_fields") or [],
+                "do_not_ask": state.get("do_not_ask") or [],
+                "conversation_objective": state.get("conversation_objective") or "recover_context",
+            }
 
     if str(handoff_reason or "").startswith("high_value"):
         ai_message = AIMessage(content=_high_value_consultative_response())
@@ -1822,19 +1995,33 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     human_count = sum(1 for m in messages if _is_human_message(m))
-    cache_key = _sales_cache_key(service, user_text)
-    if human_count <= 2:
+    do_not_ask = state.get("do_not_ask") or []
+    missing_fields = state.get("missing_fields") or []
+    already_asked_fields = state.get("already_asked_fields") or []
+    cache_key = _sales_cache_key(service, user_text, lead_state, missing_fields, do_not_ask)
+    can_use_sales_cache = (
+        human_count <= 1
+        and not do_not_ask
+        and not active_service
+        and not last_service
+        and lead_state.get("relationship_type") in (None, "new_lead")
+    )
+    if can_use_sales_cache:
         try:
             cached = await redis_get(cache_key)
             if cached:
-                logger.info(f"Resposta validada via Redis cache: {cache_key}")
-                ai_message = AIMessage(content=cached)
-                return {
-                    "messages": messages + [ai_message],
-                    "rag_context": rag_context,
-                    "service": service,
-                    "outcome": outcome,
-                }
+                from agent_graph.guards.response_guard import validate_response_before_send
+
+                ok, _violations = validate_response_before_send(cached, state)
+                if ok:
+                    logger.info(f"Resposta validada via Redis cache: {cache_key}")
+                    ai_message = AIMessage(content=cached)
+                    return {
+                        "messages": messages + [ai_message],
+                        "rag_context": rag_context,
+                        "service": service,
+                        "outcome": outcome,
+                    }
         except Exception as e:
             logger.warning(f"Redis sales cache falhou: {e}")
 
@@ -1906,9 +2093,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         elif _is_ai_message(msg):
             llm_messages.append({"role": "assistant", "content": _message_text(msg)})
 
-    do_not_ask = state.get("do_not_ask") or []
-    missing_fields = state.get("missing_fields") or []
-    already_asked_fields = state.get("already_asked_fields") or []
+    conversation_objective = state.get("conversation_objective") or compute_conversation_objective(state, lead_state)
 
     # Última mensagem do lead enriquecida com contexto RAG e CTA
     user_prompt = (
@@ -1921,7 +2106,9 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"- Estado estruturado atual: {json.dumps(lead_state, ensure_ascii=False)}\n"
         f"- Informações já fornecidas (PROIBIDO PERGUNTAR): {do_not_ask}\n"
         f"- Próximas informações em falta que você deve obter: {missing_fields}\n\n"
-        f"Objetivo do Atendimento: Resolver a dúvida e avançar na qualificação do lead.\n"
+        f"Objetivo único desta resposta: {conversation_objective}.\n"
+        f"Não tente cumprir outro objetivo.\n"
+        f"Política comercial: venda consultiva, sem pressão, sem promoção agressiva, sem 'últimas vagas', sem 'vamos fechar?' cedo demais. Explique o risco de passar valor errado, peça o dado mínimo e mostre o próximo passo.\n"
         f"Serviço identificado: {service or 'não classificado'}\n"
         f"Modo de handoff: {handoff_mode}; motivo: {handoff_reason or 'nenhum'}.\n"
         f"Meta para esta mensagem específica: {outcome_cta}\n\n"
@@ -2089,6 +2276,68 @@ async def language_guard_check(state: dict[str, Any]) -> dict[str, Any]:
     return {"messages": messages[:-1] + [AIMessage(content=fixed_response)]}
 
 
+async def response_guard_check(state: dict[str, Any]) -> dict[str, Any]:
+    messages = state.get("messages", [])
+    if not messages:
+        return {"messages": messages}
+
+    response = _message_text(messages[-1])
+    lead_state = deepcopy(state.get("lead_state") or {})
+    missing_fields = state.get("missing_fields") or []
+    do_not_ask = state.get("do_not_ask") or []
+    asked_field = infer_asked_field_from_response(response, missing_fields)
+
+    if asked_field:
+        counts = lead_state.setdefault("ask_count_by_field", {})
+        counts[asked_field] = int(counts.get(asked_field) or 0) + 1
+        lead_state["last_asked_field"] = asked_field
+        if counts[asked_field] >= 2 and asked_field in missing_fields:
+            state = {
+                **state,
+                "handoff_mode": "soft_alert" if state.get("handoff_mode") in (None, "none") else state.get("handoff_mode"),
+                "handoff_reason": state.get("handoff_reason") or "repeated_missing_critical_field",
+            }
+
+    try:
+        from agent_graph.guards.response_guard import validate_response_before_send
+
+        ok, violations = validate_response_before_send(response, {**state, "lead_state": lead_state})
+    except Exception as e:
+        logger.warning("response_guard falhou: %s", e)
+        ok, violations = True, []
+
+    fixed = response
+    if not ok:
+        service = lead_state.get("tipo_servico") or state.get("service")
+        relationship = lead_state.get("relationship_type")
+        if state.get("conversation_objective") == "security_reject":
+            fixed = state.get("safe_response") or response
+        elif relationship == "active_customer":
+            fixed = "Vi aqui que você já tem atendimento em andamento com a Refrimix.\n\nMe fala o que precisa atualizar nesse serviço?"
+        elif lead_state.get("appointment_ready") or relationship == "ready_to_schedule":
+            fixed = "Perfeito, já tenho o principal para seguir com o atendimento.\n\nMe confirma o melhor período: manhã ou tarde?"
+        elif service == "instalacao":
+            next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
+            next_question = _repeated_field_strategy(next_field, lead_state) or _question_for_field(next_field)
+            fixed = (
+                "Continuando sua instalação, pra eu te orientar certinho só falta confirmar o próximo detalhe.\n\n"
+                f"{next_question}"
+            )
+        else:
+            next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
+            fixed = _repeated_field_strategy(next_field, lead_state) or (
+                f"Continuando o atendimento, {_question_for_field(next_field).lower()}"
+            )
+
+    return {
+        "messages": messages[:-1] + [AIMessage(content=fixed)],
+        "lead_state": lead_state,
+        "response_guard_violations": violations,
+        "handoff_mode": state.get("handoff_mode"),
+        "handoff_reason": state.get("handoff_reason"),
+    }
+
+
 async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     """
     Formata resposta final para WhatsApp preservando quebras, listas curtas e CTA.
@@ -2126,8 +2375,10 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
 
-    user_message = next((_message_text(m) for m in messages if _is_human_message(m)), None)
+    user_message = next((_message_text(m) for m in reversed(messages) if _is_human_message(m)), None)
     ai_message = next((_message_text(m) for m in reversed(messages) if _is_ai_message(m)), None)
+    lead_state = state.get("lead_state") or {}
+    memory = customer_data.get("memory") or {}
 
     try:
         await prisma_save_interaction({
@@ -2143,6 +2394,18 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
                 "handoff_reason": state.get("handoff_reason"),
                 "active_service": customer_data.get("active_service"),
                 "last_service": customer_data.get("last_service"),
+                "relationship_type": lead_state.get("relationship_type"),
+                "conversation_goal": state.get("conversation_objective") or lead_state.get("conversation_goal"),
+                "lead_state": {
+                    "tipo_servico": lead_state.get("tipo_servico"),
+                    "cidade_bairro": lead_state.get("cidade_bairro"),
+                    "btus": lead_state.get("btus"),
+                    "last_asked_field": lead_state.get("last_asked_field"),
+                    "ask_count_by_field": lead_state.get("ask_count_by_field"),
+                },
+                "response_guard_violations": state.get("response_guard_violations") or [],
+                "history_source": memory.get("history_source"),
+                "is_conversation_started": memory.get("is_conversation_started"),
             },
         })
     except Exception as e:
@@ -2156,6 +2419,20 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
         try:
             lead = await db.lead.find_unique(where={"phone": phone})
             if lead:
+                summary = update_conversation_summary(phone, messages, lead_state)
+                do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
+                await db.lead.update(
+                    where={"phone": phone},
+                    data={
+                        "lead_state": json.dumps(lead_state),
+                        "conversation_summary": summary,
+                        "already_asked_fields": json.dumps(already_asked_fields),
+                        "missing_fields": json.dumps(missing_fields),
+                        "do_not_ask": json.dumps(do_not_ask),
+                        "service_type": lead_state.get("tipo_servico"),
+                        "city_bairro": lead_state.get("cidade_bairro"),
+                    },
+                )
                 await db.leadevent.create(
                     data={
                         "lead_id": lead.id,
@@ -2341,6 +2618,134 @@ def _apply_relationship_and_appointment(state: dict[str, Any], lead_state: dict[
         lead_state["appointment_ready"] = True
 
     return lead_state, relationship_type
+
+
+def is_conversation_in_progress(state: dict[str, Any], lead_state: dict[str, Any]) -> bool:
+    customer_memory = (state.get("customer_data") or {}).get("memory") or {}
+    return any([
+        lead_state.get("tipo_servico"),
+        lead_state.get("cidade_bairro"),
+        lead_state.get("btus"),
+        lead_state.get("relationship_type") not in (None, "new_lead"),
+        bool(state.get("conversation_summary")),
+        bool(customer_memory.get("has_persistent_lead")),
+        int(customer_memory.get("postgres_event_count") or 0) > 0,
+    ])
+
+
+def detect_service_correction(user_text: str, current_service: str | None) -> str | None:
+    if not current_service:
+        return None
+    text = _fold_text(user_text)
+    correction_terms = (
+        "na verdade",
+        "corrigindo",
+        "nao e instalacao",
+        "não é instalação",
+        "nao é instalação",
+        "quis dizer",
+        "troquei",
+    )
+    explicit = _contains_any(text, correction_terms)
+    if "é limpeza" in text or "e limpeza" in text:
+        explicit = True
+    if "é manutenção" in text or "e manutencao" in text or "é manutencao" in text:
+        explicit = True
+    if not explicit:
+        return None
+
+    if _contains_any(text, ("higienizacao", "higienização", "limpeza", "limpar")):
+        return "higienizacao"
+    if _contains_any(text, ("manutencao", "manutenção", "conserto", "consertar", "defeito")):
+        return "manutencao"
+    if _contains_any(text, ("instalacao", "instalação", "instalar", "colocar ar")):
+        return "instalacao"
+    return None
+
+
+def _is_short_continuation_text(text: str) -> bool:
+    folded = _fold_text(text)
+    if len(folded.split()) > 8:
+        return False
+    terms = (
+        "oi", "ola", "olá", "opa", "bom dia", "boa tarde", "boa noite",
+        "ok", "sim", "beleza", "pode ser", "isso", "certo", "ta", "tá",
+    )
+    return _contains_any(folded, terms)
+
+
+def _continuation_response(
+    lead_state: dict[str, Any],
+    missing_fields: list[str],
+    do_not_ask: list[str],
+) -> str | None:
+    service = lead_state.get("tipo_servico")
+    relationship = lead_state.get("relationship_type")
+    if lead_state.get("appointment_ready") or relationship == "ready_to_schedule":
+        return "Perfeito, já tenho o principal para agenda.\n\nMe confirma o melhor período: manhã ou tarde?"
+    next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
+    repeated_strategy = _repeated_field_strategy(next_field, lead_state)
+    if repeated_strategy:
+        return repeated_strategy
+    if service == "instalacao":
+        if next_field in {"foto_local_interno", "foto_local_externo"}:
+            return (
+                "Continuando sua instalação, pra eu te orientar certinho só falta ver o local.\n\n"
+                "Me manda uma foto do local interno e uma do local externo?"
+            )
+        return f"Continuando sua instalação, pra eu te orientar certinho só falta o próximo detalhe.\n\n{_question_for_field(next_field)}"
+    if service == "higienizacao":
+        return "Continuando a higienização, só preciso confirmar quantos aparelhos são e o bairro/cidade."
+    if service == "manutencao":
+        return "Continuando a análise do aparelho, me confirma se ele liga normalmente ou aparece algum código de erro?"
+    if service:
+        return f"Continuando o atendimento de {service}, {_question_for_field(next_field).lower()}"
+    return None
+
+
+def compute_conversation_objective(state: dict[str, Any], lead_state: dict[str, Any]) -> str:
+    customer_data = state.get("customer_data") or {}
+    user_text = _fold_text(_latest_human_text(state.get("messages", [])))
+    if state.get("security_guard", {}).get("is_malicious") or state.get("intent") == "security_rejected":
+        return "security_reject"
+    if customer_data.get("active_service"):
+        return "active_service_followup"
+    if state.get("handoff_mode") == "hard_transfer" or lead_state.get("relationship_type") in {"human_takeover", "complaint_or_risk"}:
+        return "human_handoff"
+    if lead_state.get("appointment_ready") or lead_state.get("relationship_type") == "ready_to_schedule":
+        return "schedule_service"
+    if state.get("service") or lead_state.get("tipo_servico"):
+        missing = state.get("missing_fields") or []
+        return "qualify_quote" if missing else "schedule_service"
+    if _contains_any(user_text, ("como", "por que", "porque", "qual", "quanto", "duvida", "dúvida")):
+        return "answer_question"
+    if is_conversation_in_progress(state, lead_state):
+        return "recover_context"
+    return "recover_context"
+
+
+def update_conversation_summary(phone: str, messages: list[Any], lead_state: dict[str, Any]) -> str:
+    service = lead_state.get("tipo_servico") or "serviço não definido"
+    city = lead_state.get("cidade_bairro") or "cidade/bairro não informado"
+    stage = lead_state.get("relationship_type") or "new_lead"
+    do_not_ask, _asked, missing = compute_fields_status(lead_state)
+    last_question = lead_state.get("last_asked_field")
+    human_text = " ".join(_message_text(m) for m in messages[-6:] if _is_human_message(m))
+    objections = []
+    folded = _fold_text(human_text)
+    if "caro" in folded:
+        objections.append("achou caro")
+    if "vou ver" in folded or "te aviso" in folded:
+        objections.append("vai decidir depois")
+    ready = "pronto para agenda" if lead_state.get("appointment_ready") else "ainda em qualificação"
+    return (
+        f"Lead {phone} quer {service} em {city}. Etapa: {stage}. "
+        f"Dados coletados: {', '.join(do_not_ask) if do_not_ask else 'nenhum campo estruturado confirmado'}. "
+        f"Faltam: {', '.join(missing) if missing else 'sem campos críticos pendentes'}. "
+        f"Última pergunta: {last_question or 'não registrada'}. "
+        f"Objeções: {', '.join(objections) if objections else 'nenhuma registrada'}. "
+        f"Status: {ready}."
+    )
 
 def compute_fields_status(lead_state: dict) -> tuple[list[str], list[str], list[str]]:
     """
@@ -2569,6 +2974,14 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     lead_state = state.get("lead_state") or _lead_state_copy()
     last_message = messages[-1]
     user_text = _message_text(last_message)
+    conversation_summary = state.get("conversation_summary") or ""
+    recent_lines: list[str] = []
+    for message in messages[-6:]:
+        role = "Cliente" if _is_human_message(message) else "Will" if _is_ai_message(message) else "Sistema"
+        text = _message_text(message).strip()
+        if text:
+            recent_lines.append(f"{role}: {text}")
+    recent_history = "\n".join(recent_lines) or "Sem histórico recente."
     
     prompt = (
         "Você é um extrator de dados para atendimento comercial de ar-condicionado no Brasil.\n\n"
@@ -2576,6 +2989,10 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
         "Atualize APENAS os dados que o cliente informou claramente na última mensagem ou no histórico recente.\n"
         "Não invente nenhuma informação. Não tente adivinhar. Não apague dados existentes. Nunca marque um campo como null/None se ele já estava preenchido.\n\n"
         f"ESTADO ATUAL DO LEAD (JSON):\n{json.dumps(lead_state, ensure_ascii=False, indent=2)}\n\n"
+        f"HISTÓRICO RESUMIDO:\n{conversation_summary or 'Sem resumo salvo.'}\n\n"
+        f"ÚLTIMAS MENSAGENS:\n{recent_history}\n\n"
+        f"CAMPOS JÁ INFORMADOS:\n{state.get('do_not_ask') or []}\n\n"
+        "REGRA: Se tipo_servico já existe no estado atual, mantenha esse valor, exceto se o cliente corrigir explicitamente com termos como 'na verdade', 'corrigindo' ou 'quis dizer'.\n\n"
         f"NOVA MENSAGEM DO CLIENTE:\n\"{user_text}\"\n\n"
         "Retorne APENAS um JSON válido no seguinte formato exato, sem explicações:\n"
         "{\n"
@@ -2605,6 +3022,12 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.warning("Falha ao rodar LLM Extractor em extract_lead_data: %s", e)
         
+    current_service = _normalize_service(lead_state.get("tipo_servico"))
+    corrected_service = detect_service_correction(user_text, current_service)
+    patch_service = _normalize_service(state_patch.get("tipo_servico")) if isinstance(state_patch, dict) else None
+    if current_service and patch_service and patch_service != current_service and patch_service != corrected_service:
+        state_patch.pop("tipo_servico", None)
+
     if state_patch:
         for k, v in state_patch.items():
             if v is not None:
@@ -2612,6 +3035,10 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
                     lead_state[k].update(v)
                 else:
                     lead_state[k] = v
+    if corrected_service and corrected_service != current_service:
+        lead_state["previous_tipo_servico"] = current_service
+        lead_state["service_changed_by_user"] = True
+        lead_state["tipo_servico"] = corrected_service
                     
     if detected_service_type and not lead_state.get("tipo_servico"):
         lead_state["tipo_servico"] = detected_service_type

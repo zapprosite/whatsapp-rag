@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from agent_graph.graph.graph import build_graph
 from agent_graph.services.alerts import send_owner_alert
+from agent_graph.services.conversation_memory import build_canonical_history
 from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
 
 logger = logging.getLogger(__name__)
@@ -686,9 +687,10 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             logger.info("Humano assumiu; IA pausada para este contato: %s", phone)
             return
 
-        history = await load_history(phone, r)
-        is_first_message = len(history) == 0
-        messages_with_history = history + [HumanMessage(content=message_text)]
+        redis_history = await load_history(phone, r)
+        canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
+        is_first_message = not bool(memory_meta.get("is_conversation_started"))
+        messages_with_history = canonical_history + [HumanMessage(content=message_text)]
         active_service = await load_active_customer_service(phone)
         last_service = None if active_service else await load_last_customer_service(phone)
         if active_service:
@@ -720,6 +722,7 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
                 "is_first_message": is_first_message,
                 "active_service": active_service,
                 "last_service": last_service,
+                "memory": memory_meta,
             },
             "is_human": False,
             "confidence": 1.0,
