@@ -31,15 +31,19 @@ _AUDIO_INTENT_KEYWORDS = frozenset([
 ])
 
 _ACRONYM_REPLACEMENTS = {
-    "PMOC": "P M O C",
-    "ART": "A R T",
-    "CREA": "C R E A",
-    "BTU": "B T U",
-    "BTUS": "B T U",
-    "HVAC": "H V A C",
-    "API": "A P I",
-    "IA": "I A",
-    "PIX": "Pix",
+    # Letras pronunciadas em pt-BR (nomes das letras, não fonética inglesa)
+    "BTU":  "bê-tê-u",
+    "BTUS": "bê-tê-us",
+    "VRF":  "vê-erre-éfe",
+    "VRV":  "vê-erre-vê",
+    "PMOC": "pê-ême-ô-cê",
+    "ART":  "a-erre-tê",
+    "CREA": "CREA",       # lido como palavra em pt-BR: "créa"
+    "HP":   "agá-pê",
+    "HVAC": "agá-vê-a-cê",
+    "API":  "a-pê-í",
+    "IA":   "i-á",
+    "PIX":  "Pix",
 }
 
 _UNITS = (
@@ -167,7 +171,7 @@ def _normalize_tts_text_ptbr(text: str) -> str:
         return _ACRONYM_REPLACEMENTS.get(word, match.group(0))
 
     normalized = re.sub(
-        r"\b(PMOC|ART|CREA|BTUS?|HVAC|API|IA|PIX)\b",
+        r"\b(BTUS?|VRF|VRV|PMOC|ART|CREA|HP|HVAC|API|IA|PIX)\b",
         acronym_to_speech,
         normalized,
         flags=re.IGNORECASE,
