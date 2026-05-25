@@ -1,5 +1,7 @@
 # WhatsApp RAG Lead — Refrimix
 
+> Regra P0 de segurança: `.env.example` é propositalmente mascarado com `{SECRET}`. Nenhum agente deve substituir placeholders por valores reais, pedir/imprimir segredos ou diagnosticar ambiente exibindo valores. Veja [.rules/secrets-env.md](.rules/secrets-env.md) e [env.schema.md](env.schema.md).
+
 Bot WhatsApp para onboarding e atendimento a leads da Refrimix Tecnologia.
 O Will responde leads automaticamente, coleta dados de agendamento e escala para humano quando necessário.
 
