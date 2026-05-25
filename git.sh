@@ -4,7 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNC="$ROOT/sync.sh"
-BRANCH_FEATURE="${BRANCH_FEATURE:-agent/refinar-respostas-texto}"
+current_branch="$(git branch --show-current 2>/dev/null || echo '')"
+BRANCH_FEATURE="${BRANCH_FEATURE:-$current_branch}"
 
 usage() {
   cat <<'EOF'
@@ -57,6 +58,10 @@ case "$cmd" in
 
   merge)
     require_sync
+    if [ "$BRANCH_FEATURE" = "main" ]; then
+      echo "Erro: Você já está na main. O merge requer uma branch de feature." >&2
+      exit 1
+    fi
     current=$(git branch --show-current)
     echo "→ Mergeando $BRANCH_FEATURE -> main"
     git checkout main
