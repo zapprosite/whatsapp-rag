@@ -376,7 +376,7 @@ Edite `agent_graph/nodes/nodes.py` → `SCORE_MAP` dentro de `classify_service`.
 Edite `.env`:
 
 ```bash
-MINIMAX_MODEL=MiniMax-M2.5-highspeed   # mais rápido, menos raciocínio
+MINIMAX_MODEL=MiniMax-M2.7   # versão mais recente, melhor raciocínio
 GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile  # Groq mais preciso
 ```
 

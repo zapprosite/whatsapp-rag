@@ -184,8 +184,22 @@ async def receive_webhook(request: Request) -> JSONResponse:
 
     parsed, skipped = parse_evolution_webhook(body)
     if skipped:
-        logger.info("Webhook ignorado: %s body_keys=%s", skipped, list(body.keys()))
+        if skipped == "missing fields":
+            data_dbg = _as_dict(body.get("data"))
+            logger.warning(
+                "Webhook missing fields — event=%s key=%s msg_keys=%s messageType=%s",
+                body.get("event"),
+                _as_dict(data_dbg.get("key")),
+                list(_as_dict(data_dbg.get("message")).keys()),
+                data_dbg.get("messageType"),
+            )
+        else:
+            logger.info("Webhook ignorado: %s body_keys=%s", skipped, list(body.keys()))
         return JSONResponse({"status": "ok", "skipped": skipped})
+
+    if parsed and parsed.phone and not parsed.phone.startswith("55"):
+        logger.warning("Webhook phone suspeito (%s) — payload data.key=%s sender=%s",
+                       parsed.phone, _as_dict(_as_dict(body.get("data")).get("key")), body.get("sender"))
 
     assert parsed is not None
     payload = {
