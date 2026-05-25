@@ -102,5 +102,5 @@ def test_chatterbox_ptbr_is_guarded_and_falls_back_to_omnivoice(monkeypatch):
 
 
 def test_audio_intent_recognizes_modern_brazilian_greetings():
-    assert should_respond_with_audio("conversation", None, None, "opa, tudo bem?")
-    assert should_respond_with_audio("conversation", None, None, "fala Will, beleza?")
+    assert should_respond_with_audio("audioMessage", None, None, "opa, tudo bem?")
+    assert not should_respond_with_audio("conversation", None, None, "fala Will, beleza?")

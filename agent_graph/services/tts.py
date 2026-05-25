@@ -432,26 +432,10 @@ def should_respond_with_audio(
 ) -> bool:
     """
     Decide se a resposta deve ser em áudio.
-    Regras:
-    - Espelha inbound: se veio áudio, responde áudio
-    - Saudações e qualificação inicial → áudio
-    - Preços, listas longas, PMOC (texto técnico) → texto
+    Regras (25/05/2026): Só responde em áudio quando o lead enviar áudio.
+    Caso contrário, a resposta padrão é sempre texto.
     """
-    if message_type == "audioMessage":
-        return True
-
-    # Nunca áudio para conteúdo técnico longo
-    if intent in ("pmoc", "consultoria") or outcome in ("reuniao_projeto",):
-        return False
-
-    # Áudio para saudação / qualificação / agendamento
-    import re
-    text_lower = user_text.lower()
-    for kw in _AUDIO_INTENT_KEYWORDS:
-        if re.search(r'\b' + re.escape(kw) + r'\b', text_lower):
-            return True
-
-    return False
+    return message_type == "audioMessage"
 
 
 _tts = TTSService()
