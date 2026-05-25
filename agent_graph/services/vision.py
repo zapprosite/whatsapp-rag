@@ -7,30 +7,37 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Groq suporta llama-3.2-11b-vision-preview (multimodal)
-# Qwen 2.5 VL via HF como fallback
 _GROQ_VISION_MODEL = "llama-3.2-11b-vision-preview"
 _GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-_HF_QWEN_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 _TIMEOUT = 8.0
 
 _HVAC_VISION_PROMPT = (
-    "Você é um técnico de refrigeração e climatização HVAC da Refrimix Tecnologia. "
-    "Analise a imagem e descreva: (1) o equipamento mostrado, se identificável; "
-    "(2) o problema ou dano visível; (3) possível causa. "
-    "Seja direto e técnico. Responda em português brasileiro."
+    "Você é um técnico de refrigeração e climatização HVAC da Refrimix Tecnologia.\n"
+    "Analise a imagem fornecida com atenção técnica absoluta. Identifique com precisão:\n"
+    "1. Se for uma etiqueta/placa de identificação técnica do fabricante (etiqueta de ar condicionado, evaporadora, condensadora, compressor, etc.):\n"
+    "   - Extraia a MARCA/FABRICANTE exata (ex: Midea, LG, Springer Carrier, Daikin, Elgin, Samsung, Gree, Fujitsu, Consul, Electrolux).\n"
+    "   - Extraia o MODELO exato.\n"
+    "   - Extraia a CAPACIDADE (BTUs ou kW).\n"
+    "   - Extraia o NÚMERO DE SÉRIE se estiver visível.\n"
+    "   - Extraia o gás refrigerante e tensão/voltagem.\n"
+    "2. Se for um equipamento instalado ou com problema:\n"
+    "   - Descreva o equipamento mostrado, marca e tipo (Split, Janela, Cassete, Piso-Teto).\n"
+    "   - Descreva o problema, dano ou anomalia visível.\n"
+    "   - Apresente possíveis causas técnicas.\n"
+    "Seja extremamente preciso, direto e profissional. Responda em português brasileiro."
 )
 
 
 class VisionService:
-    """Análise de imagens HVAC via modelo multimodal (Groq Vision ou HF Qwen 2.5 VL)."""
+    """Análise de imagens HVAC via modelo multimodal (Groq Vision ou local llama.cpp Qwen 2.5 VL)."""
 
     def __init__(self) -> None:
         self._groq_key = os.getenv("GROQ_API_KEY", "")
-        self._hf_key = os.getenv("HF_TOKEN", os.getenv("HUGGINGFACE_TOKEN", ""))
         self._evo_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
         self._evo_key = os.getenv("EVOLUTION_API_KEY", os.getenv("AUTHENTICATION_API_KEY", ""))
         self._evo_instance = os.getenv("EVOLUTION_INSTANCE", "RefrimixLead")
+        self._local_qwen_url = os.getenv("LOCAL_QWEN_BASE_URL", "http://127.0.0.1:8010/v1").rstrip("/")
+        self._local_qwen_model = os.getenv("LOCAL_QWEN_MODEL", "qwen2.5-vl-7b-instruct")
 
     async def _fetch_image_b64(
         self,
@@ -70,15 +77,54 @@ class VisionService:
                 raise RuntimeError(f"Evolution API não retornou base64 de imagem: {data}")
             return b64
 
-    async def _analyze_hf(self, image_b64: str, caption: str) -> str:
-        """Fallback: Qwen 2.5 VL."""
-        base_url = "http://127.0.0.1:8011/v1"
-        model = "qwen2.5-vl-7b-instruct"
-        
+    async def _analyze_groq(self, image_b64: str, caption: str) -> str:
+        """Primary: Groq Vision (llama-3.2-11b-vision-preview)."""
+        if not self._groq_key:
+            raise RuntimeError("GROQ_API_KEY não configurado")
+
         user_text = _HVAC_VISION_PROMPT
         if caption:
             user_text += f"\nLegenda do usuário: {caption}"
-            
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                ],
+            }
+        ]
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                _GROQ_CHAT_URL,
+                headers={
+                    "Authorization": f"Bearer {self._groq_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": _GROQ_VISION_MODEL,
+                    "messages": messages,
+                    "max_tokens": 512,
+                    "temperature": 0.2,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("choices"):
+                raise RuntimeError(f"Groq Vision sem choices: {data}")
+            return data["choices"][0]["message"]["content"].strip()
+
+    async def _analyze_local_qwen(self, image_b64: str, caption: str) -> str:
+        """Fallback: Local Qwen 2.5 VL via llamacpp."""
+        user_text = _HVAC_VISION_PROMPT
+        if caption:
+            user_text += f"\nLegenda do usuário: {caption}"
+
         messages = [
             {
                 "role": "user",
@@ -91,12 +137,12 @@ class VisionService:
 
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
-                f"{base_url}/chat/completions",
+                f"{self._local_qwen_url}/chat/completions",
                 headers={"Content-Type": "application/json"},
                 json={
-                    "model": model,
+                    "model": self._local_qwen_model,
                     "messages": messages,
-                    "max_tokens": 300,
+                    "max_tokens": 512,
                     "temperature": 0.2,
                     "frequency_penalty": 0.5,
                 },
@@ -122,12 +168,21 @@ class VisionService:
             logger.warning(f"Vision: falhou ao buscar imagem {image_url!r}: {e}")
             return caption or "Imagem não processada."
 
+        # 1. Tenta primeiro Groq Vision (OCR avançado e ultra rápido)
         try:
-            result = await self._analyze_hf(image_b64, caption)
-            logger.info(f"Vision (HF): {result[:80]!r}")
+            result = await self._analyze_groq(image_b64, caption)
+            logger.info(f"Vision (Groq): {result[:80]!r}")
             return result
         except Exception as e:
-            logger.error(f"Vision HF também falhou: {e}")
+            logger.warning(f"Vision: Groq falhou, tentando fallback local: {e}")
+
+        # 2. Fallback para local llama.cpp Qwen 2.5 VL
+        try:
+            result = await self._analyze_local_qwen(image_b64, caption)
+            logger.info(f"Vision (Local Qwen): {result[:80]!r}")
+            return result
+        except Exception as e:
+            logger.error(f"Vision Local Qwen também falhou: {e}")
             return caption or "Não foi possível analisar a imagem."
 
 

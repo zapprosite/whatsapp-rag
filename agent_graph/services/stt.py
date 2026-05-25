@@ -81,7 +81,12 @@ class STTService:
                 _GROQ_AUDIO_URL,
                 headers={"Authorization": f"Bearer {self._groq_key}"},
                 files={"file": (filename, audio_bytes, "audio/ogg")},
-                data={"model": _WHISPER_MODEL, "language": "pt", "response_format": "json"},
+                data={
+                    "model": _WHISPER_MODEL,
+                    "language": "pt",
+                    "response_format": "json",
+                    "prompt": "Will da Refrimix, ar condicionado split, Midea, LG, Springer Carrier, Daikin, Elgin, Samsung, Gree, Fujitsu, Consul, Electrolux, PMOC, inverter, BTUs, higienização, orçamento, Guarujá, Santos.",
+                },
             )
             resp.raise_for_status()
             data = resp.json()
