@@ -103,58 +103,35 @@ whatsapp-rag/
 
 ---
 
-## Variáveis de Ambiente (`.env`)
+## Variáveis de Ambiente e Vault
+
+O `.env.example` é propositalmente mascarado com `{SECRET}`. Esse placeholder é uma defesa contra vazamento por assistentes, agentes e revisões apressadas; não substitua por exemplos realistas de token, senha, telefone, host interno ou URL com credencial.
+
+Valores reais ficam somente em `.env`, `.env.local`, vault ou configuração local do operador. Esses arquivos são ignorados pelo Git. O contrato operacional fica em [env.schema.md](env.schema.md), com tipo, obrigatoriedade, default seguro, origem e categoria de cada variável.
+
+Fluxo seguro:
+
+```bash
+scripts/env-vault.sh edit
+scripts/env-vault.sh sync
+.venv/bin/python scripts/validate-env.py --env-file .env
+```
+
+`scripts/env-vault.sh sync` atualiza o `.env.example` mantendo valores mascarados. A validação mostra apenas nomes ausentes ou mascarados; ela nunca imprime tokens, senhas, URLs completas, telefones ou chaves.
+
+Regras para agentes:
+
+- Não remover `{SECRET}` do `.env.example`.
+- Não transformar `.env.example` em arquivo com segredos realistas.
+- Não pedir segredo real ao operador em chat quando a validação por nome for suficiente.
+- Não imprimir `.env`, `.env.local`, token, senha, URL com senha, API key ou chave SSH.
+- Em diagnósticos, listar somente nomes de variáveis faltantes.
+
+No Compose, segredos da Evolution API devem vir do ambiente:
 
 ```env
-# Evolution API
-AUTHENTICATION_API_KEY=sua_chave
-SERVER_URL=https://seu-servidor.com
-EVOLUTION_API_URL=http://localhost:8080
-EVOLUTION_INSTANCE=RefrimixLead
-
-# LLM
-MINIMAX_API_KEY=sk-...
-MINIMAX_MODEL=MiniMax-M2.7
-GROQ_API_KEY=gsk_...
-
-# Infraestrutura
-REDIS_URL=redis://192.168.15.83:6379
-QDRANT_URL=http://127.0.0.1:6333
-QDRANT_COLLECTION=hermes_hvac_rag_service_staging
-DATABASE_URL=postgresql://USER:PASS@192.168.15.83:5432/whatsapp_rag
-
-# Alertas humanos / gerente
-OWNER_PHONE=5513996659382
-OWNER_ALERTS_ENABLED=1
-OWNER_HIGH_VALUE_ALERTS_ENABLED=1
-OWNER_RECEIVE_AGENDA_DIGEST=0
-
-# Grupo operacional da agenda
-AGENDA_GROUP_ENABLED=1
-AGENDA_GROUP_NAME=Agenda Refrimix
-AGENDA_GROUP_JID=
-AGENDA_GROUP_DIGEST_TIMEZONE=America/Sao_Paulo
-AGENDA_GROUP_MORNING_DIGEST_HOUR=7
-AGENDA_GROUP_NIGHT_DIGEST_HOUR=20
-
-# Agenda opcional
-GOOGLE_CALENDAR_ENABLED=0
-GOOGLE_CALENDAR_ID=
-GOOGLE_SERVICE_ACCOUNT_FILE=
-GOOGLE_CALENDAR_TIMEZONE=America/Sao_Paulo
-
-# Bot (opcional)
-BOT_OFF_MESSAGE=Oi! Estou em atendimento agora, te respondo em breve 🙂
-MANUAL_TAKEOVER_TTL_SECONDS=86400
-
-# Voz / TTS PC1
-TTS_ENGINE=chatterbox
-TTS_LOCALE=pt-BR
-OMNIVOICE_URL=http://127.0.0.1:8202
-CHATTERBOX_URL=http://127.0.0.1:8200
-TTS_CHATTERBOX_LANGUAGE=pt
-TTS_ALLOW_CHATTERBOX_PTBR=1
-SSH_HOST_PC1=will-zappro@192.168.15.83
+AUTHENTICATION_API_KEY={SECRET}
+EVOLUTION_DATABASE_URL={SECRET}
 ```
 
 ---
@@ -172,17 +149,17 @@ O bot diferencia três situações antes de responder:
 Quando um humano assumir um contato, pause a IA só para aquele telefone:
 
 ```bash
-curl -X POST http://localhost:8000/bot/takeover/5513999999999
-curl http://localhost:8000/bot/takeover/5513999999999
-curl -X POST http://localhost:8000/bot/release/5513999999999
+curl -X POST http://localhost:8000/bot/takeover/{TELEFONE_TESTE}
+curl http://localhost:8000/bot/takeover/{TELEFONE_TESTE}
+curl -X POST http://localhost:8000/bot/release/{TELEFONE_TESTE}
 ```
 
 Contrato Redis equivalente:
 
 ```bash
-redis-cli SETEX manual_takeover:5513999999999 86400 1
-redis-cli GET manual_takeover:5513999999999
-redis-cli DEL manual_takeover:5513999999999
+redis-cli SETEX manual_takeover:{TELEFONE_TESTE} 86400 1
+redis-cli GET manual_takeover:{TELEFONE_TESTE}
+redis-cli DEL manual_takeover:{TELEFONE_TESTE}
 ```
 
 Enquanto `manual_takeover:{phone}=1`, o worker registra `Humano assumiu; IA pausada para este contato` e não chama o LangGraph nem envia resposta automática.
@@ -392,7 +369,7 @@ Quando o cliente já fechou e voltar no WhatsApp, cadastre o serviço para o bot
 
 ```bash
 .venv/bin/python scripts/customer-service.py upsert \
-  --phone 5513999999999 \
+  --phone {TELEFONE_TESTE} \
   --service instalacao \
   --status scheduled \
   --address "Santos" \
@@ -403,7 +380,7 @@ Quando o cliente já fechou e voltar no WhatsApp, cadastre o serviço para o bot
 Para encerrar:
 
 ```bash
-.venv/bin/python scripts/customer-service.py close --phone 5513999999999
+.venv/bin/python scripts/customer-service.py close --phone {TELEFONE_TESTE}
 ```
 
 ### Testar sem WhatsApp
@@ -434,7 +411,7 @@ Os antigos scripts soltos da raiz foram consolidados em `sre.probes`. Eles são 
 .venv/bin/python -m sre.probes webhook-stress --requests 30 --concurrency 10
 
 # Endpoints de audio da Evolution API
-EVOLUTION_API_KEY=... .venv/bin/python -m sre.probes evolution-audio --phone 5513996659382
+EVOLUTION_API_KEY={SECRET} .venv/bin/python -m sre.probes evolution-audio --phone {TELEFONE_TESTE}
 
 # Auditoria PC2 + TTS PC1 (OmniVoice/Chatterbox/vozes)
 .venv/bin/python -m sre.probes tts-audit

@@ -6,9 +6,9 @@ services:
     network_mode: host
     environment:
       - SERVER_PORT=8080
-      - AUTHENTICATION_API_KEY=429683C4C977415CAAFCCE10F7D57E11
-      - DATABASE_URL=postgresql://evo_user:evo_secure_2026@100.66.232.72:5432/evolution_api
-      - DATABASE_CONNECTION_URI=postgresql://evo_user:evo_secure_2026@100.66.232.72:5432/evolution_api
+      - AUTHENTICATION_API_KEY=${AUTHENTICATION_API_KEY}
+      - DATABASE_URL=${EVOLUTION_DATABASE_URL}
+      - DATABASE_CONNECTION_URI=${EVOLUTION_DATABASE_URL}
       - DATABASE_PROVIDER=postgresql
       - CACHE_REDIS_ENABLED=false
       - CACHE_LOCAL_ENABLED=true
