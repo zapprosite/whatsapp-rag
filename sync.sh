@@ -175,7 +175,7 @@ stage_operational_files() {
     CLAUDE.md GUIDE_REFINAMENTO.md README.md AGENTS.md \
     .gitattributes .rules/ orcamento_teste.pdf \
     .context/docs/*.md docs/*.md \
-    sync.sh git.sh bot.sh refinar.py refinar_llm.py scripts/ \
+    sync.sh git.sh bot.sh refinar.py refinar_llm.py refinar_tts.py scripts/ \
     requirements.txt pytest.ini docker-compose.yml \
     agent_graph/ app/ qdrant/ prisma/ sre/ tests/ \
     .env.example prisma/.env.example 2>/dev/null || true
