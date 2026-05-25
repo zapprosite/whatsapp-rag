@@ -114,6 +114,11 @@ PTBR_SP_BLOCKED_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bvisita\s+t[eé]cnica\s+gratuita\b", "política comercial inválida: use análise técnica de R$50 abatível"),
     (r"\bvisita\s+gratuita\b", "política comercial inválida: use análise técnica de R$50 abatível"),
     (r"\b(?:breakdown|budget|labor|client-ready|required|must)\b", "inglês exposto em copy de cliente"),
+    (r"\bmucho[sa]?\b", "espanhol em copy de cliente: use 'muito/muitos/muitas'"),
+    (r"\bequipo[sa]?\b", "espanhol em copy de cliente: use 'equipamento/equipamentos'"),
+    (r"\bbueno\b", "espanhol em copy de cliente"),
+    (r"\bgracias\b", "espanhol em copy de cliente"),
+    (r"\bpor\s+favor\b(?=.*\b(usted|tu[^d])\b)", "espanhol em copy de cliente"),
 )
 
 PTBR_NEXT_STEP_PATTERNS: tuple[str, ...] = (
