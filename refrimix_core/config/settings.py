@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigConfig
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class RefrimixSettings(BaseSettings):
