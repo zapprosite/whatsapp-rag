@@ -1,0 +1,166 @@
+{
+  "version": "1.0",
+  "description": "Biblioteca de casos de teste para o loop de refinamento automático",
+  "cases": [
+    {
+      "id": "inst_001",
+      "scenario": "Quero orçamento pra instalar um ar split",
+      "intent": "instalacao",
+      "service": "instalacao",
+      "expected_score": 8.0,
+      "tags": ["instalacao", "orcamento", "split"]
+    },
+    {
+      "id": "inst_002",
+      "scenario": "Qual o preço pra instalar split em Santos?",
+      "intent": "instalacao",
+      "service": "instalacao",
+      "expected_score": 8.5,
+      "tags": ["instalacao", "preco", "santos"]
+    },
+    {
+      "id": "inst_003",
+      "scenario": "Preciso instalar 2 splits na minha casa",
+      "intent": "instalacao",
+      "service": "instalacao",
+      "expected_score": 7.5,
+      "tags": ["instalacao", "multiplos"]
+    },
+    {
+      "id": "hig_001",
+      "scenario": "Quanto custa pra fazer limpeza do ar?",
+      "intent": "higienizacao",
+      "service": "higienizacao",
+      "expected_score": 8.5,
+      "tags": ["higienizacao", "limpeza", "preco"]
+    },
+    {
+      "id": "hig_002",
+      "scenario": "Meu ar tá com cheiro ruim, precisa limpar",
+      "intent": "higienizacao",
+      "service": "higienizacao",
+      "expected_score": 8.0,
+      "tags": ["higienizacao", "cheiro"]
+    },
+    {
+      "id": "mant_001",
+      "scenario": "O ar condiciona está making barulho estranho",
+      "intent": "manutencao",
+      "service": "manutencao",
+      "expected_score": 7.5,
+      "tags": ["manutencao", "barulho", "problema"]
+    },
+    {
+      "id": "mant_002",
+      "scenario": "Split não tá gelando direito",
+      "intent": "manutencao",
+      "service": "manutencao",
+      "expected_score": 8.0,
+      "tags": ["manutencao", "nao-gela"]
+    },
+    {
+      "id": "mant_003",
+      "scenario": "O ar desliga sozinho depois de uns 10 minutos",
+      "intent": "manutencao",
+      "service": "manutencao",
+      "expected_score": 7.5,
+      "tags": ["manutencao", "desligando"]
+    },
+    {
+      "id": "pmoc_001",
+      "scenario": "Preciso do PMOC pra alvará da clínica",
+      "intent": "pmoc",
+      "service": "pmoc",
+      "expected_score": 8.0,
+      "tags": ["pmoc", "alvara", "clinica"]
+    },
+    {
+      "id": "pmoc_002",
+      "scenario": "Quando renova o PMOC do ar?",
+      "intent": "pmoc",
+      "service": "pmoc",
+      "expected_score": 8.5,
+      "tags": ["pmoc", "renovacao"]
+    },
+    {
+      "id": "orc_001",
+      "scenario": "Mandei orçamento e não tive resposta",
+      "intent": "orcamento",
+      "service": "orcamento",
+      "expected_score": 7.0,
+      "tags": ["orcamento", "sem-resposta"]
+    },
+    {
+      "id": "orc_002",
+      "scenario": "Quero saber se o orçamento ficou pronto",
+      "intent": "orcamento",
+      "service": "orcamento",
+      "expected_score": 7.5,
+      "tags": ["orcamento", "status"]
+    },
+    {
+      "id": "agenda_001",
+      "scenario": "Quero agendar uma visita técnica",
+      "intent": "agendamento",
+      "service": "agendamento",
+      "expected_score": 8.0,
+      "tags": ["agendamento", "visita"]
+    },
+    {
+      "id": "agenda_002",
+      "scenario": "Tem horário disponível essa semana?",
+      "intent": "agendamento",
+      "service": "agendamento",
+      "expected_score": 7.5,
+      "tags": ["agendamento", "horario"]
+    },
+    {
+      "id": "preco_001",
+      "scenario": "Quanto custa pra instalar um ar de 12000 BTUs?",
+      "intent": "instalacao",
+      "service": "instalacao",
+      "expected_score": 8.0,
+      "tags": ["preco", "btu", "instalacao"]
+    },
+    {
+      "id": "preco_002",
+      "scenario": "Tá incluso visita no orçamento?",
+      "intent": "duvida",
+      "service": "duvida",
+      "expected_score": 7.0,
+      "tags": ["preco", "visita"]
+    },
+    {
+      "id": "local_001",
+      "scenario": "Vocês atendem em São Vicente?",
+      "intent": "duvida",
+      "service": "duvida",
+      "expected_score": 8.5,
+      "tags": ["local", "atendimento", "sao-vicente"]
+    },
+    {
+      "id": "local_002",
+      "scenario": "Fazem instalação no Guarujá?",
+      "intent": "duvida",
+      "service": "duvida",
+      "expected_score": 8.5,
+      "tags": ["local", "guaruja"]
+    },
+    {
+      "id": "recl_001",
+      "scenario": "A instalação que fizeram tá com problema",
+      "intent": "reclamacao",
+      "service": "reclamacao",
+      "expected_score": 7.0,
+      "tags": ["reclamacao", "problema"]
+    },
+    {
+      "id": "recl_002",
+      "scenario": "O técnico não apareceu no horário combinado",
+      "intent": "reclamacao",
+      "service": "reclamacao",
+      "expected_score": 6.5,
+      "tags": ["reclamacao", "atraso"]
+    }
+  ]
+}
