@@ -91,6 +91,16 @@ require_remote() {
   git remote get-url "$remote" >/dev/null 2>&1 || fail "remoto $label '$remote' não existe"
 }
 
+verify_context_policy() {
+  local unexpected
+  unexpected="$(git ls-files --others --exclude-standard .context | grep -v '^.context/docs/' || true)"
+  if [ -n "$unexpected" ]; then
+    echo "Arquivos fora da política em .context:" >&2
+    printf '%s\n' "$unexpected" >&2
+    fail "mova, ignore ou versione explicitamente os arquivos acima antes do sync"
+  fi
+}
+
 generate_claude() {
   [ -d "$DOCS_DIR" ] || fail "diretório $DOCS_DIR não encontrado"
 
@@ -218,6 +228,7 @@ main() {
     return
   fi
 
+  verify_context_policy
   generate_claude
 
   if [ "$DO_GIT" != "1" ]; then
