@@ -1,0 +1,225 @@
+{
+  "intents": [
+    {
+      "intent": "instalacao",
+      "label": "Instalação de ar-condicionado",
+      "risk_default": "medium",
+      "service_type": "instalacao",
+      "human_handoff": false,
+      "required_questions": ["Bairro/cidade?", "Aparelho comprado?", "Quantos BTUs?"],
+      "nao_pode_dizer": ["passo valor fechado", "tenho disponibilidade"],
+      "canonical_response": "Perfeito. Pra instalação, o valor depende de alguns detalhes. Me fala: qual bairro fica? O aparelho já está comprado? E sabe quantos BTUs precisa pro ambiente?",
+      "next_action_hint": "collect_bairro_and_aparelho_details",
+      "interactive_type": "buttons",
+      "interactive_config": {
+        "buttons": [
+          {"id": "bairro", "label": "Informar bairro"},
+          {"id": "comprar_aparelho", "label": "Vou comprar o aparelho"},
+          {"id": "ja_comprado", "label": "Já tenho o aparelho"},
+          {"id": "nao_sei_btus", "label": "Não sei quantos BTUs"}
+        ]
+      }
+    },
+    {
+      "intent": "higienizacao",
+      "label": "Higienização",
+      "risk_default": "low",
+      "service_type": "higienizacao",
+      "human_handoff": false,
+      "required_questions": ["Quantos aparelhos?", "Bairro/cidade?"],
+      "nao_pode_dizer": ["limpeza gratuita", "tenho vaga"],
+      "canonical_response": "Higienização de split padrão fica R$200 por aparelho — o trabalho inclui limpeza das partes internas, filtro e bandeja. Se o aparelho não estiver climatizando, vira análise de manutenção por R$50. Quantos aparelhos são?",
+      "next_action_hint": "collect_quantidade_aparelhos",
+      "interactive_type": "buttons",
+      "interactive_config": {
+        "buttons": [
+          {"id": "quantidade_1a3", "label": "1 a 3 aparelhos"},
+          {"id": "quantidade_4a6", "label": "4 a 6 aparelhos"},
+          {"id": "mais_de_6", "label": "Mais de 6"}
+        ]
+      }
+    },
+    {
+      "intent": "nao_gela",
+      "label": "Ar não gela",
+      "risk_default": "medium",
+      "service_type": "diagnostico",
+      "human_handoff": false,
+      "required_questions": ["Liga normal?", "Condensadora funciona?", "Código de erro?"],
+      "nao_pode_dizer": ["é falta de gás", "o compressor queimou", "passo valor fechado"],
+      "canonical_response": "Entendi. Quando o ar liga mas não gela, pode ser coisa simples como condensadora suja ou falta de gás, mas também pode envolver placa ou sensor. Pra eu te passar uma orientação sem errar, me confirma: ele liga normal, a condensadora funciona e aparece algum código no visor?",
+      "next_action_hint": "collect_nao_gela_symptoms",
+      "interactive_type": null,
+      "interactive_config": null
+    },
+    {
+      "intent": "pinga_agua",
+      "label": "Pingando água",
+      "risk_default": "low",
+      "service_type": "dreno",
+      "human_handoff": false,
+      "required_questions": ["Foto do aparelho?", "Quando pinga?"],
+      "nao_pode_dizer": ["é vazamento com certeza"],
+      "canonical_response": "Entendi. Pingamento pode ser dreno obstruído, sujeira na bandeja, desnível ou até instalação. Dá pra resolver, mas precisa avaliar certinho. Me manda uma foto do aparelho e me fala se pinga logo que liga ou depois de um tempo.",
+      "next_action_hint": "collect_foto_and_timing",
+      "interactive_type": "buttons",
+      "interactive_config": {
+        "buttons": [
+          {"id": "foto", "label": "Enviar foto"},
+          {"id": "nao_consigo_foto", "label": "Não consigo enviar foto"}
+        ]
+      }
+    },
+    {
+      "intent": "disjuntor_cai",
+      "label": "Disjuntor cai / Fio esquenta",
+      "risk_default": "high",
+      "service_type": "diagnostico_eletrico",
+      "human_handoff": true,
+      "required_questions": ["Equipamento desligado?", "Foto do disjuntor?", "Bairro/cidade?"],
+      "nao_pode_dizer": ["serve só chamar", "não precisa evaluação"],
+      "canonical_response": "Entendi. Nesse caso é melhor manter o equipamento desligado até avaliar, porque pode ser sobrecarga, mau contato ou circuito fora do padrão. Me manda uma foto do disjuntor e do aparelho, e me fala o bairro/cidade pra eu verificar o melhor caminho.",
+      "next_action_hint": "handoff_to_human_urgent",
+      "interactive_type": "buttons",
+      "interactive_config": {
+        "buttons": [
+          {"id": "foto", "label": "Enviar foto"},
+          {"id": "nao_consigo_foto", "label": "Não consigo enviar foto"},
+          {"id": "falar_atendente", "label": "Prefiro falar com atendente"}
+        ]
+      }
+    },
+    {
+      "intent": "cheiro_ruim",
+      "label": "Cheiro ruim / Rinite",
+      "risk_default": "low",
+      "service_type": "higienizacao_tecnica",
+      "human_handoff": false,
+      "required_questions": ["Bairro?", "Marca/capacidade do aparelho?"],
+      "nao_pode_dizer": ["é mofo com certeza"],
+      "canonical_response": "Entendi. Quando o ar fica com cheiro ruim ou sensação de ar pesado, normalmente a higienização técnica resolve, principalmente se faz tempo sem manutenção. Me fala o bairro e, se souber, a marca e capacidade do aparelho.",
+      "next_action_hint": "collect_bairro_e_aparelho",
+      "interactive_type": null,
+      "interactive_config": null
+    },
+    {
+      "intent": "barulho",
+      "label": "Barulho anormal",
+      "risk_default": "medium",
+      "service_type": "diagnostico",
+      "human_handoff": false,
+      "required_questions": ["Que tipo de barulho?", "Quando acontece?"],
+      "nao_pode_dizer": ["é compressor queimado"],
+      "canonical_response": "Entendi. Barulho anormal pode ser vibração da evaporadora, turbina com sujeira, peça solta ou até problema no compressor. Me descreve que tipo de barulho é e se acontece o tempo todo ou só em determinadas situações.",
+      "next_action_hint": "collect_barulho_description",
+      "interactive_type": null,
+      "interactive_config": null
+    },
+    {
+      "intent": "nao_liga",
+      "label": "Aparelho não liga",
+      "risk_default": "medium",
+      "service_type": "diagnostico",
+      "human_handoff": false,
+      "required_questions": ["Tomada tem energia?", "Disjuntor ligado?", "Código no visor?"],
+      "nao_pode_dizer": ["a placa queimou"],
+      "canonical_response": "Entendi. Aparelho sem ligar pode ser falta de energia, disjuntor desarmado, placa ou fonte. Me confirma: a tomada tem energia? O disjuntor está ligado? Algum código no visor?",
+      "next_action_hint": "collect_nao_liga_symptoms",
+      "interactive_type": null,
+      "interactive_config": null
+    },
+    {
+      "intent": "servicos",
+      "label": "Lista de serviços",
+      "risk_default": "low",
+      "service_type": "atendimento",
+      "human_handoff": false,
+      "required_questions": [],
+      "nao_pode_dizer": [],
+      "canonical_response": "Trabalhamos com instalação, manutenção, higienização e visita técnica para ar-condicionado. Também atendemos casos maiores como projeto, infraestrutura elétrica e equipamentos comerciais. Os serviços mais comuns: 1. Instalação simples: a partir de R$850. 2. Higienização: R$200/aparelho. 3. Manutenção/conserto: visita R$50. 4. Visita técnica de análise. Me fala qual você precisa hoje.",
+      "next_action_hint": "await_service_selection",
+      "interactive_type": "list",
+      "interactive_config": {
+        "sections": [
+          {
+            "title": "Serviços",
+            "rows": [
+              {"id": "instalacao", "title": "Instalação", "description": "A partir de R$850"},
+              {"id": "higienizacao", "title": "Higienização", "description": "R$200/aparelho"},
+              {"id": "manutencao", "title": "Manutenção/Conserto", "description": "Visita R$50"},
+              {"id": "visita_tecnica", "title": "Visita Técnica", "description": "Análise do equipamento"}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "intent": "orcamento",
+      "label": "Solicitar orçamento",
+      "risk_default": "medium",
+      "service_type": "atendimento",
+      "human_handoff": false,
+      "required_questions": ["Bairro/cidade?", "Aparelho?", "BTUs?"],
+      "nao_pode_dizer": ["custa R$", "fica R$", "valor fechado"],
+      "canonical_response": "Entendi que você quer orçamento. Pra eu passar um valor que faça sentido, preciso de alguns dados: qual bairro fica? O aparelho você já tem ou vai comprar? E sabe quantos BTUs大致?",
+      "next_action_hint": "collect_orcamento_details",
+      "interactive_type": "buttons",
+      "interactive_config": {
+        "buttons": [
+          {"id": "ja_tem_aparelho", "label": "Já tenho o aparelho"},
+          {"id": "vou_comprar", "label": "Vou comprar"},
+          {"id": "nao_sei_btus", "label": "Não sei quantos BTUs"}
+        ]
+      }
+    },
+    {
+      "intent": "visita_tecnica",
+      "label": "Agendar visita técnica",
+      "risk_default": "medium",
+      "service_type": "visita",
+      "human_handoff": false,
+      "required_questions": ["Bairro/cidade?", "Prefência de dia?", "Período?"],
+      "nao_pode_dizer": ["tenho disponibilidade", "visita tomorrow"],
+      "canonical_response": "Pra agendar a visita técnica, preciso de alguns dados: qual bairro/cidade? Qualquer dia preference? Melhor período: manhã, tarde ou noite? E me conta o problema que está acontecendo.",
+      "next_action_hint": "collect_visita_tecnica_details",
+      "interactive_type": "buttons",
+      "interactive_config": {
+        "buttons": [
+          {"id": "manha", "label": "Manhã"},
+          {"id": "tarde", "label": "Tarde"},
+          {"id": "noite", "label": "Noite"},
+          {"id": "qualquer_hora", "label": "Qualquer horário"}
+        ]
+      }
+    },
+    {
+      "intent": "welcome",
+      "label": "Boas-vindas",
+      "risk_default": "low",
+      "service_type": "atendimento",
+      "human_handoff": false,
+      "required_questions": [],
+      "nao_pode_dizer": ["como posso ajudar?", "precisa de ajuda?"],
+      "canonical_response": "Bom dia, tudo joia? Pra mim te ajudar, me conta o que você precisa — instalação, manutenção, higienização ou alguma coisa específica com o aparelho.",
+      "next_action_hint": "await_intent_selection",
+      "interactive_type": "list",
+      "interactive_config": {
+        "sections": [
+          {
+            "title": "O que você precisa?",
+            "rows": [
+              {"id": "instalacao", "title": "Instalação de ar-condicionado"},
+              {"id": "higienizacao", "title": "Higienização"},
+              {"id": "nao_gela", "title": "Ar não gela"},
+              {"id": "pinga_agua", "title": "Pingando água"},
+              {"id": "disjuntor_cai", "title": "Disjuntor cai / Fio esquenta"},
+              {"id": "orcamento", "title": "Solicitar orçamento"},
+              {"id": "visita_tecnica", "title": "Agendar visita técnica"},
+              {"id": "outro", "title": "Outro problema"}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

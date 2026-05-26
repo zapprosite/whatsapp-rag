@@ -1,0 +1,18 @@
+[lint]
+extend-select = ["E", "F", "I", "N", "W", "S", "B", "C4", "UP"]
+extend-ignore = ["S101", "PLR0913", "PLR2004"]
+
+[line-length]
+max-line-length = 120
+
+[files]
+exclude = [
+    "*.json",
+    "*.yaml",
+    "*.yml",
+    "*.toml",
+    "*.md",
+    ".ruff_cache/**",
+    "__pycache__/**",
+    "*.pyc",
+]
