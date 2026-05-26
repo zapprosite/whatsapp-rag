@@ -67,10 +67,11 @@ def test_calendar_request_with_requirements_offers_slots(monkeypatch):
             "cidade_bairro": "Guarujá",
             "btus": "12000",
             "fotos": {"local_interno": True, "local_externo": True},
+            "instalacao": {"ponto_eletrico_exclusivo": True, "tubulacao_existente": True, "distancia_aproximada": "3"},
         }
     )
     state["missing_fields"] = []
-    state["do_not_ask"] = ["cidade_bairro", "btus", "foto_local_interno", "foto_local_externo"]
+    state["do_not_ask"] = ["cidade_bairro", "btus", "foto_local_interno", "foto_local_externo", "ponto_eletrico_exclusivo", "tubulacao_existente", "distancia_aproximada"]
     state["message_understanding"] = {"kind": "calendar_request", "asks_calendar": True}
 
     result = run(plan_next_action(state))
@@ -100,11 +101,12 @@ def test_window_preference_complete_offers_slots_not_confirmation(monkeypatch):
             "cidade_bairro": "Guarujá",
             "btus": "12000",
             "fotos": {"local_interno": True, "local_externo": True},
+            "instalacao": {"ponto_eletrico_exclusivo": True, "tubulacao_existente": True, "distancia_aproximada": "3"},
             "appointment": {"preferred_window": "tarde", "confirmed_window": False},
         }
     )
     state["missing_fields"] = []
-    state["do_not_ask"] = ["cidade_bairro", "btus", "foto_local_interno", "foto_local_externo"]
+    state["do_not_ask"] = ["cidade_bairro", "btus", "foto_local_interno", "foto_local_externo", "ponto_eletrico_exclusivo", "tubulacao_existente", "distancia_aproximada"]
     state["message_understanding"] = {"kind": "window_preference", "window": "tarde"}
 
     result = run(plan_next_action(state))

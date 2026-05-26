@@ -80,3 +80,40 @@ def test_side_effect_dispatcher_inserts_event_only_when_enabled(monkeypatch):
 
     assert insert_calls
     assert result["lead_state"]["appointment"]["event_status"] == "created"
+
+
+def test_side_effect_dispatcher_sends_agenda_group_when_event_creation_disabled(monkeypatch):
+    agenda_calls: list[str] = []
+
+    async def fake_agenda_message(text):
+        agenda_calls.append(text)
+        return True
+
+    async def fake_redis_get(key):
+        del key
+        return None
+
+    async def fake_redis_set(key, value, ex=None):
+        del key, value, ex
+        return None
+
+    monkeypatch.setenv("GOOGLE_CALENDAR_CREATE_EVENTS", "0")
+    monkeypatch.setattr(dispatcher_module, "send_agenda_group_message", fake_agenda_message)
+    monkeypatch.setattr(dispatcher_module, "redis_get", fake_redis_get)
+    monkeypatch.setattr(dispatcher_module, "redis_set", fake_redis_set)
+
+    state = {
+        "next_action": {
+            "type": "confirm_calendar_slot",
+            "selected_slot": {"label": "Amanhã 16:00", "start": "2026-05-27T16:00:00-03:00", "end": "2026-05-27T18:00:00-03:00"},
+            "side_effects": [{"type": "google_calendar_insert", "payload": {"slot_choice": 2}}],
+        },
+        "customer_data": {"phone": "+5513000000001"},
+        "lead_state": {"tipo_servico": "instalacao", "cidade_bairro": "Santos", "appointment": {}},
+        "messages": [],
+    }
+    result = run(dispatch_side_effects(state))
+
+    assert agenda_calls
+    assert "Agenda Refrimix" in agenda_calls[0]
+    assert result["lead_state"]["appointment"]["event_status"] == "pending_manual_confirmation"

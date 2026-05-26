@@ -2,49 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_graph.domain.commercial_router import decide_commercial_path
 from agent_graph.domain.stages import CalendarStage, ConversationStage
 from agent_graph.nodes.nodes import _normalize_service, _is_invalid_structured_value
 
 
 def has_requirements_for_calendar(lead_state: dict[str, Any], service: str | None) -> bool:
     service = _normalize_service(service or lead_state.get("tipo_servico"))
-    city = lead_state.get("cidade_bairro")
-    if _is_invalid_structured_value(city):
-        return False
-
-    fotos = lead_state.get("fotos") or {}
     appointment = lead_state.get("appointment") or {}
     if appointment.get("confirmed_window") and appointment.get("selected_slot"):
         return True
-
-    if service == "instalacao":
-        equipment_ok = any(
-            [
-                bool(lead_state.get("btus")),
-                bool(lead_state.get("modelo_aparelho")),
-                lead_state.get("aparelho_ja_comprado") is not None,
-            ]
-        )
-        return bool(fotos.get("local_interno") and fotos.get("local_externo") and equipment_ok)
-
-    if service in {"manutencao", "higienizacao"}:
-        manutencao = lead_state.get("manutencao") or {}
-        conserto = lead_state.get("conserto") or {}
-        return any(
-            [
-                bool(fotos.get("aparelho")),
-                manutencao.get("tempo_sem_manutencao") is not None,
-                manutencao.get("cheiro_ruim") is not None,
-                manutencao.get("pinga_agua") is not None,
-                conserto.get("liga") is not None,
-                conserto.get("gela") is not None,
-            ]
-        )
-
-    if service in {"pmoc", "consultoria", "projeto-central"}:
-        return bool(lead_state.get("tipo_imovel") or lead_state.get("high_value_project"))
-
-    return False
+    if service and _is_invalid_structured_value(lead_state.get("cidade_bairro")):
+        return False
+    decision = decide_commercial_path({**lead_state, "tipo_servico": service})
+    return bool(decision.can_schedule_now)
 
 
 def compute_calendar_stage(lead_state: dict[str, Any]) -> CalendarStage:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from agent_graph.domain.commercial_router import decide_commercial_path
+
 
 def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
@@ -69,20 +71,20 @@ def _has_minimum_data_for_appointment_guard(lead_state: dict[str, Any], service:
     city = lead_state.get("cidade_bairro")
     if _is_invalid_value(city):
         return False
+    decision = decide_commercial_path({**lead_state, "tipo_servico": service})
+    return bool(decision.can_schedule_now)
+
+
+def _has_installation_minimum_for_window_question(lead_state: dict[str, Any]) -> bool:
     fotos = lead_state.get("fotos") or {}
-    manutencao = lead_state.get("manutencao") or {}
-    conserto = lead_state.get("conserto") or {}
-    instalacao = lead_state.get("instalacao") or {}
-    if service in {"manutencao", "higienizacao"}:
-        return any([fotos.get("aparelho"), manutencao.get("pinga_agua") is not None, manutencao.get("cheiro_ruim") is not None, manutencao.get("tempo_sem_manutencao") is not None, conserto.get("liga") is not None, conserto.get("gela") is not None])
-    if service == "instalacao":
-        equipment_ok = any([
+    equipment_ok = any(
+        [
             lead_state.get("btus"),
             lead_state.get("modelo_aparelho"),
             lead_state.get("aparelho_ja_comprado") is not None,
-        ])
-        return bool(fotos.get("local_interno") and fotos.get("local_externo") and equipment_ok)
-    return True
+        ]
+    )
+    return bool(lead_state.get("cidade_bairro")) and bool(fotos.get("local_interno")) and bool(fotos.get("local_externo")) and bool(equipment_ok)
 
 
 def _validate_next_action_contract(response: str, state: dict[str, Any], text: str) -> list[str]:
@@ -265,7 +267,7 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
     # Pergunta de agenda antes dos requisitos mínimos de instalação
     schedule_ask_phrases = ("melhor periodo: manha ou tarde", "melhor período: manhã ou tarde", "manha ou tarde?", "manhã ou tarde?")
     if service == "instalacao" and any(phrase in text for phrase in schedule_ask_phrases):
-        if not _has_minimum_data_for_appointment_guard(lead_state, service):
+        if not _has_installation_minimum_for_window_question(lead_state):
             violations.append("schedule_before_requirements")
 
     violations.extend(_validate_next_action_contract(response, state, text))

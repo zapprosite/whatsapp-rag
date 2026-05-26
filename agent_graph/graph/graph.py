@@ -77,6 +77,7 @@ class AgentState(TypedDict):
     domain_disambiguation: dict[str, Any] | None
     selected_template: dict[str, Any] | None
     message_understanding: dict[str, Any] | None
+    commercial_decision: dict[str, Any] | None
     next_action: dict[str, Any] | None
     conversation_stage: str | None
     calendar_stage: str | None

@@ -24,9 +24,9 @@ def test_only_instalacao_and_higienizacao_have_fixed_price_paths():
     cleaning = nodes._direct_price_response("higienizacao", "quanto custa higienizar?")
     maintenance = nodes._direct_price_response("manutencao", "quanto custa consertar?")
 
-    assert install and "split" in install and "acesso simples" in install
-    assert install and "dreno" in install and "quadro de luz" in install
-    assert cleaning and "split" in cleaning and "R$200" in cleaning
+    assert install and "R$850" in install and "material e mão de obra" in install
+    assert install and "visita técnica de R$50" in install
+    assert cleaning and "split padrão" in cleaning and "R$200" in cleaning
     assert maintenance and "R$50" in maintenance and "abate" in maintenance
     assert "R$200" not in maintenance
 
@@ -80,7 +80,7 @@ def test_santos_installation_price_uses_850_for_simple_access():
 
     assert response
     assert "R$850" in response
-    assert "cidade" not in response.lower().split("?")[-1]
+    assert "material e mão de obra" in response
 
 
 def test_active_customer_service_is_answered_as_followup_not_new_sale():

@@ -57,6 +57,19 @@ async def dispatch_side_effects(state: dict[str, Any]) -> dict[str, Any]:
                 appointment["event_status"] = "created" if result else "failed"
                 if result:
                     appointment["calendar_event"] = result
+            else:
+                service = lead_state.get("tipo_servico") or state.get("service") or "atendimento"
+                slot = next_action.get("selected_slot") or {}
+                city = lead_state.get("cidade_bairro") or "local não informado"
+                text = (
+                    "*Agenda Refrimix*\n"
+                    "Confirmar atendimento manualmente.\n"
+                    f"Serviço: {service}\n"
+                    f"Local: {city}\n"
+                    f"Horário escolhido: {slot.get('label') or 'não informado'}"
+                )
+                await send_agenda_group_message(text)
+                appointment["event_status"] = "pending_manual_confirmation"
         elif effect_type == "tts_synthesize":
             if state.get("response_modality") == "audio" and not state.get("audio_bytes"):
                 text = state.get("tts_text") or ""

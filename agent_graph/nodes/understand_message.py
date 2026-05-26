@@ -69,6 +69,19 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
             "que dia",
         )
     )
+    asks_time_specific = any(
+        term in text
+        for term in (
+            "nao consegue me dizer um horario",
+            "não consegue me dizer um horário",
+            "consegue me dizer um horario",
+            "consegue me dizer um horário",
+            "me dizer um horario",
+            "me dizer um horário",
+        )
+    )
+    unavailable_photo = any(term in text for term in ("nao tenho foto", "não tenho foto", "sem foto", "nao tenho as fotos", "não tenho as fotos"))
+    unavailable_infra = any(term in text for term in ("nao tenho infra", "não tenho infra", "sem infra", "nao tenho infraestrutura", "não tenho infraestrutura", "nao tenho tubulacao", "não tenho tubulação"))
     asks_capability = any(
         term in text
         for term in (
@@ -125,7 +138,10 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
         "asks_process": asks_process,
         "asks_price": asks_price,
         "asks_calendar": asks_calendar,
+        "asks_time_specific": asks_time_specific,
         "asks_capability": asks_capability,
+        "unavailable_photo": unavailable_photo,
+        "unavailable_infra": unavailable_infra,
         "malicious": malicious,
     }
     return {"message_understanding": understanding}

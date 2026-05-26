@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from agent_graph.domain.commercial_router import decide_commercial_path
 from agent_graph.domain.actions import NextAction, make_action
 from agent_graph.domain.stage_engine import (
     compute_calendar_stage,
@@ -10,6 +11,7 @@ from agent_graph.domain.stage_engine import (
     has_requirements_for_calendar,
 )
 from agent_graph.nodes.nodes import (
+    _message_text,
     _important_missing_field_for_service,
     _normalize_service,
 )
@@ -20,6 +22,13 @@ def _slots_offered(lead_state: dict[str, Any]) -> bool:
     return bool((lead_state.get("appointment") or {}).get("offered_slots"))
 
 
+def _latest_user_text(state: dict[str, Any]) -> str:
+    messages = state.get("messages") or []
+    if not messages:
+        return ""
+    return _message_text(messages[-1])
+
+
 async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
     understanding = state.get("message_understanding") or {}
     customer_data = state.get("customer_data") or {}
@@ -28,7 +37,9 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
     missing_fields = list(state.get("missing_fields") or [])
     do_not_ask = list(state.get("do_not_ask") or [])
     appointment = lead_state.setdefault("appointment", {})
-    calendar_ready = has_requirements_for_calendar(lead_state, service)
+    user_text = _latest_user_text(state)
+    commercial_decision = decide_commercial_path({**lead_state, "tipo_servico": service}, user_text)
+    calendar_ready = has_requirements_for_calendar(lead_state, service) and bool(commercial_decision.can_schedule_now)
     calendar_stage = compute_calendar_stage(lead_state)
     conversation_stage = compute_conversation_stage(lead_state, understanding, customer_data)
     next_missing = _important_missing_field_for_service(service, missing_fields, do_not_ask, lead_state)
@@ -48,6 +59,13 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
         action = make_action("explain_process", service=service)
     elif understanding.get("kind") == "capability_question":
         action = make_action("answer_capability_question", service=service)
+    elif commercial_decision.owner_alert:
+        action = make_action(
+            "answer_question",
+            service=service,
+            answer_kind="commercial",
+            side_effects=[{"type": "send_owner_alert", "payload": {"reason": commercial_decision.reason or commercial_decision.path}}],
+        )
     elif slot_choice is not None and _slots_offered(lead_state):
         offered_slots = appointment.get("offered_slots") or []
         selected_slot = offered_slots[slot_choice - 1] if 0 < slot_choice <= len(offered_slots) else None
@@ -98,6 +116,17 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             action = make_action("ask_missing_field", service=service, missing_field=next_missing)
     elif understanding.get("asks_price"):
         action = make_action("answer_question", service=service, answer_kind="price", needs_rag=False)
+    elif understanding.get("unavailable_photo") or understanding.get("unavailable_infra") or understanding.get("asks_time_specific"):
+        if calendar_ready and understanding.get("asks_time_specific"):
+            slots = await suggest_slots(appointment.get("preferred_window"), lead_state)
+            appointment["offered_slots"] = slots
+            action = make_action(
+                "offer_calendar_slots",
+                service=service,
+                side_effects=[{"type": "google_calendar_freebusy", "payload": {"period": appointment.get("preferred_window")}}],
+            )
+        else:
+            action = make_action("answer_question", service=service, answer_kind="commercial", needs_rag=False)
     elif state.get("intent") == "unknown":
         action = make_action("fallback_recover_context", needs_rag=True)
     elif next_missing:
@@ -111,6 +140,7 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
     lead_state["conversation_stage"] = conversation_stage
     return {
         "lead_state": lead_state,
+        "commercial_decision": commercial_decision.to_dict(),
         "next_action": action,
         "calendar_stage": lead_state.get("calendar_stage"),
         "conversation_stage": lead_state.get("conversation_stage"),

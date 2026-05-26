@@ -5,6 +5,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
+from agent_graph.domain.commercial_router import decide_commercial_path
 import agent_graph.nodes.nodes as nodes_module
 from agent_graph.domain.actions import NextAction
 from agent_graph.nodes.nodes import (
@@ -38,6 +39,56 @@ def _missing_field_human(field: str | None) -> str:
         "btus": "a capacidade em BTUs ou o modelo do aparelho",
     }
     return mapping.get(field, "um detalhe importante")
+
+
+def _commercial_response(state: dict[str, Any], service: str | None, user_text: str, lead_state: dict[str, Any]) -> str:
+    decision = state.get("commercial_decision") or decide_commercial_path({**lead_state, "tipo_servico": service}, user_text).to_dict()
+    path = decision.get("path")
+    appointment = lead_state.get("appointment") or {}
+    preferred_window = appointment.get("preferred_window")
+
+    if path == "ask_basic_service":
+        return "Me confirma só qual serviço você precisa: instalação, higienização ou manutenção?"
+    if path == "fixed_installation_simple":
+        return (
+            "Para instalação simples costa/costa, até 3 metros, com ponto elétrico individual e acesso fácil, fica R$850 com material e mão de obra.\n\n"
+            f"{'Se quiser, eu já consulto a agenda.' if decision.get('can_schedule_now') else 'Se quiser, eu sigo com a próxima etapa.'}"
+        )
+    if path == "fixed_hygienization":
+        return (
+            "Higienização de split padrão fica R$200 por aparelho, desde que o equipamento esteja funcionando e instalado dentro do padrão.\n\n"
+            "Se ele não climatiza ou já apresenta defeito, aí o caminho correto é análise de manutenção por R$50."
+        )
+    if path == "project_quote":
+        return (
+            "Nesse cenário a gente trata como visita técnica ou projeto, a partir de R$50 nas proximidades, podendo reajustar conforme distância e complexidade.\n\n"
+            f"{'Se quiser, eu já consulto a agenda para a visita.' if decision.get('can_schedule_now') else 'Me confirma só o serviço para eu direcionar direito.'}"
+        )
+
+    if service == "instalacao" and state.get("message_understanding", {}).get("unavailable_infra"):
+        return (
+            "Sem infra pronta, entra em avaliação de infraestrutura. Para não travar por aqui, o caminho certo é visita técnica de R$50, abatível se o orçamento final for aprovado.\n\n"
+            f"{'Se quiser, eu já consulto a agenda.' if decision.get('can_schedule_now') else 'Me confirma o melhor período.'}"
+        )
+    if service == "instalacao":
+        return (
+            "Se ainda faltar foto ou algum dado do local, eu não travo por isso. A gente pode seguir com visita técnica de R$50, abatível se o orçamento final for aprovado.\n\n"
+            f"{'Se quiser, eu já consulto a agenda.' if decision.get('can_schedule_now') else 'Quando puder, me confirma o melhor período.'}"
+        )
+    if service == "higienizacao":
+        return (
+            "Se o aparelho não climatiza, já foge de higienização padrão e entra como análise de manutenção por R$50.\n\n"
+            f"{'Se quiser, eu já consulto a agenda.' if decision.get('can_schedule_now') else 'Me passa o melhor período.'}"
+        )
+    if service == "manutencao":
+        return (
+            "Para manutenção ou conserto, o caminho padrão é visita ou análise técnica de R$50. Se resolver no local, a gente passa o valor e recebe no ato.\n\n"
+            f"{'Se quiser, eu já consulto a agenda.' if decision.get('can_schedule_now') else 'Me confirma o melhor período.'}"
+        )
+    return (
+        "Nessa situação o melhor caminho é visita técnica de R$50 para validar tudo sem te passar informação errada.\n\n"
+        f"{'Se quiser, eu já consulto a agenda.' if decision.get('can_schedule_now') else 'Me confirma o serviço.'}"
+    )
 
 
 async def _llm_answer(state: dict[str, Any], action: NextAction) -> str:
@@ -116,7 +167,12 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
     elif action_type == "confirm_calendar_slot":
         response = f"Perfeito, deixei separada a opção de {action.get('slot_label') or 'horário escolhido'} para confirmação."
     elif action_type == "answer_question":
-        response = _direct_price_response(service, user_text, lead_state, missing_fields, do_not_ask) if action.get("answer_kind") == "price" else None
+        if action.get("answer_kind") == "price":
+            response = _direct_price_response(service, user_text, lead_state, missing_fields, do_not_ask)
+        elif action.get("answer_kind") == "commercial":
+            response = _commercial_response(state, service, user_text, lead_state)
+        else:
+            response = None
         if not response:
             response = await _llm_answer(state, action)
     else:
