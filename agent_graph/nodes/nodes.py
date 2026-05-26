@@ -661,8 +661,15 @@ def infer_asked_field_from_response(response: str, missing_fields: list[str]) ->
     patterns = {
         "cidade_bairro": ("cidade", "bairro", "onde fica"),
         "btus": ("btus", "btu", "capacidade"),
-        "foto_local_interno": ("foto do local interno", "foto interna", "unidade interna"),
-        "foto_local_externo": ("foto do local externo", "foto externa", "condensadora"),
+        "foto_local_interno": (
+            "foto do local interno", "foto interna", "unidade interna",
+            "evaporadora", "lado de dentro", "local interno", "parede onde vai ficar",
+        ),
+        "foto_local_externo": (
+            "foto do local externo", "foto externa", "condensadora",
+            "local onde ficaria a condensadora", "lado externo", "parte externa",
+            "unidade externa", "motor do ar", "local externo",
+        ),
         "ponto_eletrico_exclusivo": ("ponto eletrico", "ponto elétrico", "energia"),
         "distancia_aproximada": ("distancia", "distância", "metros"),
         "tubulacao_existente": ("tubulacao", "tubulação", "infra pronta"),
@@ -811,6 +818,101 @@ def _appointment_ready_response(lead_state: dict[str, Any]) -> str:
         f"Perfeito, já tenho o principal para seguir com o atendimento de {service_label}.\n\n"
         "Me confirma o bairro/cidade e o melhor período: manhã ou tarde?"
     )
+
+
+def _appointment_window_confirmed_response(lead_state: dict[str, Any]) -> str:
+    window = (lead_state.get("appointment") or {}).get("preferred_window") or "período escolhido"
+    return (
+        f"Perfeito, deixei o período da {window} registrado.\n\n"
+        "Vou encaminhar para confirmação da melhor janela disponível."
+    )
+
+
+def _window_preference_saved_but_not_ready_response(
+    lead_state: dict[str, Any],
+    missing_fields: list[str],
+    do_not_ask: list[str],
+) -> str:
+    window = (lead_state.get("appointment") or {}).get("preferred_window") or "período escolhido"
+    service = _normalize_service(lead_state.get("tipo_servico"))
+    next_field = _important_missing_field_for_service(service, missing_fields, do_not_ask, lead_state)
+
+    if service == "instalacao" and next_field == "foto_local_externo":
+        return (
+            f"Perfeito, deixei a preferência pela {window} anotada.\n\n"
+            "Antes de confirmar agenda, ainda falta a foto do local onde ficaria a condensadora, do lado externo."
+        )
+    if next_field:
+        return (
+            f"Perfeito, deixei a preferência pela {window} anotada.\n\n"
+            f"Antes de confirmar agenda, {_question_for_field(next_field).lower()}"
+        )
+    return (
+        f"Perfeito, deixei a preferência pela {window} anotada.\n\n"
+        "Ainda preciso confirmar alguns detalhes antes de agenda."
+    )
+
+
+def _process_question_response(
+    lead_state: dict[str, Any],
+    service: str | None,
+    missing_fields: list[str],
+    do_not_ask: list[str],
+) -> str:
+    """Responde 'Como funciona?' com explicação do processo + próximo campo faltante."""
+    service = _normalize_service(service or lead_state.get("tipo_servico"))
+
+    if service == "instalacao":
+        next_field = _important_missing_field_for_service(service, missing_fields, do_not_ask, lead_state)
+        if next_field == "foto_local_externo":
+            cta = "Agora me manda uma foto do local onde ficaria a condensadora, do lado externo?"
+        elif next_field:
+            cta = _question_for_field(next_field)
+        else:
+            cta = "Me confirma o melhor período para atendimento?"
+
+        return (
+            "Funciona assim: primeiro confirmo as fotos do local, distância, dreno e ponto elétrico.\n\n"
+            "Com isso dá para saber se entra como instalação simples ou se precisa de avaliação por acesso, altura ou infraestrutura.\n\n"
+            f"{cta}"
+        )
+
+    if service in {"manutencao", "higienizacao"}:
+        if service == "higienizacao":
+            return (
+                "Funciona assim: a higienização remove sujeira interna, mau cheiro e acúmulo de umidade no aparelho.\n\n"
+                "Pra te passar certinho, preciso saber quantos aparelhos são e em qual bairro/cidade fica."
+            )
+        return (
+            "Funciona assim: primeiro entendo o sintoma do aparelho e, se possível, vejo foto ou vídeo.\n\n"
+            "Depois a análise técnica confirma a causa antes de passar orçamento, porque pode ser elétrica, sensor, placa, gás ou compressor.\n\n"
+            "Me conta o que está acontecendo: não gela, pinga, faz barulho ou não liga?"
+        )
+
+    return (
+        "Funciona assim: identifico o tipo de serviço, confirmo os dados principais e te direciono para orçamento ou agenda.\n\n"
+        "Esse atendimento é para instalação, manutenção, higienização ou conserto?"
+    )
+
+
+def _image_expected_field_mismatch_response(lead_state: dict[str, Any]) -> str | None:
+    analysis = lead_state.get("last_image_analysis") or {}
+    if not isinstance(analysis, dict):
+        return None
+    image_type = analysis.get("image_type")
+    last_asked = lead_state.get("last_asked_field")
+
+    if last_asked == "foto_local_externo" and image_type == "local_interno_instalacao":
+        return (
+            "Recebi essa foto e ela parece ser do local interno.\n\n"
+            "Ainda falta a foto do local onde ficaria a condensadora, do lado externo."
+        )
+    if last_asked == "foto_local_interno" and image_type == "local_externo_instalacao":
+        return (
+            "Recebi essa foto e ela parece ser do local externo.\n\n"
+            "Ainda falta a foto da parede onde ficaria a unidade interna."
+        )
+    return None
 
 
 def _default_whatsapp_cta(outcome: str | None) -> str:
@@ -1569,9 +1671,15 @@ def sanitize_lead_state(lead_state: dict[str, Any]) -> dict[str, Any]:
     # Compatibilidade de schema: garante chave appointment para leads antigos (pre-fix)
     lead_state.setdefault("appointment", {
         "preferred_window": None,
+        "preferred_date": None,
         "confirmed_window": False,
         "appointment_alert_sent": False,
+        "appointment_stage": "not_ready",
+        "last_confirmation_message_sent": None,
+        "last_confirmation_turn_id": None,
     })
+    # Recalcula estágio real com base nos dados atuais
+    refresh_appointment_state(lead_state, lead_state.get("tipo_servico"))
     return lead_state
 
 
@@ -1584,6 +1692,51 @@ def _detect_preferred_window(text: str) -> str | None:
     if re.search(r"\bnoite\b", folded):
         return "noite"
     return None
+
+
+def _current_message_intent_hint(user_text: str) -> str:
+    """Classifica a intenção da mensagem atual para não deixar appointment_ready dominar qualquer resposta."""
+    folded = _fold_text(user_text)
+
+    if _detect_preferred_window(user_text):
+        return "schedule_window"
+
+    if any(term in folded for term in (
+        "como funciona",
+        "como e",
+        "como é",
+        "me explica",
+        "o que inclui",
+        "como voces fazem",
+        "como vocês fazem",
+        "qual o processo",
+        "como faz",
+        "o que esta incluido",
+        "o que está incluído",
+        "o que e feito",
+        "o que é feito",
+    )):
+        return "process_question"
+
+    if any(term in folded for term in (
+        "quanto", "valor", "preco", "preço", "custa", "fica quanto",
+    )):
+        return "price_question"
+
+    if any(term in folded for term in (
+        "pode agendar", "vamos marcar", "quero agendar", "agenda", "horario", "horário",
+        "quando voce vem", "quando você vem", "qual dia", "que dia",
+    )):
+        return "schedule_request"
+
+    words = folded.split()
+    if len(words) <= 3 and folded in {
+        "ok", "certo", "beleza", "sim", "ta", "tá", "tudo bem", "pode ser",
+        "perfeito", "entendi", "entendido", "obrigado", "obrigada", "valeu",
+    }:
+        return "ack"
+
+    return "normal"
 
 
 def can_ask_schedule_window(lead_state: dict[str, Any], service: str | None = None) -> bool:
@@ -1638,6 +1791,52 @@ def has_minimum_real_data_for_appointment(lead_state: dict[str, Any], service: s
         ])
 
     return False
+
+
+def compute_appointment_stage(lead_state: dict[str, Any], service: str | None) -> str:
+    """Calcula estágio explícito de agendamento para evitar appointment_ready como estado global."""
+    appointment = lead_state.setdefault("appointment", {
+        "preferred_window": None,
+        "confirmed_window": False,
+        "appointment_alert_sent": False,
+        "appointment_stage": "not_ready",
+    })
+    preferred_window = appointment.get("preferred_window")
+    minimum_ok = has_minimum_real_data_for_appointment(lead_state, service)
+
+    if appointment.get("appointment_alert_sent"):
+        return "alerted"
+    if appointment.get("confirmed_window") and minimum_ok:
+        return "confirmed"
+    if preferred_window and minimum_ok:
+        return "window_collected_ready"
+    if preferred_window and not minimum_ok:
+        return "window_collected_not_ready"
+    if minimum_ok:
+        return "ready_to_ask_window"
+    return "collecting_requirements"
+
+
+def refresh_appointment_state(lead_state: dict[str, Any], service: str | None) -> dict[str, Any]:
+    """Recalcula appointment_stage e appointment_ready com base nos dados reais do lead."""
+    service = _normalize_service(service or lead_state.get("tipo_servico"))
+    stage = compute_appointment_stage(lead_state, service)
+    appointment = lead_state.setdefault("appointment", {})
+    appointment["appointment_stage"] = stage
+
+    lead_state["appointment_ready"] = stage in {
+        "ready_to_ask_window",
+        "window_collected_ready",
+        "confirmed",
+        "alerted",
+    }
+
+    # Janela anotada sem dados mínimos: não está pronto para agenda
+    if stage == "window_collected_not_ready":
+        lead_state["appointment_ready"] = False
+        lead_state["pipeline_stage"] = "qualifying_lead"
+
+    return lead_state
 
 
 # Respostas determinísticas para mensagens de serviço puro (ex: só "Manutenção" sem contexto).
@@ -2228,7 +2427,7 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     if relationship_type == "no_context":
         handoff_mode = "soft_alert"
         handoff_reason = "no_context_needs_human_review"
-    elif lead_state.get("appointment_ready") and handoff_mode == "none":
+    elif lead_state.get("appointment_ready") and handoff_mode == "none" and intent != "unknown":
         handoff_mode = "soft_alert"
         handoff_reason = "appointment_ready"
         outcome = "analise_tecnica" if outcome == "duvida" else outcome
@@ -2446,20 +2645,40 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             "lead_state": lead_state,
         }
 
+    # Classificar intenção da mensagem atual antes de qualquer desvio determinístico
+    current_hint = _current_message_intent_hint(user_text)
+    lead_state = refresh_appointment_state(lead_state, service or lead_state.get("tipo_servico"))
+
+    if state.get("message_type") == "imageMessage":
+        mismatch_response = _image_expected_field_mismatch_response(lead_state)
+        if mismatch_response:
+            ai_message = AIMessage(content=mismatch_response)
+            return {
+                "messages": messages + [ai_message],
+                "rag_context": rag_context,
+                "service": service or lead_state.get("tipo_servico"),
+                "outcome": "duvida",
+                "handoff_mode": "none",
+                "handoff_reason": None,
+                "lead_state": lead_state,
+            }
+
     # Se cliente informou janela agora, registrar preferência
     window_now = _detect_preferred_window(user_text)
     if window_now:
-        apt = lead_state.setdefault("appointment", {"preferred_window": None, "confirmed_window": False, "appointment_alert_sent": False})
+        apt = lead_state.setdefault("appointment", {
+            "preferred_window": None, "confirmed_window": False,
+            "appointment_alert_sent": False, "appointment_stage": "not_ready",
+        })
         apt["preferred_window"] = window_now
-        if lead_state.get("appointment_ready"):
+        lead_state = refresh_appointment_state(lead_state, service or lead_state.get("tipo_servico"))
+        stage = apt.get("appointment_stage")
+
+        if stage in {"window_collected_ready", "confirmed"}:
             # Dados mínimos confirmados: confirmar agendamento
             apt["confirmed_window"] = True
-            ai_message = AIMessage(
-                content=(
-                    f"Perfeito, deixei o período da {window_now} registrado.\n\n"
-                    "Vou encaminhar para confirmação da melhor janela disponível."
-                )
-            )
+            lead_state = refresh_appointment_state(lead_state, service or lead_state.get("tipo_servico"))
+            ai_message = AIMessage(content=_appointment_window_confirmed_response(lead_state))
             return {
                 "messages": messages + [ai_message],
                 "rag_context": rag_context,
@@ -2471,26 +2690,14 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             }
         else:
             # Preferência anotada mas dados ainda incompletos: pedir próximo campo
-            svc = lead_state.get("tipo_servico") or service
             dna = state.get("do_not_ask") or []
             miss = state.get("missing_fields") or []
-            next_field = _important_missing_field_for_service(svc, miss, dna, lead_state)
-            if next_field:
-                next_q = _question_for_field(next_field).lower()
-                window_resp = (
-                    f"Perfeito, deixei a preferência pela {window_now} anotada.\n\n"
-                    f"Antes de confirmar agenda, {next_q}"
-                )
-            else:
-                window_resp = (
-                    f"Perfeito, deixei a preferência pela {window_now} anotada.\n\n"
-                    "Me passa mais alguns detalhes para confirmar o agendamento."
-                )
+            window_resp = _window_preference_saved_but_not_ready_response(lead_state, miss, dna)
             ai_message = AIMessage(content=window_resp)
             return {
                 "messages": messages + [ai_message],
                 "rag_context": rag_context,
-                "service": svc,
+                "service": service or lead_state.get("tipo_servico"),
                 "outcome": "duvida",
                 "handoff_mode": "none",
                 "handoff_reason": None,
@@ -2517,7 +2724,42 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             "lead_state": lead_state,
         }
 
-    if lead_state.get("appointment_ready"):
+    # Pergunta de processo (ex: "Como funciona?"): responder explicação, nunca confirmação de janela
+    if current_hint == "process_question":
+        dna = state.get("do_not_ask") or []
+        miss = state.get("missing_fields") or []
+        response = _process_question_response(lead_state, service or lead_state.get("tipo_servico"), miss, dna)
+        ai_message = AIMessage(content=response)
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service or lead_state.get("tipo_servico"),
+            "outcome": "duvida",
+            "handoff_mode": "none",
+            "handoff_reason": None,
+            "lead_state": lead_state,
+        }
+
+    appointment = lead_state.get("appointment") or {}
+    already_confirmed = bool(appointment.get("confirmed_window") and appointment.get("preferred_window"))
+    appointment_stage = appointment.get("appointment_stage")
+
+    if appointment_stage == "window_collected_ready" and appointment.get("preferred_window"):
+        appointment["confirmed_window"] = True
+        lead_state = refresh_appointment_state(lead_state, service or lead_state.get("tipo_servico"))
+        ai_message = AIMessage(content=_appointment_window_confirmed_response(lead_state))
+        return {
+            "messages": messages + [ai_message],
+            "rag_context": rag_context,
+            "service": service or lead_state.get("tipo_servico"),
+            "outcome": "analise_tecnica",
+            "handoff_mode": "soft_alert",
+            "handoff_reason": "appointment_confirmed",
+            "lead_state": lead_state,
+        }
+
+    if lead_state.get("appointment_ready") and not already_confirmed:
+        # Ainda não confirmou janela: perguntar período ou confirmar
         ai_message = AIMessage(content=_appointment_ready_response(lead_state))
         return {
             "messages": messages + [ai_message],
@@ -2869,10 +3111,14 @@ async def response_guard_check(state: dict[str, Any]) -> dict[str, Any]:
                 "handoff_reason": state.get("handoff_reason") or "repeated_missing_critical_field",
             }
 
+    latest_user_text = _latest_human_text(messages)
     try:
         from agent_graph.guards.response_guard import validate_response_before_send
 
-        ok, violations = validate_response_before_send(response, {**state, "lead_state": lead_state})
+        ok, violations = validate_response_before_send(
+            response,
+            {**state, "lead_state": lead_state, "latest_user_text": latest_user_text},
+        )
     except Exception as e:
         logger.warning("response_guard falhou: %s", e)
         ok, violations = True, []
@@ -2883,7 +3129,19 @@ async def response_guard_check(state: dict[str, Any]) -> dict[str, Any]:
         relationship = lead_state.get("relationship_type")
 
         # Tratar novas violations com prioridade
-        if "asked_preferred_window_again" in violations:
+        if "answer_ignored_process_question" in violations or "repeated_window_confirmation" in violations:
+            # Cliente perguntou processo ou mensagem posterior à janela já confirmada
+            fixed = _process_question_response(lead_state, service, missing_fields, do_not_ask)
+        elif "schedule_before_requirements" in violations:
+            next_field = _important_missing_field_for_service(service, missing_fields, do_not_ask, lead_state)
+            if service == "instalacao" and next_field:
+                fixed = (
+                    f"Antes de seguir para agenda, ainda preciso confirmar o próximo detalhe.\n\n"
+                    f"{_question_for_field(next_field)}"
+                )
+            else:
+                fixed = "Antes de seguir para agenda, preciso de mais alguns detalhes. Me manda cidade/bairro e uma foto do aparelho?"
+        elif "asked_preferred_window_again" in violations:
             appointment = lead_state.get("appointment") or {}
             window = appointment.get("preferred_window") or "esse período"
             fixed = (
@@ -3164,8 +3422,12 @@ DEFAULT_LEAD_STATE = {
   "appointment_ready": False,
   "appointment": {
     "preferred_window": None,
+    "preferred_date": None,
     "confirmed_window": False,
     "appointment_alert_sent": False,
+    "appointment_stage": "not_ready",
+    "last_confirmation_message_sent": None,
+    "last_confirmation_turn_id": None,
   },
   "unknown_context_count": 0,
   "human_takeover": False,
@@ -3249,6 +3511,7 @@ def _apply_relationship_and_appointment(state: dict[str, Any], lead_state: dict[
     minimum_ok = has_minimum_real_data_for_appointment(lead_state, service)
     lead_state["appointment_score"] = score
     lead_state["appointment_ready"] = bool(score >= 5 and minimum_ok)
+    lead_state = refresh_appointment_state(lead_state, service)
 
     return lead_state, relationship_type
 
@@ -3315,7 +3578,8 @@ def _continuation_response(
     service = lead_state.get("tipo_servico")
     relationship = lead_state.get("relationship_type")
     appointment = lead_state.get("appointment") or {}
-    if lead_state.get("appointment_ready") or relationship == "ready_to_schedule":
+    already_confirmed = bool(appointment.get("confirmed_window") and appointment.get("preferred_window"))
+    if (lead_state.get("appointment_ready") or relationship == "ready_to_schedule") and not already_confirmed:
         if appointment.get("preferred_window"):
             w = appointment["preferred_window"]
             return f"Perfeito, deixei o período da {w} registrado.\n\nVou encaminhar para confirmação da melhor janela disponível."
@@ -3988,6 +4252,8 @@ async def dispatch_appointment_alert(state: dict[str, Any]) -> dict[str, Any]:
     if not window and lead_data:
         window = lead_data.get("window")
     if not window:
+        return {}
+    if not appointment.get("confirmed_window") and state.get("handoff_reason") != "appointment_confirmed":
         return {}
 
     # Buscar endereço: prioriza lead_state, fallback no texto extraído

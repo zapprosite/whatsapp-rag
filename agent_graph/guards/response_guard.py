@@ -76,7 +76,12 @@ def _has_minimum_data_for_appointment_guard(lead_state: dict[str, Any], service:
     if service in {"manutencao", "higienizacao"}:
         return any([fotos.get("aparelho"), manutencao.get("pinga_agua") is not None, manutencao.get("cheiro_ruim") is not None, manutencao.get("tempo_sem_manutencao") is not None, conserto.get("liga") is not None, conserto.get("gela") is not None])
     if service == "instalacao":
-        return any([lead_state.get("btus"), fotos.get("local_interno"), fotos.get("local_externo"), instalacao.get("ponto_eletrico_exclusivo") is not None])
+        equipment_ok = any([
+            lead_state.get("btus"),
+            lead_state.get("modelo_aparelho"),
+            lead_state.get("aparelho_ja_comprado") is not None,
+        ])
+        return bool(fotos.get("local_interno") and fotos.get("local_externo") and equipment_ok)
     return True
 
 
@@ -171,5 +176,34 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
     if any(phrase in text for phrase in ("sinalizar o gerente", "vou sinalizar o gerente", "gerente agora")):
         if state.get("handoff_reason") not in _safe_handoff_reasons:
             violations.append("unwanted_internal_process")
+
+    # Confirmação de janela repetida: janela já existe no estado mas a mensagem atual não perguntou sobre agendamento
+    latest_user_text = _fold(state.get("latest_user_text") or "")
+    window_confirmation_phrases = (
+        "deixei o periodo da", "deixei o período da",
+        "registrado", "vou encaminhar para confirmacao", "vou encaminhar para confirmação",
+    )
+    schedule_request_terms = ("manha", "tarde", "noite", "agendar", "agenda", "horario", "horário", "marcar", "periodo", "período")
+    if (
+        appointment.get("preferred_window")
+        and appointment.get("confirmed_window")
+        and any(phrase in text for phrase in window_confirmation_phrases)
+        and not any(term in latest_user_text for term in schedule_request_terms)
+    ):
+        violations.append("repeated_window_confirmation")
+
+    # Pergunta de processo ignorada: cliente perguntou "como funciona" mas recebeu confirmação de janela
+    process_question_terms = ("como funciona", "como e ", "como é ", "me explica", "qual o processo", "o que inclui")
+    if (
+        any(term in latest_user_text for term in process_question_terms)
+        and any(phrase in text for phrase in ("deixei o periodo", "deixei o período", "vou encaminhar para confirmacao", "vou encaminhar para confirmação"))
+    ):
+        violations.append("answer_ignored_process_question")
+
+    # Pergunta de agenda antes dos requisitos mínimos de instalação
+    schedule_ask_phrases = ("melhor periodo: manha ou tarde", "melhor período: manhã ou tarde", "manha ou tarde?", "manhã ou tarde?")
+    if service == "instalacao" and any(phrase in text for phrase in schedule_ask_phrases):
+        if not _has_minimum_data_for_appointment_guard(lead_state, service):
+            violations.append("schedule_before_requirements")
 
     return not violations, violations

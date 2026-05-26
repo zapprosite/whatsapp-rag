@@ -67,8 +67,7 @@ async def send_owner_alert(alert: dict[str, Any]) -> bool:
     lead_phone = str(alert.get("phone") or "")
     if lead_phone and _normalize_phone_digits(owner_phone) == _normalize_phone_digits(lead_phone):
         logger.warning(
-            "OWNER_PHONE igual ao lead %s; alerta owner suprimido para não vazar mensagem operacional ao cliente",
-            lead_phone,
+            "OWNER_PHONE igual ao lead; alerta owner suprimido para não vazar mensagem operacional ao cliente",
         )
         return False
 
