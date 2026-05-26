@@ -82,6 +82,8 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             "handoff_human",
             side_effects=[{"type": "send_owner_alert", "payload": {"reason": state.get("handoff_reason") or state.get("intent")}}],
         )
+    elif understanding.get("is_greeting") and not understanding.get("service_mentioned") and not (customer_data.get("memory") or {}).get("is_conversation_started"):
+        action = make_action("welcome_onboarding", service=None)
     elif understanding.get("kind") == "clarification_request" or understanding.get("asks_clarification"):
         action = make_action("explain_last_offer", service=service)
     elif understanding.get("asks_process"):
