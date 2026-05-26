@@ -47,6 +47,21 @@ _SERVICE_KEYWORDS = {
 _MORNING_TERMS = ("manha", "manhã", "de manhã")
 _AFTERNOON_TERMS = ("tarde",)
 _NO_PHOTO_TERMS = ("nao tenho foto", "não tenho foto", "sem foto")
+_INVALID_NAME_TERMS = {
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "instalacao",
+    "instalação",
+    "instalar",
+    "manutencao",
+    "manutenção",
+    "higienizacao",
+    "higienização",
+    "conserto",
+    "limpeza",
+}
+_INVALID_NAME_TOKENS = {"nao", "não", "tenho", "foto", "sem", "quero", "preciso", "manhã", "tarde"}
 
 
 def minimal_mvp_enabled() -> bool:
@@ -83,9 +98,19 @@ def _detect_service(text: str, lead_state: dict[str, Any]) -> str | None:
 def _detect_name(text: str) -> str | None:
     match = re.search(r"\b(?:meu nome e|meu nome é|sou|pode chamar de)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' -]{1,60})", text, re.IGNORECASE)
     if match:
-        return match.group(1).strip()
+        candidate = match.group(1).strip()
+        if _fold(candidate) not in _INVALID_NAME_TERMS:
+            return candidate
+        return None
     stripped = text.strip()
-    if re.fullmatch(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' -]{1,60}", stripped) and len(stripped.split()) <= 4:
+    stripped_folded = _fold(stripped)
+    stripped_tokens = stripped_folded.split()
+    if (
+        re.fullmatch(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' -]{1,60}", stripped)
+        and len(stripped.split()) <= 4
+        and stripped_folded not in _INVALID_NAME_TERMS
+        and not any(token in _INVALID_NAME_TOKENS for token in stripped_tokens)
+    ):
         return stripped
     return None
 

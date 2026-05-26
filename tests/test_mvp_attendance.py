@@ -43,6 +43,64 @@ def _mock_repo(monkeypatch, lead_state: dict | None = None, *, event_count: int 
     monkeypatch.setattr(mvp_attendance, "create_lead_event", fake_event)
 
 
+def _mock_repo_stateful(monkeypatch, lead_state: dict | None = None, *, event_count: int = 0):
+    store = {
+        "lead_state": lead_state or _lead_state_copy(),
+        "event_count": event_count,
+        "events": [],
+        "pipeline_stage": "new",
+        "service_type": (lead_state or {}).get("tipo_servico") if lead_state else None,
+    }
+
+    async def fake_load(phone: str, name: str | None = None) -> dict:
+        del name
+        return {
+            "id": "lead-1",
+            "phone": phone,
+            "name": store["lead_state"].get("nome"),
+            "service_type": store["service_type"],
+            "pipeline_stage": store["pipeline_stage"],
+            "city_bairro": store["lead_state"].get("cidade_bairro"),
+            "lead_state": store["lead_state"],
+            "event_count": store["event_count"],
+            "available_columns": set(),
+        }
+
+    async def fake_update(phone: str, lead_state: dict, *, pipeline_stage: str, service_type: str | None, city_bairro: str | None = None) -> None:
+        del phone, city_bairro
+        store["lead_state"] = lead_state
+        store["pipeline_stage"] = pipeline_stage
+        store["service_type"] = service_type
+
+    async def fake_event(phone: str, role: str, message: str, extracted_data: dict | None = None) -> None:
+        del phone, extracted_data
+        store["events"].append({"role": role, "message": message})
+        store["event_count"] += 1
+
+    monkeypatch.setattr(mvp_attendance, "load_or_create_lead", fake_load)
+    monkeypatch.setattr(mvp_attendance, "update_lead_state", fake_update)
+    monkeypatch.setattr(mvp_attendance, "create_lead_event", fake_event)
+    return store
+
+
+def _simulate_bootstrap(monkeypatch, turns: list[str], lead_state: dict | None = None) -> tuple[list[str], dict]:
+    store = _mock_repo_stateful(monkeypatch, lead_state, event_count=0)
+    history = []
+    responses: list[str] = []
+    for message in turns:
+        result = run(
+            mvp_attendance.process_mvp_message(
+                phone="5513999999999",
+                message_text=message,
+                instance="default",
+                history=history,
+            )
+        )
+        history = result["messages"]
+        responses.append(_last_text(result))
+    return responses, store
+
+
 def test_bom_dia_responde_onboarding(monkeypatch):
     _mock_repo(monkeypatch)
     result = run(
@@ -232,3 +290,75 @@ def test_health_falha_se_postgres_quebra(monkeypatch):
     payload = response.json()
     assert payload["status"] == "degraded"
     assert payload["postgres"].startswith("down:")
+
+
+def test_bootstrap_instalacao_completo(monkeypatch):
+    lead_state = _lead_state_copy()
+    lead_state["btus"] = "12000"
+    lead_state["fotos"]["local_interno"] = True
+    lead_state["fotos"]["local_externo"] = True
+    lead_state["instalacao"]["ponto_eletrico_exclusivo"] = True
+    lead_state["instalacao"]["tubulacao_existente"] = True
+    lead_state["instalacao"]["distancia_aproximada"] = "3"
+
+    responses, store = _simulate_bootstrap(
+        monkeypatch,
+        ["bom dia", "instalação", "Will"],
+        lead_state=lead_state,
+    )
+
+    assert responses == [
+        "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?",
+        "Perfeito.\n\nMe passa seu nome pra eu deixar o atendimento certinho?",
+        "Instalação simples costa/costa, até 3 metros e com acesso fácil, fica R$850 com material e mão de obra.\n\nSe no local tiver algo fora do padrão, o técnico explica antes e o valor pode ajustar.\n\nQual período fica melhor: manhã ou tarde?",
+    ]
+    assert store["lead_state"]["nome"] == "Will"
+    assert store["lead_state"]["tipo_servico"] == "instalacao"
+    assert store["lead_state"]["pipeline_stage"] == "quoted"
+    assert len(store["events"]) == 6
+
+
+def test_bootstrap_instalacao_sem_foto(monkeypatch):
+    responses, store = _simulate_bootstrap(
+        monkeypatch,
+        ["bom dia", "instalação", "William", "não tenho foto"],
+        lead_state=_lead_state_copy(),
+    )
+
+    assert responses[0] == "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?"
+    assert responses[1] == "Perfeito.\n\nMe passa seu nome pra eu deixar o atendimento certinho?"
+    assert "visita técnica de R$50" in responses[3]
+    assert store["lead_state"]["nome"] == "William"
+    assert store["lead_state"]["tipo_servico"] == "instalacao"
+
+
+def test_bootstrap_manutencao_completo(monkeypatch):
+    responses, store = _simulate_bootstrap(
+        monkeypatch,
+        ["bom dia", "manutenção", "Will"],
+        lead_state=_lead_state_copy(),
+    )
+
+    assert responses == [
+        "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?",
+        "Perfeito.\n\nMe passa seu nome pra eu deixar o atendimento certinho?",
+        "Para manutenção, o caminho correto é visita/análise técnica.\n\nA visita fica R$50 e pode ser abatida se o orçamento final for aprovado.\n\nQual período fica melhor para a visita?",
+    ]
+    assert store["lead_state"]["tipo_servico"] == "manutencao"
+    assert store["lead_state"]["nome"] == "Will"
+
+
+def test_bootstrap_higienizacao_completo(monkeypatch):
+    responses, store = _simulate_bootstrap(
+        monkeypatch,
+        ["bom dia", "higienização", "Will"],
+        lead_state=_lead_state_copy(),
+    )
+
+    assert responses == [
+        "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?",
+        "Perfeito.\n\nMe passa seu nome pra eu deixar o atendimento certinho?",
+        "Higienização de split padrão fica R$200 por aparelho, desde que o equipamento esteja funcionando e instalado dentro do padrão.\n\nSe o aparelho não estiver climatizando, o atendimento pode virar análise de manutenção por R$50.\n\nQuantos aparelhos são?",
+    ]
+    assert store["lead_state"]["tipo_servico"] == "higienizacao"
+    assert store["lead_state"]["nome"] == "Will"
