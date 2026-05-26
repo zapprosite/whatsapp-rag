@@ -125,3 +125,36 @@ async def list_whatsapp_groups(instance: str = "default") -> list[dict]:
             except Exception as exc:
                 logger.debug("Falha ao listar grupos em %s: %s", endpoint, exc)
     return []
+
+
+async def send_whatsapp_presence(target: str, presence: str, delay_ms: int = 15000, instance: str = "default") -> bool:
+    """Envia sinal de presença (composing, recording, paused) para a Evolution API.
+
+    Usado para mascarar latência de LLM/TTS mostrando 'digitando...' ou 'gravando áudio...'.
+    """
+    api_url, api_key, instance_name = _evolution_config(instance)
+    number = normalize_whatsapp_number(target)
+    if not number:
+        logger.error("Número WhatsApp inválido para presença: %r", target)
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=_EVO_TIMEOUT) as client:
+            resp = await client.post(
+                f"{api_url}/chat/sendPresence/{instance_name}",
+                headers={"apikey": api_key, "Content-Type": "application/json"},
+                json={
+                    "number": number,
+                    "presence": presence,
+                    "delay": delay_ms,
+                },
+            )
+        if resp.status_code in (200, 201):
+            logger.debug("Presença '%s' enviada para %s com delay %d ms", presence, number, delay_ms)
+            return True
+        logger.warning("Evolution API sendPresence erro %s: %s", resp.status_code, resp.text[:300])
+        return False
+    except Exception as exc:
+        logger.error("Falha ao enviar presença para %s: %s", target, exc)
+        return False
+

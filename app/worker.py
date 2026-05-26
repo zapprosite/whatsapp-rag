@@ -20,7 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from agent_graph.graph.graph import build_graph
 from agent_graph.services.alerts import send_owner_alert
 from agent_graph.services.conversation_memory import build_canonical_history
-from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
+from agent_graph.services.whatsapp import (
+    normalize_whatsapp_number,
+    send_whatsapp_presence,
+    send_whatsapp_text,
+)
 try:
     from lead_repository import prisma_healthcheck
     from mvp_attendance import minimal_mvp_enabled, process_mvp_message
@@ -828,6 +832,11 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
         if await is_manual_takeover(r, phone):
             logger.info("Humano assumiu; IA pausada para este contato: %s", phone)
             return
+
+        # Envia sinal de presença 'composing' (digitando) assíncrono para mascarar latência de LLM/TTS
+        asyncio.create_task(
+            send_whatsapp_presence(phone, "composing", delay_ms=15000, instance=instance)
+        )
 
         redis_history = await load_history(phone, r)
         if minimal_mvp_enabled():

@@ -4258,6 +4258,13 @@ async def tts_voice_clone(state: dict[str, Any]) -> dict[str, Any]:
         return {"response_modality": "text"}
 
     voice_style = choose_voice_style(goal or intent, outcome)
+    phone = (state.get("customer_data") or {}).get("phone")
+    instance = state.get("instance") or "default"
+    if phone:
+        from agent_graph.services.whatsapp import send_whatsapp_presence
+        asyncio.create_task(
+            send_whatsapp_presence(phone, "recording", delay_ms=10000, instance=instance)
+        )
     try:
         audio_bytes = await synthesize(ai_text, voice_style)
         if audio_bytes:
