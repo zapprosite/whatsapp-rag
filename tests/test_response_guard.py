@@ -116,6 +116,24 @@ def test_violation_appointment_claim_without_minimum_data():
     assert "appointment_claim_without_minimum_data" in violations or "leaked_media_placeholder" in violations
 
 
+def test_schedule_question_blocked_before_installation_requirements():
+    ok, violations = validate_response_before_send(
+        "Perfeito, já tenho o principal para agenda.\n\nMe confirma o melhor período: manhã ou tarde?",
+        {
+            "lead_state": {
+                "tipo_servico": "instalacao",
+                "cidade_bairro": "Guarujá",
+                "btus": "12000",
+                "fotos": {"local_interno": True, "local_externo": False},
+                "instalacao": {},
+                "appointment": {"preferred_window": None},
+            }
+        },
+    )
+    assert ok is False
+    assert "schedule_before_requirements" in violations
+
+
 def test_no_violation_when_window_not_yet_registered():
     ok, violations = validate_response_before_send(
         "Me confirma o melhor período: manhã ou tarde?",
