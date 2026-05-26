@@ -16,9 +16,17 @@ Este projeto usa a Evolution API como ponte WhatsApp. A sessão/QR code já pare
 - Em 2026-05-25/26, a linha `v2.4.0-rc*` é pre-release e não deve ser promovida direto para produção do `whatsapp-rag`.
 - A linha `v2.4.0` introduz risco operacional de licença obrigatória; valide antes de qualquer upgrade.
 - A versão local deve ficar pinada por tag exata em `docker-compose.yml`. Não usar `evoapicloud/evolution-api:latest`.
-- Antes de mexer em versão ou sessão, consulte:
+- Antes de mexer em versão, sessão, banco, QR, webhook ou payload Evolution, consulte na data atual:
+  - documentação oficial: `https://docs.evolutionfoundation.com.br/evolution-api`
   - releases oficiais: `https://github.com/evolution-foundation/evolution-api/releases`
-  - issues oficiais de QR/pairing, `@lid`, webhook e reconexão.
+  - issues oficiais de QR/pairing, `@lid`, webhook, reconexão, licença e migrations.
+- Registre no incidente/auditoria a data absoluta da consulta, links oficiais e decisão tomada. Não use memória antiga como base para upgrade/downgrade.
+
+## Incidentes e Postmortem
+
+- Qualquer indisponibilidade da Evolution API, loop de restart, erro Prisma, perda de webhook, QR inválido, sessão fechada ou troca de versão deve gerar documento em `docs/incidents/`.
+- O incidente deve conter: data/hora, impacto, causa raiz, o que foi preservado, o que não fazer novamente, comandos seguros, validações executadas e fontes oficiais consultadas.
+- Não registre segredos, telefones reais, JIDs completos, QR code, URL com credencial ou payload de cliente no incidente.
 
 ## Guardrails De Webhook
 
