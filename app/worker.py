@@ -802,6 +802,30 @@ async def _requeue_item(
     logger.warning("Mensagem reenfileirada (%s): %s", reason, new_item[:180])
 
 
+@asynccontextmanager
+async def whatsapp_typing_indicator(phone: str, presence_type: str, instance: str = "default"):
+    """Envia sinal de presença dinâmico (composing/recording) e o mantém vivo de forma assíncrona."""
+    await send_whatsapp_presence(phone, presence_type, delay_ms=10000, instance=instance)
+
+    async def loop():
+        try:
+            while True:
+                await asyncio.sleep(8)
+                await send_whatsapp_presence(phone, presence_type, delay_ms=10000, instance=instance)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("Falha na atualização do sinal de presença: %s", exc)
+
+    task = asyncio.create_task(loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(Exception):
+            await task
+
+
 async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worker_id: int) -> None:
     if GRAPH is None and not minimal_mvp_enabled():
         raise RuntimeError("LangGraph não inicializado")
@@ -833,174 +857,174 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             logger.info("Humano assumiu; IA pausada para este contato: %s", phone)
             return
 
-        # Envia sinal de presença 'composing' (digitando) assíncrono para mascarar latência de LLM/TTS
-        asyncio.create_task(
-            send_whatsapp_presence(phone, "composing", delay_ms=15000, instance=instance)
-        )
+        # Envia sinal de presença dinâmico (composing/recording) conforme tipo de mensagem e TTS
+        tts_enabled = os.getenv("TTS_ENABLED", "1").strip() in {"1", "true", "yes", "on"}
+        presence_type = "recording" if (payload.message_type == "audioMessage" and tts_enabled) else "composing"
 
-        redis_history = await load_history(phone, r)
-        if minimal_mvp_enabled():
-            result = await process_mvp_message(
+        async with whatsapp_typing_indicator(phone, presence_type, instance=instance):
+            redis_history = await load_history(phone, r)
+            if minimal_mvp_enabled():
+                result = await process_mvp_message(
+                    phone=phone,
+                    message_text=message_text,
+                    instance=instance,
+                    history=redis_history,
+                )
+                ai_message = next(
+                    (
+                        _message_text(message)
+                        for message in reversed(result.get("messages", []))
+                        if isinstance(message, AIMessage) and _message_text(message)
+                    ),
+                    None,
+                )
+                if ai_message:
+                    await save_history(phone, result["messages"], r)
+                    await send_whatsapp_message(phone, ai_message, instance)
+                else:
+                    logger.warning("Fluxo MVP não retornou resposta para %s", phone)
+                return
+
+            canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
+            is_first_message = not bool(memory_meta.get("is_conversation_started"))
+            messages_with_history = canonical_history + [HumanMessage(content=message_text)]
+            active_service = await load_active_customer_service(phone)
+            last_service = None if active_service else await load_last_customer_service(phone)
+            if active_service:
+                logger.info(
+                    "Cliente %s tem serviço ativo: %s/%s",
+                    phone,
+                    active_service.get("service") or "-",
+                    active_service.get("status") or "-",
+                )
+            elif last_service:
+                logger.info(
+                    "Cliente %s tem serviço antigo: %s/%s",
+                    phone,
+                    last_service.get("service") or "-",
+                    last_service.get("status") or "-",
+                )
+
+            initial_state = {
+                "messages": messages_with_history,
+                "intent": None,
+                "service": None,
+                "outcome": None,
+                "handoff_mode": "none",
+                "handoff_reason": None,
+                "handoff_already_notified": False,
+                "rag_context": [],
+                "customer_data": {
+                    "phone": phone,
+                    "is_first_message": is_first_message,
+                    "active_service": active_service,
+                    "last_service": last_service,
+                    "memory": memory_meta,
+                },
+                "is_human": False,
+                "confidence": 1.0,
+                "message_type": payload.message_type,
+                "msg_id": payload.msg_id,
+                "media_url": payload.media_url,
+                "media_base64": payload.media_base64,
+                "instance": instance,
+                "response_modality": None,
+                "audio_bytes": None,
+            }
+
+            try:
+                result = await asyncio.wait_for(GRAPH.ainvoke(initial_state), timeout=_GRAPH_TIMEOUT)
+            except Exception as e:
+                logger.exception("Falha no grafo; usando fallback seguro para %s: %s", phone, e)
+                fallback = _safe_fallback_response(message_text)
+                result = {
+                    "messages": messages_with_history + [AIMessage(content=fallback)],
+                    "response_modality": "text",
+                    "handoff_mode": "none",
+                    "handoff_reason": None,
+                    "outcome": "fallback_seguro",
+                }
+
+            await maybe_notify_owner_from_result(
+                r,
                 phone=phone,
                 message_text=message_text,
+                result=result,
                 instance=instance,
-                history=redis_history,
             )
+
+            messages_out = result.get("messages", [])
             ai_message = next(
                 (
                     _message_text(message)
-                    for message in reversed(result.get("messages", []))
+                    for message in reversed(messages_out)
                     if isinstance(message, AIMessage) and _message_text(message)
                 ),
                 None,
             )
+
+            import hashlib
+            response_hash = "N/A"
             if ai_message:
-                await save_history(phone, result["messages"], r)
+                response_hash = hashlib.md5(ai_message.encode("utf-8")).hexdigest()
+                prev_hash_key = f"prev_resp_hash:{phone}"
+                prev_user_text_key = f"prev_user_text:{phone}"
+                previous_response_hash = await r.get(prev_hash_key)
+                previous_user_text = await r.get(prev_user_text_key)
+
+                if previous_response_hash == response_hash and message_text != previous_user_text:
+                    logger.warning(
+                        "[possible_response_loop] DETECTED LOOP FOR %s. "
+                        "Previous response was identical, but user input changed. "
+                        "Response: %s", phone, ai_message[:100]
+                    )
+
+                await r.set(prev_hash_key, response_hash, ex=1800)
+                await r.set(prev_user_text_key, message_text, ex=1800)
+
+            understanding = result.get("message_understanding") or {}
+            lead_state = result.get("lead_state") or {}
+            comm_dec = lead_state.get("commercial_decision") or result.get("commercial_decision") or {}
+            next_action = result.get("next_action") or {}
+
+            logger.info(
+                "[DEBUG_LOGS] Phone: %s | MessageType: %s | UserText: %s | "
+                "Transcript: %s | UnderstandingKind: %s | LastAskedField: %s | "
+                "AppliedShortAnswer: %s | Service: %s | CommercialPath: %s | "
+                "NextActionType: %s | ResponseModality: %s | TTSEnabled: %s | "
+                "VisionCalled: %s | ResponseHash: %s",
+                phone,
+                payload.message_type,
+                message_text,
+                ai_message if payload.message_type == "audioMessage" else "N/A",
+                understanding.get("kind"),
+                lead_state.get("last_asked_field"),
+                result.get("short_answer_applied") or lead_state.get("short_answer_applied"),
+                lead_state.get("tipo_servico"),
+                comm_dec.get("path"),
+                next_action.get("type"),
+                result.get("response_modality"),
+                os.getenv("TTS_ENABLED", "1"),
+                result.get("vision_called", False),
+                response_hash,
+            )
+
+            if ai_message:
+                clean_history = list(messages_with_history) + [AIMessage(content=ai_message)]
+                await save_history(phone, clean_history, r)
+                logger.info("Histórico salvo: %s (%s msgs)", phone, len(clean_history))
+
+            modality = result.get("response_modality", "text")
+            audio_bytes = result.get("audio_bytes")
+
+            if modality == "audio" and isinstance(audio_bytes, bytes) and audio_bytes:
+                sent = await send_whatsapp_audio(phone, audio_bytes, instance)
+                if not sent and ai_message:
+                    await send_whatsapp_message(phone, ai_message, instance)
+            elif ai_message:
                 await send_whatsapp_message(phone, ai_message, instance)
             else:
-                logger.warning("Fluxo MVP não retornou resposta para %s", phone)
-            return
-
-        canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
-        is_first_message = not bool(memory_meta.get("is_conversation_started"))
-        messages_with_history = canonical_history + [HumanMessage(content=message_text)]
-        active_service = await load_active_customer_service(phone)
-        last_service = None if active_service else await load_last_customer_service(phone)
-        if active_service:
-            logger.info(
-                "Cliente %s tem serviço ativo: %s/%s",
-                phone,
-                active_service.get("service") or "-",
-                active_service.get("status") or "-",
-            )
-        elif last_service:
-            logger.info(
-                "Cliente %s tem serviço antigo: %s/%s",
-                phone,
-                last_service.get("service") or "-",
-                last_service.get("status") or "-",
-            )
-
-        initial_state = {
-            "messages": messages_with_history,
-            "intent": None,
-            "service": None,
-            "outcome": None,
-            "handoff_mode": "none",
-            "handoff_reason": None,
-            "handoff_already_notified": False,
-            "rag_context": [],
-            "customer_data": {
-                "phone": phone,
-                "is_first_message": is_first_message,
-                "active_service": active_service,
-                "last_service": last_service,
-                "memory": memory_meta,
-            },
-            "is_human": False,
-            "confidence": 1.0,
-            "message_type": payload.message_type,
-            "msg_id": payload.msg_id,
-            "media_url": payload.media_url,
-            "media_base64": payload.media_base64,
-            "instance": instance,
-            "response_modality": None,
-            "audio_bytes": None,
-        }
-
-        try:
-            result = await asyncio.wait_for(GRAPH.ainvoke(initial_state), timeout=_GRAPH_TIMEOUT)
-        except Exception as e:
-            logger.exception("Falha no grafo; usando fallback seguro para %s: %s", phone, e)
-            fallback = _safe_fallback_response(message_text)
-            result = {
-                "messages": messages_with_history + [AIMessage(content=fallback)],
-                "response_modality": "text",
-                "handoff_mode": "none",
-                "handoff_reason": None,
-                "outcome": "fallback_seguro",
-            }
-
-        await maybe_notify_owner_from_result(
-            r,
-            phone=phone,
-            message_text=message_text,
-            result=result,
-            instance=instance,
-        )
-
-        messages_out = result.get("messages", [])
-        ai_message = next(
-            (
-                _message_text(message)
-                for message in reversed(messages_out)
-                if isinstance(message, AIMessage) and _message_text(message)
-            ),
-            None,
-        )
-
-        import hashlib
-        response_hash = "N/A"
-        if ai_message:
-            response_hash = hashlib.md5(ai_message.encode("utf-8")).hexdigest()
-            prev_hash_key = f"prev_resp_hash:{phone}"
-            prev_user_text_key = f"prev_user_text:{phone}"
-            previous_response_hash = await r.get(prev_hash_key)
-            previous_user_text = await r.get(prev_user_text_key)
-
-            if previous_response_hash == response_hash and message_text != previous_user_text:
-                logger.warning(
-                    "[possible_response_loop] DETECTED LOOP FOR %s. "
-                    "Previous response was identical, but user input changed. "
-                    "Response: %s", phone, ai_message[:100]
-                )
-
-            await r.set(prev_hash_key, response_hash, ex=1800)
-            await r.set(prev_user_text_key, message_text, ex=1800)
-
-        understanding = result.get("message_understanding") or {}
-        lead_state = result.get("lead_state") or {}
-        comm_dec = lead_state.get("commercial_decision") or result.get("commercial_decision") or {}
-        next_action = result.get("next_action") or {}
-
-        logger.info(
-            "[DEBUG_LOGS] Phone: %s | MessageType: %s | UserText: %s | "
-            "Transcript: %s | UnderstandingKind: %s | LastAskedField: %s | "
-            "AppliedShortAnswer: %s | Service: %s | CommercialPath: %s | "
-            "NextActionType: %s | ResponseModality: %s | TTSEnabled: %s | "
-            "VisionCalled: %s | ResponseHash: %s",
-            phone,
-            payload.message_type,
-            message_text,
-            ai_message if payload.message_type == "audioMessage" else "N/A",
-            understanding.get("kind"),
-            lead_state.get("last_asked_field"),
-            result.get("short_answer_applied") or lead_state.get("short_answer_applied"),
-            lead_state.get("tipo_servico"),
-            comm_dec.get("path"),
-            next_action.get("type"),
-            result.get("response_modality"),
-            os.getenv("TTS_ENABLED", "1"),
-            result.get("vision_called", False),
-            response_hash,
-        )
-
-        if ai_message:
-            clean_history = list(messages_with_history) + [AIMessage(content=ai_message)]
-            await save_history(phone, clean_history, r)
-            logger.info("Histórico salvo: %s (%s msgs)", phone, len(clean_history))
-
-        modality = result.get("response_modality", "text")
-        audio_bytes = result.get("audio_bytes")
-
-        if modality == "audio" and isinstance(audio_bytes, bytes) and audio_bytes:
-            sent = await send_whatsapp_audio(phone, audio_bytes, instance)
-            if not sent and ai_message:
-                await send_whatsapp_message(phone, ai_message, instance)
-        elif ai_message:
-            await send_whatsapp_message(phone, ai_message, instance)
-        else:
-            logger.warning("Nenhuma resposta AI no resultado para %s", phone)
+                logger.warning("Nenhuma resposta AI no resultado para %s", phone)
 
 
 async def process_queue_item(raw_item: str, worker_id: int) -> None:
