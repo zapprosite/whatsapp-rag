@@ -111,24 +111,18 @@ def render_response(action_type: str, ctx: ResponseContext) -> str:
         qty = ctx.quantidade_aparelhos or 1
         total = qty * 200
         plural = "s" if qty > 1 else ""
-        if not ctx.city_bairro:
+        if qty == 1:
             return (
-                f"Perfeito, {qty} aparelho{plural}.\n\n"
-                f"Me passa a cidade e bairro para eu direcionar o atendimento?"
+                "Perfeito, 1 aparelho.\n\n"
+                "A higienização fica R$200.\n\n"
+                "Qual período fica melhor para atendimento: manhã ou tarde?"
             )
         else:
-            if qty == 1:
-                return (
-                    "Perfeito, 1 aparelho.\n\n"
-                    "A higienização fica R$200.\n\n"
-                    "Qual período fica melhor para atendimento: manhã ou tarde?"
-                )
-            else:
-                return (
-                    f"Perfeito, {qty} aparelhos.\n\n"
-                    f"A higienização fica R${total}, considerando R$200 por aparelho.\n\n"
-                    f"Qual período fica melhor para atendimento: manhã ou tarde?"
-                )
+            return (
+                f"Perfeito, {qty} aparelhos.\n\n"
+                f"A higienização fica R${total}, considerando R$200 por aparelho.\n\n"
+                f"Qual período fica melhor para atendimento: manhã ou tarde?"
+            )
 
     # 9. offer_project_visit
     elif action_type == "offer_project_visit":

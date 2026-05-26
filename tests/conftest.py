@@ -18,6 +18,12 @@ def pytest_ignore_collect(path, config):
             "test_mvp_attendance",
             "test_response_catalog_mvp",
             "test_validate_env",
+            "test_hvacr_loop_scenarios",
+            "test_short_answer_fields",
+            "test_audio_stt_quantity",
+            "test_brazilian_variations",
+            "test_high_value_routing",
+            "test_response_loop_detection",
             "conftest",
         }
         name = os.path.basename(str(path))
@@ -33,6 +39,12 @@ def pytest_collection_modifyitems(config, items):
             "test_mvp_attendance",
             "test_response_catalog_mvp",
             "test_validate_env",
+            "test_hvacr_loop_scenarios",
+            "test_short_answer_fields",
+            "test_audio_stt_quantity",
+            "test_brazilian_variations",
+            "test_high_value_routing",
+            "test_response_loop_detection",
         }
         for item in items:
             module_name = item.module.__name__

@@ -85,24 +85,37 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             action = make_action("answer_services_list")
         elif understanding.get("kind") == "clarification_request" or understanding.get("asks_clarification"):
             action = make_action("answer_clarification_llm")
+        # window_preference tem prioridade sobre qualquer oferta de serviço
+        elif understanding.get("kind") == "window_preference" or (
+            understanding.get("window") and lead_state.get("last_asked_field") in {"preferred_window", "quantidade_aparelhos"}
+            and lead_state.get("appointment", {}).get("preferred_window")
+        ):
+            action = make_action("save_preferred_window", service=service, missing_field=next_missing)
+        # project_quote antes de ask_lead_name para não bloquear alto valor por falta de nome
+        elif commercial_decision.path == "project_quote":
+            action = make_action("offer_project_visit", service=service)
         elif missing_name:
             action = make_action("ask_lead_name", service=service)
         elif not service:
             action = make_action("ask_basic_service")
-        elif commercial_decision.path == "fixed_installation_simple" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
+        elif commercial_decision.path == "fixed_installation_simple":
             action = make_action("offer_fixed_installation", service=service)
-        elif service in {"manutencao", "conserto"} or commercial_decision.path == "technical_visit_50":
+        elif service in {"manutencao", "conserto"} or (
+            commercial_decision.path == "technical_visit_50" and service not in {"higienizacao"}
+        ):
             action = make_action("offer_technical_visit", service=service)
         elif service == "higienizacao" and commercial_decision.path == "fixed_hygienization":
             qty = lead_state.get("higienizacao", {}).get("quantidade_aparelhos")
             if qty is None:
+                lead_state["last_asked_field"] = "quantidade_aparelhos"
                 action = make_action("offer_fixed_hygienization", service=service, asks_field="quantidade_aparelhos")
             else:
+                lead_state["last_asked_field"] = "preferred_window"
                 action = make_action("offer_hygienization_schedule", service=service, asks_field="preferred_window")
-        elif commercial_decision.path == "project_quote":
-            action = make_action("offer_project_visit", service=service)
-        elif understanding.get("kind") == "window_preference":
-            action = make_action("save_preferred_window", service=service, missing_field=next_missing)
+        elif service == "higienizacao" and commercial_decision.path == "technical_visit_50":
+            # Aparelho não climatizando -> análise técnica, não pedir quantidade
+            lead_state["last_asked_field"] = "preferred_window"
+            action = make_action("offer_technical_visit", service=service)
         else:
             action = make_action("fallback_recover_context")
 

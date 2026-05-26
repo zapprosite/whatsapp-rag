@@ -46,6 +46,14 @@ _SERVICE_KEYWORDS = {
     "instalacao": ("instalacao", "instalação", "instalar"),
     "manutencao": ("manutencao", "manutenção", "conserto", "consertar", "nao gela", "não gela"),
     "higienizacao": ("higienizacao", "higienização", "higienizar", "limpeza", "limpar"),
+    # Alto valor → project_quote via commercial_router
+    "project_quote": (
+        "vrf", "vrv", "cassete", "piso teto", "piso-teto",
+        "splitao", "splitão", "multisplit", "multi split",
+        "duto", "dutado", "alto padrão", "alto padrao",
+        "galpao", "galpão", "projeto para", "projeto de",
+        "restaurante",
+    ),
 }
 _MORNING_TERMS = ("manha", "manhã", "de manhã")
 _AFTERNOON_TERMS = ("tarde",)
@@ -155,8 +163,16 @@ def _base_state(phone: str, lead: dict[str, Any] | None = None) -> dict[str, Any
 
 
 def update_lead_state_mvp(lead_state: dict[str, Any], user_text: str, phone: str) -> dict[str, Any]:
+    from agent_graph.nodes.reduce_lead_state import apply_short_answer_to_last_asked_field
+
     updated = _base_state(phone, {"lead_state": lead_state})
     updated["last_messages"]["user"] = user_text
+
+    # Aplica respostas curtas ANTES de tentar detectar serviço.
+    # Isso garante que "1", "um", "tarde" etc. sejam aplicados ao campo correto.
+    last_asked = updated.get("last_asked_field")
+    if last_asked and user_text:
+        apply_short_answer_to_last_asked_field(updated, last_asked, user_text)
 
     detected_service = _detect_service(user_text, updated)
     if detected_service:
@@ -194,7 +210,9 @@ def compose_response_mvp_catalog(
         greeting="Bom dia",
         service=lead_state.get("tipo_servico"),
         name=lead_state.get("nome"),
+        city_bairro=lead_state.get("cidade_bairro"),
         preferred_window=lead_state.get("appointment", {}).get("preferred_window"),
+        quantidade_aparelhos=lead_state.get("higienizacao", {}).get("quantidade_aparelhos") if lead_state.get("higienizacao") else None,
     )
     action_map = {
         "welcome_onboarding": "welcome_onboarding",
@@ -203,6 +221,7 @@ def compose_response_mvp_catalog(
         "offer_fixed_installation": "offer_fixed_installation",
         "offer_technical_visit": "offer_technical_visit",
         "offer_fixed_hygienization": "offer_fixed_hygienization",
+        "offer_hygienization_schedule": "offer_hygienization_schedule",
         "offer_project_visit": "offer_project_visit",
         "save_preferred_window": "save_preferred_window",
         "fallback_recover_context": "fallback_recover_context",
