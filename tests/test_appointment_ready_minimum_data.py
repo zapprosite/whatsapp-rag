@@ -45,11 +45,23 @@ def test_minimum_data_true_manutencao_with_symptom():
 
 
 def test_minimum_data_true_instalacao_with_btus():
+    # Instalação requer cidade + ambas as fotos + equipamento (btus ou modelo)
     ls = nodes._lead_state_copy()
     ls["tipo_servico"] = "instalacao"
     ls["cidade_bairro"] = "Guarujá"
     ls["btus"] = "12000"
+    ls["fotos"] = {"local_interno": True, "local_externo": True}
     assert nodes.has_minimum_real_data_for_appointment(ls, "instalacao") is True
+
+
+def test_minimum_data_false_instalacao_with_btus_only_one_photo():
+    # Apenas foto interna + btus não é suficiente: falta foto externa
+    ls = nodes._lead_state_copy()
+    ls["tipo_servico"] = "instalacao"
+    ls["cidade_bairro"] = "Guarujá"
+    ls["btus"] = "12000"
+    ls["fotos"] = {"local_interno": True, "local_externo": False}
+    assert nodes.has_minimum_real_data_for_appointment(ls, "instalacao") is False
 
 
 def test_minimum_data_false_instalacao_without_btus_or_photo():

@@ -324,7 +324,8 @@ def test_appointment_score_ready_sets_soft_alert(monkeypatch):
         "nome": "João",
         "cidade_bairro": "Santos",
         "btus": "12000",
-        "fotos": {"aparelho": False, "local_interno": True, "local_externo": False, "disjuntor": False, "erro_display": False},
+        # instalação requer ambas as fotos para appointment_ready
+        "fotos": {"aparelho": False, "local_interno": True, "local_externo": True, "disjuntor": False, "erro_display": False},
     }
 
     result = run(nodes.classify_service(state))

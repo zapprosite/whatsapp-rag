@@ -524,6 +524,11 @@ async def maybe_notify_owner_from_result(
     if mode == "hard_transfer" and result.get("handoff_already_notified"):
         return False
 
+    # appointment_confirmed é tratado exclusivamente por dispatch_appointment_alert → grupo de agenda
+    if reason == "appointment_confirmed":
+        logger.info("appointment_confirmed delegado ao dispatch_appointment_alert; worker skip")
+        return False
+
     owner_worthy = reason in _OWNER_WORTHY_REASONS or reason.startswith("high_value")
     if not owner_worthy:
         logger.info("Motivo de handoff não direcionado ao owner: %s", reason)

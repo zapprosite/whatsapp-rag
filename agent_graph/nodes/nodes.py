@@ -601,6 +601,44 @@ def _important_missing_field(
     return next((field for field in missing_fields if field not in blocked), None)
 
 
+def _important_missing_field_for_service(
+    service: str | None,
+    missing_fields: list[str],
+    do_not_ask: list[str],
+    lead_state: dict[str, Any] | None = None,
+) -> str | None:
+    """Retorna o próximo campo mais importante para o serviço específico."""
+    if service == "instalacao":
+        priority = [
+            "cidade_bairro",
+            "foto_local_interno",
+            "foto_local_externo",
+            "btus",
+            "ponto_eletrico_exclusivo",
+            "distancia_aproximada",
+            "tubulacao_existente",
+        ]
+        blocked = set(do_not_ask)
+        for field in priority:
+            if field in missing_fields and field not in blocked and not should_avoid_reasking(field, lead_state):
+                return field
+        return next((f for f in missing_fields if f not in blocked), None)
+    return _important_missing_field(missing_fields, do_not_ask, lead_state)
+
+
+def _human_service_label(service: str | None) -> str:
+    return {
+        "instalacao": "instalação",
+        "manutencao": "manutenção",
+        "higienizacao": "higienização",
+        "projeto-central": "projeto de climatização",
+        "pmoc": "PMOC",
+        "consultoria": "consultoria técnica",
+        "conserto": "conserto",
+        "eletrica": "análise elétrica",
+    }.get(service or "", service or "atendimento")
+
+
 def _question_for_field(field: str | None) -> str:
     return {
         "cidade_bairro": "Em qual cidade e bairro fica o atendimento?",
@@ -749,7 +787,7 @@ def _no_context_response() -> str:
 
 
 def _appointment_ready_response(lead_state: dict[str, Any]) -> str:
-    service = lead_state.get("tipo_servico") or "atendimento"
+    service_label = _human_service_label(lead_state.get("tipo_servico"))
     location = lead_state.get("cidade_bairro")
     appointment = lead_state.get("appointment") or {}
     window = appointment.get("preferred_window")
@@ -765,12 +803,12 @@ def _appointment_ready_response(lead_state: dict[str, Any]) -> str:
 
     if location:
         return (
-            f"Perfeito, já tenho o principal para seguir com o atendimento de {service} em {location}.\n\n"
+            f"Perfeito, já tenho o principal para seguir com o atendimento de {service_label} em {location}.\n\n"
             "Me confirma o melhor período: manhã ou tarde?"
         )
 
     return (
-        f"Perfeito, já tenho o principal para seguir com o atendimento de {service}.\n\n"
+        f"Perfeito, já tenho o principal para seguir com o atendimento de {service_label}.\n\n"
         "Me confirma o bairro/cidade e o melhor período: manhã ou tarde?"
     )
 
@@ -1548,6 +1586,16 @@ def _detect_preferred_window(text: str) -> str | None:
     return None
 
 
+def can_ask_schedule_window(lead_state: dict[str, Any], service: str | None = None) -> bool:
+    """True apenas quando appointment_ready E dados mínimos reais confirmados E janela ainda não registrada."""
+    appointment = lead_state.get("appointment") or {}
+    if appointment.get("preferred_window"):
+        return False
+    if not lead_state.get("appointment_ready"):
+        return False
+    return has_minimum_real_data_for_appointment(lead_state, service or lead_state.get("tipo_servico"))
+
+
 def has_minimum_real_data_for_appointment(lead_state: dict[str, Any], service: str | None) -> bool:
     service = _normalize_service(service or lead_state.get("tipo_servico"))
     city = lead_state.get("cidade_bairro")
@@ -1559,13 +1607,14 @@ def has_minimum_real_data_for_appointment(lead_state: dict[str, Any], service: s
     instalacao = lead_state.get("instalacao") or {}
 
     if service == "instalacao":
-        return bool(city) and any([
-            lead_state.get("btus"),
-            fotos.get("local_interno"),
-            fotos.get("local_externo"),
-            instalacao.get("ponto_eletrico_exclusivo") is not None,
-            instalacao.get("tubulacao_existente") is not None,
-        ])
+        internal_ok = bool(fotos.get("local_interno"))
+        external_ok = bool(fotos.get("local_externo"))
+        equipment_ok = (
+            bool(lead_state.get("btus"))
+            or bool(lead_state.get("modelo_aparelho"))
+            or lead_state.get("aparelho_ja_comprado") is not None
+        )
+        return bool(city) and internal_ok and external_ok and equipment_ok
 
     if service in {"manutencao", "higienizacao"}:
         return bool(city) and any([
@@ -2397,14 +2446,14 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
             "lead_state": lead_state,
         }
 
-    # Se cliente informou janela agora, registrar e confirmar sem loopar
+    # Se cliente informou janela agora, registrar preferência
     window_now = _detect_preferred_window(user_text)
     if window_now:
         apt = lead_state.setdefault("appointment", {"preferred_window": None, "confirmed_window": False, "appointment_alert_sent": False})
         apt["preferred_window"] = window_now
-        apt["confirmed_window"] = True
         if lead_state.get("appointment_ready"):
-            service_name = lead_state.get("tipo_servico") or service or "atendimento"
+            # Dados mínimos confirmados: confirmar agendamento
+            apt["confirmed_window"] = True
             ai_message = AIMessage(
                 content=(
                     f"Perfeito, deixei o período da {window_now} registrado.\n\n"
@@ -2418,6 +2467,33 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
                 "outcome": "analise_tecnica",
                 "handoff_mode": "soft_alert",
                 "handoff_reason": "appointment_confirmed",
+                "lead_state": lead_state,
+            }
+        else:
+            # Preferência anotada mas dados ainda incompletos: pedir próximo campo
+            svc = lead_state.get("tipo_servico") or service
+            dna = state.get("do_not_ask") or []
+            miss = state.get("missing_fields") or []
+            next_field = _important_missing_field_for_service(svc, miss, dna, lead_state)
+            if next_field:
+                next_q = _question_for_field(next_field).lower()
+                window_resp = (
+                    f"Perfeito, deixei a preferência pela {window_now} anotada.\n\n"
+                    f"Antes de confirmar agenda, {next_q}"
+                )
+            else:
+                window_resp = (
+                    f"Perfeito, deixei a preferência pela {window_now} anotada.\n\n"
+                    "Me passa mais alguns detalhes para confirmar o agendamento."
+                )
+            ai_message = AIMessage(content=window_resp)
+            return {
+                "messages": messages + [ai_message],
+                "rag_context": rag_context,
+                "service": svc,
+                "outcome": "duvida",
+                "handoff_mode": "none",
+                "handoff_reason": None,
                 "lead_state": lead_state,
             }
 
@@ -3238,17 +3314,26 @@ def _continuation_response(
 ) -> str | None:
     service = lead_state.get("tipo_servico")
     relationship = lead_state.get("relationship_type")
+    appointment = lead_state.get("appointment") or {}
     if lead_state.get("appointment_ready") or relationship == "ready_to_schedule":
+        if appointment.get("preferred_window"):
+            w = appointment["preferred_window"]
+            return f"Perfeito, deixei o período da {w} registrado.\n\nVou encaminhar para confirmação da melhor janela disponível."
         return "Perfeito, já tenho o principal para agenda.\n\nMe confirma o melhor período: manhã ou tarde?"
-    next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
+    next_field = _important_missing_field_for_service(service, missing_fields, do_not_ask, lead_state)
     repeated_strategy = _repeated_field_strategy(next_field, lead_state)
     if repeated_strategy:
         return repeated_strategy
     if service == "instalacao":
-        if next_field in {"foto_local_interno", "foto_local_externo"}:
+        if next_field == "foto_local_interno":
             return (
-                "Continuando sua instalação, pra eu te orientar certinho só falta ver o local.\n\n"
-                "Me manda uma foto do local interno e uma do local externo?"
+                "Continuando sua instalação, pra eu te orientar certinho preciso ver o local.\n\n"
+                "Pode me mandar uma foto da parede onde vai ficar a unidade interna?"
+            )
+        if next_field == "foto_local_externo":
+            return (
+                "Recebi a foto do local interno, obrigado.\n\n"
+                "Agora me manda uma foto do local onde ficaria a condensadora, do lado externo?"
             )
         return f"Continuando sua instalação, pra eu te orientar certinho só falta o próximo detalhe.\n\n{_question_for_field(next_field)}"
     if service == "higienizacao":
@@ -3256,7 +3341,7 @@ def _continuation_response(
     if service == "manutencao":
         return "Continuando a análise do aparelho, me confirma se ele liga normalmente ou aparece algum código de erro?"
     if service:
-        return f"Continuando o atendimento de {service}, {_question_for_field(next_field).lower()}"
+        return f"Continuando o atendimento de {_human_service_label(service)}, {_question_for_field(next_field).lower()}"
     return None
 
 
@@ -3499,15 +3584,49 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
 
     elif message_type == "imageMessage" and (media_url or media_base64 or msg_id):
         try:
-            from agent_graph.services.vision import analyze_image
+            from agent_graph.services.vision import analyze_image_structured
             caption = ""
             if messages and _is_human_message(messages[-1]):
                 caption = _message_text(messages[-1]) or ""
-            description = await analyze_image(media_url, caption, instance or None, msg_id, media_base64)
-            logger.info(f"Vision description: {description[:80]!r}")
-            combined = f"[Imagem: {description}]"
+            vision_data = await analyze_image_structured(media_url, caption, instance or None, msg_id, media_base64)
+            image_type = vision_data.get("image_type", "ambiente_generico")
+            observations = vision_data.get("observations", "")
+            logger.info(f"Vision structured: type={image_type!r} obs={observations[:60]!r}")
+
+            # Atualiza fotos no lead_state com base no tipo detectado
+            fotos = lead_state.setdefault("fotos", {})
+            if image_type == "local_interno_instalacao":
+                fotos["local_interno"] = True
+                combined = f"[Imagem recebida: foto do local interno para instalação. {observations}]"
+            elif image_type == "local_externo_instalacao":
+                fotos["local_externo"] = True
+                combined = f"[Imagem recebida: foto do local externo para condensadora. {observations}]"
+            elif image_type in {"equipamento_ar_condicionado", "etiqueta_tecnica"}:
+                fotos["aparelho"] = True
+                eq = vision_data.get("equipment_context") or {}
+                brand = eq.get("brand")
+                model = eq.get("model")
+                btus = eq.get("btus")
+                if brand and not lead_state.get("marca"):
+                    lead_state["marca"] = brand
+                if btus and not lead_state.get("btus"):
+                    lead_state["btus"] = str(btus)
+                combined = f"[Imagem recebida: equipamento de ar condicionado. {observations}]"
+                if brand or btus:
+                    combined += f" Dados extraídos: {', '.join(filter(None, [brand, model, f'{btus} BTUs' if btus else None]))}."
+            elif image_type == "quadro_eletrico_disjuntor":
+                fotos["disjuntor"] = True
+                combined = f"[Imagem recebida: quadro elétrico/disjuntor. {observations}]"
+            else:
+                combined = f"[Imagem recebida: {observations or 'ambiente genérico'}]"
+
+            lead_state["last_image_analysis"] = vision_data
             if caption:
-                combined = f"[Imagem: {description}]\n{caption}"
+                combined = f"{combined}\n{caption}"
+
+            # Recomputa campos após atualizar fotos
+            do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
+
             new_messages = list(messages)
             if new_messages and _is_human_message(new_messages[-1]):
                 new_messages[-1] = HumanMessage(content=combined)
@@ -3653,7 +3772,7 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     if window:
         appointment = lead_state.setdefault("appointment", {"preferred_window": None, "confirmed_window": False, "appointment_alert_sent": False})
         appointment["preferred_window"] = window
-        appointment["confirmed_window"] = True
+        # confirmed_window só quando appointment_ready real; preferência antecipada não confirma
 
     lead_state = sanitize_lead_state(lead_state)
     do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
