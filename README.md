@@ -166,6 +166,23 @@ redis-cli DEL manual_takeover:{TELEFONE_TESTE}
 
 Enquanto `manual_takeover:{phone}=1`, o worker registra `Humano assumiu; IA pausada para este contato` e não chama o LangGraph nem envia resposta automática.
 
+### Reset rápido da conversa de teste do admin
+
+Para recomeçar os testes do admin como se o contato estivesse entrando do zero, use:
+
+```bash
+curl -X POST http://localhost:8000/bot/reset-admin-test-conversation
+```
+
+Esse reset limpa o histórico Redis da conversa, remove takeover manual e dedups operacionais desse telefone, além de zerar o estado persistido do lead e apagar `lead_events` ligados a esse contato de teste.
+
+O reset não apaga:
+
+- `customer_services`
+- `interactions`
+- estado global do bot
+- agenda real no Google Calendar
+
 ### Pontuação de agendamento
 
 `appointment_score` mede quando já há dados suficientes para focar em agenda:

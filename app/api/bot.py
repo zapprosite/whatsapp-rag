@@ -10,9 +10,23 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 try:
-    from runtime import get_redis, is_manual_takeover, manual_takeover_key, normalize_whatsapp_number, set_manual_takeover
+    from runtime import (
+        get_redis,
+        is_manual_takeover,
+        manual_takeover_key,
+        normalize_whatsapp_number,
+        reset_test_conversation_state,
+        set_manual_takeover,
+    )
 except ModuleNotFoundError:
-    from app.runtime import get_redis, is_manual_takeover, manual_takeover_key, normalize_whatsapp_number, set_manual_takeover
+    from app.runtime import (
+        get_redis,
+        is_manual_takeover,
+        manual_takeover_key,
+        normalize_whatsapp_number,
+        reset_test_conversation_state,
+        set_manual_takeover,
+    )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bot", tags=["bot-control"])
@@ -20,6 +34,7 @@ router = APIRouter(prefix="/bot", tags=["bot-control"])
 _BOT_KEY = "whatsapp_rag:bot_enabled"
 _BOT_META_KEY = "whatsapp_rag:bot_state_meta"
 _DEFAULT_BOT_OFF_MESSAGE = "Oi! No momento estou atendendo pessoalmente. Te respondo em breve 🙂"
+_ADMIN_TEST_PHONE = normalize_whatsapp_number(os.getenv("OWNER_PHONE", "")) or normalize_whatsapp_number("5513996659382")
 
 
 def _now_iso() -> str:
@@ -330,6 +345,20 @@ async def bot_takeover_status(phone: str) -> dict[str, Any]:
         "phone": normalized,
         "manual_takeover": active,
         "redis_key": manual_takeover_key(normalized),
+    }
+
+
+@router.post("/reset-admin-test-conversation")
+async def bot_reset_admin_test_conversation() -> dict[str, Any]:
+    r = await get_redis()
+    result = await reset_test_conversation_state(r, _ADMIN_TEST_PHONE)
+    return {
+        "ok": True,
+        "scope": "admin_test_conversation",
+        "phone": result["phone"],
+        "deleted_keys_count": result["deleted_keys_count"],
+        "persistent_reset": result["persistent_reset"],
+        "deleted_events": result["deleted_events"],
     }
 
 
