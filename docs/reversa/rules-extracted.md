@@ -1,4 +1,4 @@
-# RULES EXTRACTED — ter 26 mai 2026 18:55:22 -03
+# RULES EXTRACTED — ter 26 mai 2026 19:00:26 -03
 ## Prices in code
 ./.venv/lib/python3.12/site-packages/pip/_internal/cli/base_command.py:                    return ERROR
 ./.venv/lib/python3.12/site-packages/pip/_internal/cli/base_command.py:                    return PREVIOUS_BUILD_DIR_ERROR
