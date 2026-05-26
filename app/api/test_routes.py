@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -15,6 +16,11 @@ except ModuleNotFoundError:
     from app.runtime import get_redis, queue_key, send_whatsapp_message, worker_module
 
 logger = logging.getLogger(__name__)
+
+_REFRIMIX_CORE_VERSION = os.getenv("REFRIMIX_CORE_VERSION", "legacy")
+
+if _REFRIMIX_CORE_VERSION == "v2":
+    from refrimix_core.domain.pipeline import pipeline as refrimix_pipeline, build_lead_state
 router = APIRouter(prefix="/test", tags=["diagnostics"])
 
 E2E_SCENARIOS = [
@@ -109,10 +115,71 @@ def _last_ai_message(messages: list[Any]) -> str | None:
     return None
 
 
+def _map_pipeline_v2_to_schema(pipeline_output: dict, lead_state: dict) -> dict[str, Any]:
+    """
+    Maps Refrimix Core V2 pipeline output fields to the frontend schema:
+      action            → intent
+      response_text     → response
+      lead_state.service.type → service
+    plus boilerplate fields the endpoints expect.
+    """
+    return {
+        "intent": pipeline_output.get("action"),
+        "response": pipeline_output.get("response_text"),
+        "service": lead_state.get("service", {}).get("type"),
+        "handoff_mode": "none",
+        "handoff_reason": None,
+        "rag_hits": 0,
+        # minimal messages list for _last_ai_message compat
+        "messages": [],
+        "_pipeline_output": pipeline_output,
+    }
+
+
+async def _invoke_v2(message: str, phone: str, media_type: str, media_url: str) -> dict[str, Any]:
+    """Invoke Refrimix Core V2 pipeline and map result to frontend schema."""
+    input_data = {
+        "phone": phone,
+        "message_id": f"diag-{int(time.time() * 1000)}",
+        "message_type": media_type,
+        "text": message,
+        "transcript": "",
+        "media_url": media_url,
+    }
+    lead_state = build_lead_state()
+    pipeline_output = refrimix_pipeline(input_data, lead_state)
+    return _map_pipeline_v2_to_schema(pipeline_output, lead_state)
+
+
 async def _invoke_graph(state: dict[str, Any]) -> dict[str, Any]:
     if worker_module.GRAPH is None:
         return {"error": "Graph not ready — server starting up"}
     return await worker_module.GRAPH.ainvoke(state)
+
+
+async def _invoke(state: dict[str, Any]) -> dict[str, Any]:
+    """
+    Route to the active pipeline:
+      v2 → _invoke_v2 (reads text from state.messages[-1])
+      legacy → _invoke_graph
+    The returned dict follows the frontend schema (intent, response, …).
+    """
+    if _REFRIMIX_CORE_VERSION == "v2":
+        # extract input from legacy state shape
+        human_msg = None
+        for msg in reversed(state.get("messages", [])):
+            if isinstance(msg, HumanMessage):
+                human_msg = msg.content
+                break
+        if human_msg is None:
+            return {"error": "No HumanMessage found in state"}
+        return await _invoke_v2(
+            message=human_msg,
+            phone=state.get("customer_data", {}).get("phone", ""),
+            media_type=state.get("message_type", "conversation"),
+            media_url=state.get("media_url", ""),
+        )
+    return await _invoke_graph(state)
 
 
 @router.post("/e2e")
@@ -123,7 +190,7 @@ async def test_e2e(start: int = 0, limit: int = 5, delay: float = 3.0) -> dict[s
 
     for i in range(start, end):
         service_tag, message = E2E_SCENARIOS[i]
-        result = await _invoke_graph(_build_state(message, phone=f"+55119000{i:04d}"))
+        result = await _invoke(_build_state(message, phone=f"+551****9000{i:04d}"))
         if "error" in result:
             return result
 
@@ -136,8 +203,8 @@ async def test_e2e(start: int = 0, limit: int = 5, delay: float = 3.0) -> dict[s
             "service": result.get("service"),
             "handoff_mode": result.get("handoff_mode"),
             "handoff_reason": result.get("handoff_reason"),
-            "rag_hits": len(result.get("rag_context", [])),
-            "response": _last_ai_message(result.get("messages", [])),
+            "rag_hits": result.get("rag_hits", 0),
+            "response": result.get("response") or _last_ai_message(result.get("messages", [])),
             "correct": intent == service_tag,
         }
         results.append(item)
@@ -161,7 +228,7 @@ async def test_e2e_loop(cycles: int = 1, delay: float = 3.0) -> dict[str, Any]:
     for cycle in range(cycles):
         logger.info("[e2e loop] cycle %s/%s", cycle + 1, cycles)
         for i, (service_tag, message) in enumerate(E2E_SCENARIOS):
-            result = await _invoke_graph(_build_state(message, phone=f"+55119000{cycle:02d}{i:02d}"))
+            result = await _invoke(_build_state(message, phone=f"+551****9000{cycle:02d}{i:02d}"))
             if "error" in result:
                 return result
 
@@ -176,7 +243,7 @@ async def test_e2e_loop(cycles: int = 1, delay: float = 3.0) -> dict[str, Any]:
                 "handoff_mode": result.get("handoff_mode"),
                 "handoff_reason": result.get("handoff_reason"),
                 "correct": intent == service_tag,
-                "response": _last_ai_message(result.get("messages", [])),
+                "response": result.get("response") or _last_ai_message(result.get("messages", [])),
             })
 
             if delay > 0:
@@ -196,7 +263,7 @@ async def test_e2e_loop(cycles: int = 1, delay: float = 3.0) -> dict[str, Any]:
 async def test_refine(message: str = "O ar está fazendo barulho") -> dict[str, Any]:
     responses = []
     for i in range(3):
-        result = await _invoke_graph(_build_state(message, phone="+5511900000001"))
+        result = await _invoke(_build_state(message, phone="+551****0001"))
         if "error" in result:
             return result
 
@@ -206,7 +273,7 @@ async def test_refine(message: str = "O ar está fazendo barulho") -> dict[str, 
             "service": result.get("service"),
             "handoff_mode": result.get("handoff_mode"),
             "handoff_reason": result.get("handoff_reason"),
-            "response": _last_ai_message(result.get("messages", [])),
+            "response": result.get("response") or _last_ai_message(result.get("messages", [])),
         })
         await asyncio.sleep(1)
 
@@ -240,11 +307,11 @@ async def test_chat(
     # Phone único por chamada para garantir estado isolado entre testes
     _ts = int(time.time() * 1000) % 10_000_000_000
     test_phone = f"+551{_ts:010d}"
-    result = await _invoke_graph(_build_state(message, phone=test_phone, send=send, media_type=media_type, media_url=media_url))
+    result = await _invoke(_build_state(message, phone=test_phone, send=send, media_type=media_type, media_url=media_url))
     if "error" in result:
         return result
 
-    ai_message = _last_ai_message(result.get("messages", []))
+    ai_message = result.get("response") or _last_ai_message(result.get("messages", []))
     sent_to_whatsapp = False
     if send and ai_message:
         sent_to_whatsapp = await send_whatsapp_message(test_phone, ai_message, "test")
@@ -255,7 +322,7 @@ async def test_chat(
         "service": result.get("service"),
         "handoff_mode": result.get("handoff_mode"),
         "handoff_reason": result.get("handoff_reason"),
-        "rag_hits": len(result.get("rag_context", [])),
+        "rag_hits": result.get("rag_hits", 0),
         "response": ai_message,
         "send_requested": send,
         "sent_to_whatsapp": sent_to_whatsapp,
