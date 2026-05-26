@@ -7,7 +7,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_GROQ_VISION_MODEL = "llama-3.2-11b-vision-preview"
+_GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 _GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 _TIMEOUT = 8.0
 
