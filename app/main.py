@@ -8,18 +8,11 @@ from fastapi import FastAPI
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-try:
-    from runtime import lifespan
-    from api.bot import router as bot_router
-    from api.health import router as health_router
-    from api.test_routes import router as test_router
-    from api.webhook import router as webhook_router
-except ModuleNotFoundError:
-    from app.runtime import lifespan
-    from app.api.bot import router as bot_router
-    from app.api.health import router as health_router
-    from app.api.test_routes import router as test_router
-    from app.api.webhook import router as webhook_router
+from runtime import lifespan
+from api.bot import router as bot_router
+from api.health import router as health_router
+from api.test_routes import router as test_router
+from api.webhook import router as webhook_router
 
 logging.basicConfig(level=logging.INFO)
 

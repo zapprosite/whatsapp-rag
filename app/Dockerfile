@@ -13,6 +13,7 @@ COPY agent_graph/ /app/agent_graph/
 COPY knowledge/ /app/knowledge/
 COPY qdrant/ /app/qdrant/
 COPY prisma/ /app/prisma/
+COPY refrimix_core/ /app/refrimix_core/
 
 # Gera client Prisma (não precisa de banco real, só do schema)
 ENV DATABASE_URL=postgresql://x:x@localhost:5432/x
