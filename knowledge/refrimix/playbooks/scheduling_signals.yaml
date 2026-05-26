@@ -1,0 +1,18 @@
+scheduling_signals:
+  strong:
+    - quero agendar
+    - pode marcar
+    - que dia vocês conseguem
+    - tem horário
+    - pode vir
+  windows:
+    - manhã
+    - tarde
+    - noite
+    - sábado
+    - hoje
+    - amanhã
+  required_before_owner_alert:
+    - tipo_servico
+    - cidade_bairro
+    - janela_preferida

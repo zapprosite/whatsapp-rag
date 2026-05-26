@@ -1,0 +1,38 @@
+# ============================================================
+# docker-compose.yml — WhatsApp RAG Clean (Refrimix Core v2)
+# ============================================================
+# Minimal stack: FastAPI (refrimix_core v2) + Redis + optional Qdrant
+# Evolution API deve rodar separadamente (já existe em production)
+# ============================================================
+
+services:
+  # --- FastAPI (Refrimix Core v2 pipeline) ---
+  fastapi-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - REFRIMIX_CORE_VERSION=v2
+      - MINIMAL_MVP_ENABLED=${MINIMAL_MVP_ENABLED:-1}
+      - RAG_ENABLED=${RAG_ENABLED:-0}
+      - TTS_ENABLED=${TTS_ENABLED:-0}
+      - VISION_ENABLED=${VISION_ENABLED:-0}
+      - STT_ENABLED=${STT_ENABLED:-0}
+      - PTBR_SANITIZER_ENABLED=${PTBR_SANITIZER_ENABLED:-0}
+      # Redis (externo ou localhost)
+      - REDIS_URL=${REDIS_URL:-redis://localhost:6379}
+      # Database
+      - DATABASE_URL=${DATABASE_URL}
+      # Qdrant (só se RAG_ENABLED=1)
+      - QDRANT_URL=${QDRANT_URL:-http://localhost:6333}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-hermes_hvac_rag_service_staging}
+    env_file:
+      - .env
+    restart: unless-stopped
+    network_mode: host
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./.ssh:/root/.ssh:ro
+
+volumes:
+  fastapi_data:

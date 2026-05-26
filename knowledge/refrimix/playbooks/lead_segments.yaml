@@ -1,0 +1,90 @@
+segments:
+  residential_common:
+    market: residential
+    tier: common
+    signals:
+      - quarto
+      - sala
+      - casa
+      - apartamento
+      - split
+      - 9000 btus
+      - 12000 btus
+      - 18000 btus
+      - quanto custa
+      - instalação simples
+      - higienização
+      - pingando
+      - não gela
+    strategy:
+      tone: direto, educado e prático
+      ask_depth: baixo
+      next_action: orçamento ou agenda
+      avoid: excesso técnico
+      owner_alert: false
+  residential_high_end:
+    market: residential
+    tier: high_end
+    signals:
+      - cobertura
+      - alto padrão
+      - arquiteto
+      - obra
+      - engenheiro
+      - forro de gesso
+      - acabamento
+      - varanda técnica
+      - múltiplos ambientes
+      - automação
+      - planta
+      - não quero quebrar
+    strategy:
+      tone: consultivo, cuidadoso e técnico sem exagero
+      ask_depth: medio
+      next_action: análise técnica ou reunião
+      owner_alert: true
+  commercial_common:
+    market: commercial
+    tier: common
+    signals:
+      - loja
+      - escritório
+      - sala comercial
+      - clínica pequena
+      - nota fiscal
+      - fora do expediente
+      - manutenção preventiva
+      - 2 aparelhos
+    strategy:
+      tone: profissional e objetivo
+      ask_depth: medio
+      next_action: quantidade de aparelhos e agenda
+      owner_alert: false
+  commercial_high_value:
+    market: commercial
+    tier: high_value
+    signals:
+      - vrf
+      - vrv
+      - duto
+      - dutado
+      - splitão
+      - splitao
+      - cassete
+      - piso-teto
+      - pmoc
+      - art
+      - laudo
+      - contrato
+      - restaurante
+      - hotel
+      - condomínio
+      - galpão
+      - mercado
+      - vários aparelhos
+      - carga térmica
+    strategy:
+      tone: consultivo técnico
+      ask_depth: alto
+      next_action: planta, metragem e quantidade de ambientes
+      owner_alert: true

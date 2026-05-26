@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-py"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Interaction {
+  id         String   @id @default(uuid())
+  phone      String
+  message    String
+  intent     String?
+  service    String?
+  response   String?
+  is_human        Boolean  @default(false)
+  created_at      DateTime @default(now())
+  metadata        Json?
+  media_type      String?
+  media_url       String?
+  transcription   String?
+  vision_analysis String?
+  tts_audio_url   String?
+
+  @@index([phone])
+  @@index([created_at])
+  @@map("interactions")
+}
+
+model Lead {
+  id                   String      @id @default(uuid())
+  phone                String      @unique
+  name                 String?
+  email                String?
+  service              String?
+  address              String?
+  window               String?
+  source               String?     @default("whatsapp")
+  service_type         String?
+  commercial_path      String?
+  pipeline_stage       String?     @default("new")
+  city_bairro          String?
+  urgency              String?
+  appointment_window   String?
+  appointment_slot_start DateTime?
+  appointment_slot_end DateTime?
+  google_event_id      String?
+  lead_status          String?     @default("open")
+  lead_state           Json?       @default("{}")
+  conversation_summary String?
+  already_asked_fields Json?       @default("[]")
+  missing_fields       Json?       @default("[]")
+  do_not_ask           Json?       @default("[]")
+  last_user_message_at DateTime?
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
+
+  @@index([phone])
+  @@index([service_type])
+  @@index([pipeline_stage])
+  @@map("leads")
+}
+
+model LeadEvent {
+  id             String   @id @default(uuid())
+  lead_id        String
+  role           String   // user, assistant, system
+  message        String
+  extracted_data Json?    @default("{}")
+  created_at     DateTime @default(now())
+
+  @@index([lead_id])
+  @@map("lead_events")
+}
+
+model CustomerService {
+  id                String    @id @default(uuid())
+  phone             String
+  service           String?
+  status            String    @default("scheduled")
+  address           String?
+  scheduled_window  String?
+  scheduled_start   DateTime?
+  scheduled_end     DateTime?
+  city_bairro       String?
+  customer_name     String?
+  source            String?   @default("whatsapp")
+  priority          String?   @default("normal")
+  value_tier        String?   @default("standard")
+  job_type          String?
+  owner_alerted_at  DateTime?
+  agenda_alerted_at DateTime?
+  notes             String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  @@index([phone])
+  @@index([status])
+  @@index([scheduled_start])
+  @@index([scheduled_end])
+  @@index([priority])
+  @@index([value_tier])
+  @@index([updated_at])
+  @@map("customer_services")
+}
+
+model LLMEvaluation {
+  id              String   @id @default(uuid())
+  interaction_id  String?
+  cycle           Int
+  lead_msg        String
+  service         String
+  will_resp       String
+  score           Float
+  flaws           String[]
+  ideal_resp      String
+  created_at      DateTime @default(now())
+
+  @@index([created_at])
+  @@map("llm_evaluations")
+}
