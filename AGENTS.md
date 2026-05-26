@@ -25,6 +25,7 @@ Antes de qualquer alteração envolvendo Evolution API, Docker Compose, QR code,
 - Se `EVOLUTION_DATABASE_URL` estiver ausente, restaure o valor correto do vault/local. Não copie outra URL e não rode migrations em banco desconhecido.
 - Não imprimir QR code, JID, telefone real, payload de cliente, `EVOLUTION_DATABASE_URL`, `DATABASE_CONNECTION_URI` ou credenciais da Evolution.
 - Payloads `@lid` devem preferir `remoteJidAlt`/`participantAlt` só quando apontarem para `@s.whatsapp.net`; `fromMe=true` nunca vira lead.
+- Para subir a Evolution API, prefira `scripts/evolution-safe-up.sh`; ele roda preflight antes de `docker compose up -d evolution-api`.
 
 ## Fechamento Obrigatório Da Tarefa
 

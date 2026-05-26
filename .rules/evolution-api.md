@@ -9,6 +9,7 @@ Este projeto usa a Evolution API como ponte WhatsApp. A sessão/QR code já pare
 - Não imprimir `EVOLUTION_DATABASE_URL`, `DATABASE_URL`, `DATABASE_CONNECTION_URI`, API key, JID, telefone real, QR code ou payload de cliente em logs, respostas, commits ou docs.
 - Se `EVOLUTION_DATABASE_URL` estiver ausente, pare e peça/restaure o valor correto do vault/local. Não invente URL, não copie outra variável e não rode migrations em banco desconhecido.
 - Para preservar QR/sessão, nunca remova os volumes `evolution_instances` e `evolution-data` sem backup e janela planejada de novo pareamento.
+- Para subir a Evolution API neste repositório, prefira `scripts/evolution-safe-up.sh`. Ele bloqueia banco ausente, banco igual ao RAG, tag `latest`, tag diferente da pinada e volumes ausentes.
 
 ## Versão e Issues Oficiais
 
@@ -29,5 +30,6 @@ Este projeto usa a Evolution API como ponte WhatsApp. A sessão/QR code já pare
 ## Diagnóstico Seguro
 
 - Para ambiente, use `.venv/bin/python scripts/validate-env.py --env-file .env`; ele deve listar só nomes de variáveis.
+- Para Evolution especificamente, use `.venv/bin/python scripts/evolution-preflight.py --env-file .env` antes de subir o container.
 - Para logs, filtre e redija identificadores antes de compartilhar. Se um log local expôs URL com credencial, não repita o valor e recomende rotação do segredo.
 - Se a Evolution estiver em loop de restart por banco vazio/incorreto, pare o container antes de continuar para reduzir vazamento em logs locais.
