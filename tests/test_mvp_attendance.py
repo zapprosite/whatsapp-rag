@@ -314,7 +314,7 @@ def test_bootstrap_instalacao_completo(monkeypatch):
     ]
     assert store["lead_state"]["nome"] == "Will"
     assert store["lead_state"]["tipo_servico"] == "instalacao"
-    assert store["lead_state"]["pipeline_stage"] == "quoted"
+    assert store["lead_state"]["pipeline_stage"] == "pre_agendamento"
     assert len(store["events"]) == 6
 
 
@@ -330,6 +330,7 @@ def test_bootstrap_instalacao_sem_foto(monkeypatch):
     assert "visita técnica de R$50" in responses[3]
     assert store["lead_state"]["nome"] == "William"
     assert store["lead_state"]["tipo_servico"] == "instalacao"
+    assert store["lead_state"]["pipeline_stage"] == "pre_agendamento"
 
 
 def test_bootstrap_manutencao_completo(monkeypatch):
@@ -346,6 +347,7 @@ def test_bootstrap_manutencao_completo(monkeypatch):
     ]
     assert store["lead_state"]["tipo_servico"] == "manutencao"
     assert store["lead_state"]["nome"] == "Will"
+    assert store["lead_state"]["pipeline_stage"] == "pre_agendamento"
 
 
 def test_bootstrap_higienizacao_completo(monkeypatch):
@@ -362,3 +364,4 @@ def test_bootstrap_higienizacao_completo(monkeypatch):
     ]
     assert store["lead_state"]["tipo_servico"] == "higienizacao"
     assert store["lead_state"]["nome"] == "Will"
+    assert store["lead_state"]["pipeline_stage"] == "pre_agendamento"

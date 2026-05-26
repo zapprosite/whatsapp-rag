@@ -134,7 +134,7 @@ def _service_pipeline_stage(service: str | None, decision_path: str | None) -> s
     if not service:
         return "awaiting_service"
     if decision_path in {"fixed_installation_simple", "fixed_hygienization", "technical_visit_50"}:
-        return "quoted"
+        return "pre_agendamento"
     return "qualified"
 
 
