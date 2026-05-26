@@ -255,7 +255,8 @@ def test_nao_depende_de_colunas_novas(monkeypatch):
 
     assert executed
     query = executed[0]
-    assert "lead_state =" in query
+    assert "lead_state = $" in query
+    assert "::jsonb" in query
     assert "email" not in query
     assert "address" not in query
     assert "commercial_path" not in query

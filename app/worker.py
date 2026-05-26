@@ -21,8 +21,12 @@ from agent_graph.graph.graph import build_graph
 from agent_graph.services.alerts import send_owner_alert
 from agent_graph.services.conversation_memory import build_canonical_history
 from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
-from app.lead_repository import prisma_healthcheck
-from app.mvp_attendance import minimal_mvp_enabled, process_mvp_message
+try:
+    from lead_repository import prisma_healthcheck
+    from mvp_attendance import minimal_mvp_enabled, process_mvp_message
+except ModuleNotFoundError:
+    from app.lead_repository import prisma_healthcheck
+    from app.mvp_attendance import minimal_mvp_enabled, process_mvp_message
 
 logger = logging.getLogger(__name__)
 

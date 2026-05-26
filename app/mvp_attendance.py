@@ -12,7 +12,10 @@ from agent_graph.domain.commercial_router import decide_commercial_path
 from agent_graph.domain.onboarding import is_generic_greeting_or_message
 from agent_graph.nodes.nodes import _lead_state_copy, sanitize_lead_state
 
-from app.lead_repository import create_lead_event, load_or_create_lead, update_lead_state
+try:
+    from lead_repository import create_lead_event, load_or_create_lead, update_lead_state
+except ModuleNotFoundError:
+    from app.lead_repository import create_lead_event, load_or_create_lead, update_lead_state
 
 _WELCOME_RESPONSE = "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?"
 _ASK_SERVICE_RESPONSE = "Entendi.\n\nIsso é instalação, manutenção, higienização ou conserto?"
