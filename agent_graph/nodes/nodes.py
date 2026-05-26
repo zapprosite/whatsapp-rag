@@ -1527,12 +1527,18 @@ def sanitize_lead_state(lead_state: dict[str, Any]) -> dict[str, Any]:
         lead_state["appointment_ready"] = False
     if lead_state.get("pipeline_stage") == "ready_to_schedule" and _is_invalid_structured_value(lead_state.get("cidade_bairro")):
         lead_state["pipeline_stage"] = "qualifying_lead"
+    # Compatibilidade de schema: garante chave appointment para leads antigos (pre-fix)
+    lead_state.setdefault("appointment", {
+        "preferred_window": None,
+        "confirmed_window": False,
+        "appointment_alert_sent": False,
+    })
     return lead_state
 
 
 def _detect_preferred_window(text: str) -> str | None:
     folded = _fold_text(text)
-    if re.search(r"\b(manha|manha)\b", folded):
+    if re.search(r"\bmanha\b", folded):
         return "manhã"
     if re.search(r"\btarde\b", folded):
         return "tarde"
@@ -1584,6 +1590,30 @@ def has_minimum_real_data_for_appointment(lead_state: dict[str, Any], service: s
     return False
 
 
+# Respostas determinísticas para mensagens de serviço puro (ex: só "Manutenção" sem contexto).
+# Definidas como constante de módulo para evitar recriação a cada chamada no hot path.
+_BARE_RESPONSE_MAP: dict[str, str] = {
+    "manutencao": "Perfeito, manutenção.\n\nMe conta o que está acontecendo com o ar: não gela, pinga, faz barulho ou não liga?\n\nSe puder, manda também uma foto do aparelho.",
+    "manutenção": "Perfeito, manutenção.\n\nMe conta o que está acontecendo com o ar: não gela, pinga, faz barulho ou não liga?\n\nSe puder, manda também uma foto do aparelho.",
+    "instalacao": "Perfeito, instalação.\n\nPra eu te orientar certinho, me manda:\n\n1. Cidade/bairro\n2. BTUs do aparelho\n3. Foto do local interno e externo",
+    "instalação": "Perfeito, instalação.\n\nPra eu te orientar certinho, me manda:\n\n1. Cidade/bairro\n2. BTUs do aparelho\n3. Foto do local interno e externo",
+    "higienizacao": "Perfeito, higienização.\n\nQuantos aparelhos são e em qual bairro/cidade fica?",
+    "higienização": "Perfeito, higienização.\n\nQuantos aparelhos são e em qual bairro/cidade fica?",
+    "conserto": "Perfeito, conserto.\n\nMe conta o sintoma: não liga, não gela, pinga, faz barulho ou aparece código de erro?",
+}
+
+# Mapeamento de texto normalizado para nome canônico de serviço (usado no atalho bare).
+_BARE_SERVICE_NORMALIZE_MAP: dict[str, str] = {
+    "manutencao": "manutencao",
+    "manutenção": "manutencao",
+    "instalacao": "instalacao",
+    "instalação": "instalacao",
+    "higienizacao": "higienizacao",
+    "higienização": "higienizacao",
+    "conserto": "conserto",
+}
+
+
 def _bare_service_selection_response(user_text: str, lead_state: dict[str, Any]) -> str | None:
     appointment = lead_state.get("appointment") or {}
     if appointment.get("preferred_window"):
@@ -1591,16 +1621,7 @@ def _bare_service_selection_response(user_text: str, lead_state: dict[str, Any])
     if lead_state.get("tipo_servico"):
         return None
     folded = _fold_text(user_text.strip())
-    _BARE_MAP: dict[str, str] = {
-        "manutencao": "Perfeito, manutenção.\n\nMe conta o que está acontecendo com o ar: não gela, pinga, faz barulho ou não liga?\n\nSe puder, manda também uma foto do aparelho.",
-        "manutenção": "Perfeito, manutenção.\n\nMe conta o que está acontecendo com o ar: não gela, pinga, faz barulho ou não liga?\n\nSe puder, manda também uma foto do aparelho.",
-        "instalacao": "Perfeito, instalação.\n\nPra eu te orientar certinho, me manda:\n\n1. Cidade/bairro\n2. BTUs do aparelho\n3. Foto do local interno e externo",
-        "instalação": "Perfeito, instalação.\n\nPra eu te orientar certinho, me manda:\n\n1. Cidade/bairro\n2. BTUs do aparelho\n3. Foto do local interno e externo",
-        "higienizacao": "Perfeito, higienização.\n\nQuantos aparelhos são e em qual bairro/cidade fica?",
-        "higienização": "Perfeito, higienização.\n\nQuantos aparelhos são e em qual bairro/cidade fica?",
-        "conserto": "Perfeito, conserto.\n\nMe conta o sintoma: não liga, não gela, pinga, faz barulho ou aparece código de erro?",
-    }
-    return _BARE_MAP.get(folded)
+    return _BARE_RESPONSE_MAP.get(folded)
 
 
 def _keyword_in_text(keyword: str, text: str) -> bool:
@@ -2396,8 +2417,7 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         ai_message = AIMessage(content=bare)
         if lead_state.get("tipo_servico") is None:
             bare_service = _fold_text(user_text.strip())
-            _BARE_SERVICE_MAP = {"manutencao": "manutencao", "manutenção": "manutencao", "instalacao": "instalacao", "instalação": "instalacao", "higienizacao": "higienizacao", "higienização": "higienizacao", "conserto": "conserto"}
-            detected = _BARE_SERVICE_MAP.get(bare_service)
+            detected = _BARE_SERVICE_NORMALIZE_MAP.get(bare_service)
             if detected:
                 lead_state["tipo_servico"] = detected
         lead_state["appointment_ready"] = False
@@ -2505,14 +2525,16 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         from agent_graph.services.domain_disambiguation import template_context_for_prompt
 
         template_context = template_context_for_prompt(selected_template if isinstance(selected_template, dict) else None)
-    except Exception:
+    except Exception as exc:
+        logger.warning("template_context_for_prompt falhou: %s", exc)
         template_context = "Nenhum template específico. Use as regras de estado e o contexto recuperado."
     if _contains_any(_normalize_text(user_text), _SCHEDULING_TERMS):
         try:
             from agent_graph.services.calendar import get_availability_summary
 
             availability = await get_availability_summary()
-        except Exception:
+        except Exception as exc:
+            logger.warning("get_availability_summary falhou: %s", exc)
             availability = ""
         if availability:
             context_str = "\n---\n".join(
