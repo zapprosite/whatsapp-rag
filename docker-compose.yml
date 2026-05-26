@@ -1,11 +1,21 @@
 # ============================================================
 # docker-compose.yml — WhatsApp RAG Clean (Refrimix Core v2)
 # ============================================================
-# Minimal stack: FastAPI (refrimix_core v2) + Redis + optional Qdrant
-# Evolution API deve rodar separadamente (já existe em production)
+# Minimal stack: FastAPI (refrimix_core v2) + Redis
+# Evolution API roda separadamente (mesma network: whatsapp-rag_evo_network)
 # ============================================================
 
 services:
+  # --- Redis local para filas e cache ---
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - default
+
   # --- FastAPI (Refrimix Core v2 pipeline) ---
   fastapi-rag:
     build:
@@ -19,8 +29,8 @@ services:
       - VISION_ENABLED=${VISION_ENABLED:-0}
       - STT_ENABLED=${STT_ENABLED:-0}
       - PTBR_SANITIZER_ENABLED=${PTBR_SANITIZER_ENABLED:-0}
-      # Redis (externo ou localhost)
-      - REDIS_URL=${REDIS_URL:-redis://localhost:6379}
+      # Redis (nome do serviço Docker)
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       # Database
       - DATABASE_URL=${DATABASE_URL}
       # Qdrant (só se RAG_ENABLED=1)
@@ -29,10 +39,23 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    network_mode: host
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    networks:
+      - default
+      - evolution_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./.ssh:/root/.ssh:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+
+networks:
+  evolution_net:
+    external: true
+    name: whatsapp-rag_evo_network
 
 volumes:
   fastapi_data:
+  redis_data:
