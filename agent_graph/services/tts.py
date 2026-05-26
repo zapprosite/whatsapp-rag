@@ -30,13 +30,16 @@ _VOICE_STYLES: dict[str, str] = {
 _DEFAULT_STYLE = "influencer"
 
 _CHATTERBOX_STYLE_PARAMS: dict[str, dict[str, float]] = {
+    # Preset Atendimento Refrimix/Hermes - Tom brasileiro, calmo, simpático, natural.
     "calm_consultative": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.50, "speed_factor": 1.0},
-    "calm_serious": {"temperature": 0.45, "exaggeration": 0.35, "cfg_weight": 0.55, "speed_factor": 0.96},
-    "urgent_safety": {"temperature": 0.45, "exaggeration": 0.35, "cfg_weight": 0.55, "speed_factor": 0.94},
-    "professional_consultative": {"temperature": 0.50, "exaggeration": 0.38, "cfg_weight": 0.50, "speed_factor": 0.98},
-    "high_value_project": {"temperature": 0.50, "exaggeration": 0.38, "cfg_weight": 0.50, "speed_factor": 0.98},
-    "friendly_short": {"temperature": 0.60, "exaggeration": 0.45, "cfg_weight": 0.48, "speed_factor": 1.02},
     "influencer": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.50, "speed_factor": 1.0},
+    # Preset Anti-Sotaque (Para evitar espanhol / europeu puxado pelo Multilingual)
+    "calm_serious": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.15, "speed_factor": 0.98},
+    "urgent_safety": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.15, "speed_factor": 0.98},
+    # Outros estilos mapeando com segurança nos mesmos presets ideais
+    "professional_consultative": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.35, "speed_factor": 0.98},
+    "high_value_project": {"temperature": 0.55, "exaggeration": 0.42, "cfg_weight": 0.35, "speed_factor": 0.98},
+    "friendly_short": {"temperature": 0.60, "exaggeration": 0.45, "cfg_weight": 0.48, "speed_factor": 1.0},
 }
 
 # Mensagens que devem sempre ser respondidas em áudio
@@ -168,6 +171,16 @@ def _normalize_tts_text_ptbr(text: str) -> str:
     normalized = re.sub(r"https?://\S+|www\.\S+", "link", text.strip(), flags=re.IGNORECASE)
     normalized = re.sub(r"[*_`#>]+", " ", normalized)
     normalized = re.sub(r"\b(equipo|equipos)\b", "equipamento", normalized, flags=re.IGNORECASE)
+
+    # Prevenção de termos europeus indesejados (Anti-sotaque Portugal/Espanhol)
+    normalized = re.sub(r"\btelemóvel\b", "celular", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bficheiro[s]?\b", "arquivo", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bcontactar\b", "falar com", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bmarcação\b", "agendamento", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bpequeno-almoço\b", "café da manhã", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bfactura\b", "fatura", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\btu estás\b", "você está", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\btu tens\b", "você tem", normalized, flags=re.IGNORECASE)
 
     # "split high-wall" / "split hi-wall" → "split" (termo técnico consolidado em pt-BR)
     normalized = re.sub(r"\bsplit[\s\-](?:high|hi)[\s\-]wall\b", "split", normalized, flags=re.IGNORECASE)
@@ -372,8 +385,9 @@ sys.stdout.write(response.text)
             "reference_audio_filename": voice,
             "output_format": "wav",
             "language": self._chatterbox_language,
+            "language_id": self._chatterbox_language,
             "split_text": True,
-            "chunk_size": _env_int("TTS_CHATTERBOX_CHUNK_SIZE", 400),
+            "chunk_size": _env_int("TTS_CHATTERBOX_CHUNK_SIZE", 200),
             "temperature": _env_float("TTS_CHATTERBOX_TEMPERATURE", style_params["temperature"]),
             "exaggeration": _env_float("TTS_CHATTERBOX_EXAGGERATION", style_params["exaggeration"]),
             "cfg_weight": _env_float("TTS_CHATTERBOX_CFG_WEIGHT", style_params["cfg_weight"]),
