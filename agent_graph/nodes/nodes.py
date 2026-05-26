@@ -1091,7 +1091,7 @@ async def groq_repair(prompt: str) -> str:
 async def redis_get(key: str) -> str | None:
     import redis.asyncio
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    client = redis.asyncio.from_url(redis_url, decode_responses=True)
+    client = redis.asyncio.from_url(redis_url, decode_responses=True, socket_timeout=3.0)
     try:
         return await client.get(key)
     finally:
@@ -1101,7 +1101,7 @@ async def redis_get(key: str) -> str | None:
 async def redis_set(key: str, value: str, ex: int | None = None) -> None:
     import redis.asyncio
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    client = redis.asyncio.from_url(redis_url, decode_responses=True)
+    client = redis.asyncio.from_url(redis_url, decode_responses=True, socket_timeout=3.0)
     try:
         await client.set(key, value, ex=ex)
     finally:
@@ -1163,7 +1163,8 @@ def qdrant_search(
             max_length=512,
         )
         query_embedding = next(model.embed([query]))
-    except Exception:
+    except Exception as e:
+        logger.warning("FastEmbed falhou ao gerar embedding: %s", e)
         return []
 
     from qdrant_client.models import Filter, FieldCondition, MatchAny, MatchValue
@@ -2095,7 +2096,8 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"LLM classify falhou, mantendo keyword: {e}")
 
-    if _looks_like_pmoc_preventive_plan(semantic_text):
+    is_pmoc_preventive = _looks_like_pmoc_preventive_plan(semantic_text)
+    if is_pmoc_preventive:
         intent = "pmoc"
 
     high_value_service = _fallback_service_for_high_value(semantic_text)
@@ -2106,6 +2108,9 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     if intent is None:
         intent = high_value_service or "unknown"
 
+    # Recalcula strong_keyword para o bloco de stickiness (pode ter sido definido dentro do try)
+    _sk = top_score >= 3 and (runner_up == 0 or top_score > runner_up * 2)
+
     current_service = _normalize_service(lead_state.get("tipo_servico"))
     correction = detect_service_correction(user_text, current_service)
     if correction and correction != current_service:
@@ -2113,10 +2118,15 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         lead_state["previous_tipo_servico"] = current_service
         lead_state["tipo_servico"] = correction
         intent = correction
-    elif current_service and intent in _SERVICE_INTENTS and intent != current_service and not (
-        current_service == "instalacao" and high_value_service in {"pmoc", "projeto-central", "consultoria"}
-    ):
-        intent = current_service
+    elif current_service and intent in _SERVICE_INTENTS and intent != current_service:
+        # Permite que o intent vença o serviço atual quando há sinal forte ou intenção explícita de PMOC
+        _allow_override = (
+            (current_service == "instalacao" and high_value_service in {"pmoc", "projeto-central", "consultoria"})
+            or (intent == "pmoc" and is_pmoc_preventive)
+            or _sk
+        )
+        if not _allow_override:
+            intent = current_service
     elif current_service and intent in {None, "unknown"}:
         intent = current_service
 

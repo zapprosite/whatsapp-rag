@@ -130,3 +130,52 @@ def test_window_tarde_response_does_not_repeat_question(monkeypatch):
     # Deve confirmar, não perguntar de novo
     assert "?" not in resp or "tarde" in resp.lower()
     assert "manhã ou tarde" not in resp.lower()
+
+
+# ── Dedup dispatch_appointment_alert ──────────────────────────────────────────
+
+
+def test_dispatch_appointment_alert_nao_reenvia_se_ja_enviado(monkeypatch):
+    """P4 — dedup: deve retornar {} imediatamente se appointment_alert_sent=True."""
+    alert_calls: list[str] = []
+
+    async def fake_send_alert(data):
+        alert_calls.append("sent")
+
+    async def fake_upsert_lead(data):
+        pass
+
+    monkeypatch.setattr(
+        "agent_graph.nodes.nodes.dispatch_appointment_alert.__module__",
+        "agent_graph.nodes.nodes",
+        raising=False,
+    )
+
+    # Patchamos as importações lazy dentro de dispatch_appointment_alert
+    import agent_graph.services.alerts as alerts_mod
+    monkeypatch.setattr(alerts_mod, "send_appointment_alert", fake_send_alert)
+    monkeypatch.setattr(alerts_mod, "prisma_upsert_lead", fake_upsert_lead)
+
+    ls = nodes._lead_state_copy()
+    ls.update({
+        "tipo_servico": "manutencao",
+        "cidade_bairro": "Santos",
+        "appointment_ready": True,
+        "appointment": {
+            "preferred_window": "manha",
+            "confirmed_window": True,
+            "appointment_alert_sent": True,  # ← já enviado
+        },
+    })
+
+    state = {
+        **base_state("Ok, pode confirmar", ls),
+        "outcome": "appointment_confirmed",
+        "handoff_reason": "appointment_confirmed",
+    }
+
+    result = run(nodes.dispatch_appointment_alert(state))
+
+    # Com appointment_alert_sent=True, deve retornar {} sem chamar send_appointment_alert
+    assert result == {}, f"Esperado {{}}, obtido {result}"
+    assert alert_calls == [], "send_appointment_alert não deve ser chamado no dedup"
