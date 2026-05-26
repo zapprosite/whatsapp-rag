@@ -96,6 +96,49 @@ def _apply_short_answer(
     return True
 
 
+def apply_short_answer_to_last_asked_field(
+    lead_state: dict[str, Any],
+    last_asked_field: str | None,
+    user_text: str,
+) -> bool:
+    if not last_asked_field or not user_text:
+        return False
+    
+    cleaned = re.sub(r"\s+", " ", user_text.strip().lower())
+    
+    if last_asked_field == "quantidade_aparelhos":
+        word_to_num = {
+            "um": 1, "uma": 1, "1": 1,
+            "dois": 2, "duas": 2, "2": 2,
+            "tres": 3, "três": 3, "3": 3,
+            "quatro": 4, "4": 4,
+            "cinco": 5, "5": 5,
+            "seis": 6, "meia": 6, "6": 6,
+            "sete": 7, "7": 7,
+            "oito": 8, "8": 8,
+            "nove": 9, "9": 9,
+            "dez": 10, "10": 10
+        }
+        
+        match = re.search(r"\b(\d+)\b", cleaned)
+        if match:
+            try:
+                qty = int(match.group(1))
+                lead_state.setdefault("higienizacao", {})
+                lead_state["higienizacao"]["quantidade_aparelhos"] = qty
+                return True
+            except ValueError:
+                pass
+                
+        for word, val in word_to_num.items():
+            if re.search(rf"\b{word}\b", cleaned):
+                lead_state.setdefault("higienizacao", {})
+                lead_state["higienizacao"]["quantidade_aparelhos"] = val
+                return True
+                
+    return False
+
+
 def _apply_image_state(
     lead_state: dict[str, Any],
     vision_data: dict[str, Any],
@@ -153,6 +196,8 @@ async def reduce_lead_state(state: dict[str, Any]) -> dict[str, Any]:
 
     last_asked_field = lead_state.get("last_asked_field") or state.get("last_asked_field")
     short_answer_applied = _apply_short_answer(lead_state, last_asked_field, understanding.get("short_answer"))
+    if not short_answer_applied:
+        short_answer_applied = apply_short_answer_to_last_asked_field(lead_state, last_asked_field, user_text)
 
     if understanding.get("kind") == "window_preference" and understanding.get("window"):
         appointment = lead_state.setdefault("appointment", {})
@@ -182,3 +227,4 @@ async def reduce_lead_state(state: dict[str, Any]) -> dict[str, Any]:
         "conversation_stage": lead_state.get("conversation_stage"),
         "calendar_stage": lead_state.get("calendar_stage"),
     }
+

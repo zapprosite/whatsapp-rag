@@ -158,6 +158,7 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
     commercial_decision = lead_state.get("commercial_decision") or {}
     missing_field_name = action.get("missing_field") or _important_missing_field_for_service(service, missing_fields, do_not_ask, lead_state)
 
+    qty_aparelhos = lead_state.get("higienizacao", {}).get("quantidade_aparelhos")
     ctx = ResponseContext(
         greeting=greeting,
         service=service,
@@ -168,6 +169,7 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
         preferred_window=action.get("slot_label") or action.get("preferred_window") or (state.get("message_understanding") or {}).get("window") or appointment.get("preferred_window"),
         missing_field=missing_field_name,
         last_offer_path=commercial_decision.get("path"),
+        quantidade_aparelhos=qty_aparelhos,
     )
 
     catalog_actions = {
@@ -190,6 +192,7 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
         "confirm_calendar_slot",
         "answer_services_list",
         "answer_clarification_llm",
+        "offer_hygienization_schedule",
     }
 
     if action_type in catalog_actions:

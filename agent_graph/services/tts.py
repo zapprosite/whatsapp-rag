@@ -474,7 +474,9 @@ def should_respond_with_audio(
     Regras (25/05/2026): Só responde em áudio quando o lead enviar áudio.
     Caso contrário, a resposta padrão é sempre texto.
     """
-    return message_type == "audioMessage"
+    import os
+    tts_enabled = os.getenv("TTS_ENABLED", "1").strip() in {"1", "true", "yes", "on"}
+    return message_type == "audioMessage" and tts_enabled
 
 
 _tts = TTSService()

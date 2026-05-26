@@ -26,6 +26,7 @@ NextActionType = Literal[
     "answer_open_question_llm",
     "answer_services_list",
     "answer_clarification_llm",
+    "offer_hygienization_schedule",
 ]
 
 
@@ -45,6 +46,7 @@ class NextAction(TypedDict, total=False):
     type: NextActionType
     needs_rag: bool
     missing_field: str | None
+    asks_field: str | None
     service: str | None
     answer_kind: str | None
     slot_choice: int | None

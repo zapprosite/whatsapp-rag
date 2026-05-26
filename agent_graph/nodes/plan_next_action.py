@@ -94,7 +94,11 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
         elif service in {"manutencao", "conserto"} or commercial_decision.path == "technical_visit_50":
             action = make_action("offer_technical_visit", service=service)
         elif service == "higienizacao" and commercial_decision.path == "fixed_hygienization":
-            action = make_action("offer_fixed_hygienization", service=service)
+            qty = lead_state.get("higienizacao", {}).get("quantidade_aparelhos")
+            if qty is None:
+                action = make_action("offer_fixed_hygienization", service=service, asks_field="quantidade_aparelhos")
+            else:
+                action = make_action("offer_hygienization_schedule", service=service, asks_field="preferred_window")
         elif commercial_decision.path == "project_quote":
             action = make_action("offer_project_visit", service=service)
         elif understanding.get("kind") == "window_preference":
@@ -171,11 +175,21 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
         )
     elif commercial_decision.path == "fixed_hygienization" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
-        action = make_action(
-            "offer_fixed_hygienization",
-            service=service,
-            side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
-        )
+        qty = lead_state.get("higienizacao", {}).get("quantidade_aparelhos")
+        if qty is None:
+            action = make_action(
+                "offer_fixed_hygienization",
+                service=service,
+                asks_field="quantidade_aparelhos",
+                side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
+            )
+        else:
+            action = make_action(
+                "offer_hygienization_schedule",
+                service=service,
+                asks_field="preferred_window",
+                side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
+            )
     elif commercial_decision.path == "technical_visit_50" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
         action = make_action(
             "offer_technical_visit",

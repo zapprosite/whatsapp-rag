@@ -683,6 +683,7 @@ def infer_asked_field_from_response(response: str, missing_fields: list[str]) ->
         "tempo_sem_manutencao": ("tempo sem manutencao", "tempo sem manutenção", "ultima manutenção", "última manutenção"),
         "pinga_agua": ("pingando", "vazando agua", "vazando água", "pinga"),
         "nome": ("nome",),
+        "quantidade_aparelhos": ("quantos aparelhos", "quantidade de aparelhos", "aparelho são", "aparelhos são", "quantos split", "quantas maquinas", "quantas máquinas"),
     }
     missing = set(missing_fields or [])
     for field, terms in patterns.items():
@@ -3128,7 +3129,8 @@ async def response_guard_check(state: dict[str, Any]) -> dict[str, Any]:
     lead_state = deepcopy(state.get("lead_state") or {})
     missing_fields = state.get("missing_fields") or []
     do_not_ask = state.get("do_not_ask") or []
-    asked_field = infer_asked_field_from_response(response, missing_fields)
+    next_action = state.get("next_action") or {}
+    asked_field = next_action.get("asks_field") or next_action.get("missing_field") or infer_asked_field_from_response(response, missing_fields)
 
     if asked_field:
         counts = lead_state.setdefault("ask_count_by_field", {})

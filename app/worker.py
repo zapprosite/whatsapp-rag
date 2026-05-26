@@ -939,6 +939,52 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             None,
         )
 
+        import hashlib
+        response_hash = "N/A"
+        if ai_message:
+            response_hash = hashlib.md5(ai_message.encode("utf-8")).hexdigest()
+            prev_hash_key = f"prev_resp_hash:{phone}"
+            prev_user_text_key = f"prev_user_text:{phone}"
+            previous_response_hash = await r.get(prev_hash_key)
+            previous_user_text = await r.get(prev_user_text_key)
+
+            if previous_response_hash == response_hash and message_text != previous_user_text:
+                logger.warning(
+                    "[possible_response_loop] DETECTED LOOP FOR %s. "
+                    "Previous response was identical, but user input changed. "
+                    "Response: %s", phone, ai_message[:100]
+                )
+
+            await r.set(prev_hash_key, response_hash, ex=1800)
+            await r.set(prev_user_text_key, message_text, ex=1800)
+
+        understanding = result.get("message_understanding") or {}
+        lead_state = result.get("lead_state") or {}
+        comm_dec = lead_state.get("commercial_decision") or result.get("commercial_decision") or {}
+        next_action = result.get("next_action") or {}
+
+        logger.info(
+            "[DEBUG_LOGS] Phone: %s | MessageType: %s | UserText: %s | "
+            "Transcript: %s | UnderstandingKind: %s | LastAskedField: %s | "
+            "AppliedShortAnswer: %s | Service: %s | CommercialPath: %s | "
+            "NextActionType: %s | ResponseModality: %s | TTSEnabled: %s | "
+            "VisionCalled: %s | ResponseHash: %s",
+            phone,
+            payload.message_type,
+            message_text,
+            ai_message if payload.message_type == "audioMessage" else "N/A",
+            understanding.get("kind"),
+            lead_state.get("last_asked_field"),
+            result.get("short_answer_applied") or lead_state.get("short_answer_applied"),
+            lead_state.get("tipo_servico"),
+            comm_dec.get("path"),
+            next_action.get("type"),
+            result.get("response_modality"),
+            os.getenv("TTS_ENABLED", "1"),
+            result.get("vision_called", False),
+            response_hash,
+        )
+
         if ai_message:
             clean_history = list(messages_with_history) + [AIMessage(content=ai_message)]
             await save_history(phone, clean_history, r)
