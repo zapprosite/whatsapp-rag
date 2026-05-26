@@ -47,6 +47,33 @@ def _first_text(*values: Any) -> str:
     return ""
 
 
+def _mask_identifier(value: Any) -> str:
+    text = str(value or "")
+    digits = re.sub(r"\D+", "", text)
+    if len(digits) >= 8:
+        return f"{digits[:4]}...{digits[-4:]}"
+    if text:
+        return "<masked>"
+    return ""
+
+
+def _redact_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if lowered in {"remotejid", "remotejidalt", "participant", "participantalt", "remote", "id", "from", "phone", "number", "sender"}:
+                redacted[key] = _mask_identifier(item)
+            elif lowered in {"conversation", "caption", "text", "content", "body", "message"}:
+                redacted[key] = "<redacted>"
+            else:
+                redacted[key] = _redact_payload(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_payload(item) for item in value]
+    return value
+
+
 def _unwrap_message_block(message: dict[str, Any]) -> dict[str, Any]:
     current = message
     for wrapper in ("ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2"):
@@ -54,6 +81,14 @@ def _unwrap_message_block(message: dict[str, Any]) -> dict[str, Any]:
         if nested:
             current = nested
     return current
+
+
+def _is_phone_jid(value: Any) -> bool:
+    return isinstance(value, str) and value.endswith("@s.whatsapp.net") and bool(normalize_whatsapp_number(value))
+
+
+def _is_lid_jid(value: Any) -> bool:
+    return isinstance(value, str) and value.endswith("@lid")
 
 
 def _detect_message_type(data_block: dict[str, Any], msg_block: dict[str, Any]) -> str:
@@ -99,7 +134,7 @@ def _extract_message_text(body: dict[str, Any], data_block: dict[str, Any], msg_
 def _extract_phone(body: dict[str, Any], data_block: dict[str, Any], key_block: dict[str, Any]) -> str:
     sender = _as_dict(body.get("sender"))
     data_sender = _as_dict(data_block.get("sender"))
-    return _first_text(
+    candidates = (
         key_block.get("remoteJidAlt"),
         key_block.get("participantAlt"),
         key_block.get("remote"),
@@ -119,6 +154,20 @@ def _extract_phone(body: dict[str, Any], data_block: dict[str, Any], key_block: 
         body.get("phone"),
         body.get("from"),
         body.get("number"),
+    )
+    phone_jid = next((candidate for candidate in candidates if _is_phone_jid(candidate)), "")
+    if phone_jid:
+        return phone_jid
+    non_lid = next((candidate for candidate in candidates if isinstance(candidate, str) and candidate.strip() and not _is_lid_jid(candidate)), "")
+    if non_lid:
+        return non_lid
+    return _first_text(*candidates)
+
+
+def _is_from_me(body: dict[str, Any], data_block: dict[str, Any], key_block: dict[str, Any]) -> bool:
+    return any(
+        value is True or (isinstance(value, str) and value.strip().lower() == "true")
+        for value in (key_block.get("fromMe"), data_block.get("fromMe"), body.get("fromMe"))
     )
 
 
@@ -185,7 +234,7 @@ def parse_evolution_webhook(body: dict[str, Any]) -> tuple[IncomingWebhook | Non
     if is_group:
         return None, "group"
 
-    if key_block.get("fromMe", False):
+    if _is_from_me(body, data_block, key_block):
         return None, "fromMe"
 
     message_type = _detect_message_type(data_block, msg_block)
@@ -248,7 +297,7 @@ async def receive_webhook(request: Request) -> JSONResponse:
             logger.warning(
                 "Webhook missing fields — event=%s key=%s msg_keys=%s messageType=%s",
                 body.get("event"),
-                _as_dict(data_dbg.get("key")),
+                _redact_payload(_as_dict(data_dbg.get("key"))),
                 list(_as_dict(data_dbg.get("message")).keys()),
                 data_dbg.get("messageType"),
             )
@@ -257,8 +306,12 @@ async def receive_webhook(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "skipped": skipped})
 
     if parsed and parsed.phone and not parsed.phone.startswith("55"):
-        logger.warning("Webhook phone suspeito (%s) — payload data.key=%s sender=%s",
-                       parsed.phone, _as_dict(_as_dict(body.get("data")).get("key")), body.get("sender"))
+        logger.warning(
+            "Webhook phone suspeito (%s) — payload data.key=%s sender=%s",
+            _mask_identifier(parsed.phone),
+            _redact_payload(_as_dict(_as_dict(body.get("data")).get("key"))),
+            _redact_payload(body.get("sender")),
+        )
 
     assert parsed is not None
     if await _handle_owner_command(parsed):
@@ -292,5 +345,5 @@ async def receive_webhook(request: Request) -> JSONResponse:
         logger.exception("Webhook falhou ao enfileirar mensagem: %s", e)
         return JSONResponse({"status": "error", "error": "queue_unavailable"}, status_code=503)
 
-    logger.info("Enfileirado [%s] de %s em %s: %s", parsed.message_type, parsed.phone, target_queue, parsed.message[:60])
+    logger.info("Enfileirado [%s] de %s em %s", parsed.message_type, _mask_identifier(parsed.phone), target_queue)
     return JSONResponse({"status": "ok"})

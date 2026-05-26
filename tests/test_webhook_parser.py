@@ -49,6 +49,78 @@ def test_parse_evolution_lid_payload_prefers_phone_alt():
     assert parsed.phone == "5513996659382"
 
 
+def test_parse_lid_payload_ignores_lid_alt_when_remote_has_phone():
+    payload = {
+        "instance": "RefrimixLead",
+        "data": {
+            "key": {
+                "remoteJid": "5513996659382@s.whatsapp.net",
+                "remoteJidAlt": "47554347716639@lid",
+                "id": "lid-msg-2",
+                "fromMe": False,
+            },
+            "message": {"conversation": "Oi"},
+            "messageType": "conversation",
+        },
+    }
+
+    parsed, skipped = parse_evolution_webhook(payload)
+
+    assert skipped is None
+    assert parsed is not None
+    assert parsed.phone == "5513996659382"
+
+
+def test_parse_lid_payload_prefers_sender_phone_alt_over_key_lid():
+    payload = {
+        "instance": "RefrimixLead",
+        "data": {
+            "key": {
+                "remoteJid": "47554347716639@lid",
+                "id": "lid-msg-3",
+                "fromMe": False,
+            },
+            "sender": {"remoteJidAlt": "5513996659382@s.whatsapp.net"},
+            "message": {"conversation": "Oi"},
+            "messageType": "conversation",
+        },
+    }
+
+    parsed, skipped = parse_evolution_webhook(payload)
+
+    assert skipped is None
+    assert parsed is not None
+    assert parsed.phone == "5513996659382"
+
+
+def test_parse_from_me_true_outside_key_is_skipped():
+    for patch in (
+        {"data": {"fromMe": True}},
+        {"fromMe": True},
+        {"data": {"fromMe": "true"}},
+    ):
+        payload = {
+            "instance": "RefrimixLead",
+            "data": {
+                "key": {
+                    "remoteJid": "5513996659382@s.whatsapp.net",
+                    "id": "own-message-alt",
+                },
+                "message": {"conversation": "Olá"},
+                "messageType": "conversation",
+            },
+        }
+        if "data" in patch:
+            payload["data"].update(patch["data"])
+        else:
+            payload.update(patch)
+
+        parsed, skipped = parse_evolution_webhook(payload)
+
+        assert parsed is None
+        assert skipped == "fromMe"
+
+
 def test_parse_image_payload_uses_caption_and_media_url():
     payload = {
         "instanceName": "RefrimixLead",

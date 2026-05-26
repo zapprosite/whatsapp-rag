@@ -16,6 +16,16 @@ Todo atendimento, prompt, documento, PDF, copy, log operacional legível por cli
 
 Antes de criar ou alterar copy de cliente, leia [.rules/pt-br.md](.rules/pt-br.md).
 
+## Regra P0: Evolution API, QR Code e Sessão
+
+Antes de qualquer alteração envolvendo Evolution API, Docker Compose, QR code, sessão WhatsApp, webhook, versão da imagem, banco da Evolution ou variáveis `EVOLUTION_*`, leia [.rules/evolution-api.md](.rules/evolution-api.md).
+
+- Não trocar tag da Evolution, usar `latest`, limpar volumes, recriar instância, chamar `/instance/logout` ou alterar `EVOLUTION_INSTANCE` sem estudar releases/issues oficiais e sem plano de rollback.
+- Não usar `DATABASE_URL` do WhatsApp RAG como `EVOLUTION_DATABASE_URL`; a Evolution API precisa de banco/schema próprio.
+- Se `EVOLUTION_DATABASE_URL` estiver ausente, restaure o valor correto do vault/local. Não copie outra URL e não rode migrations em banco desconhecido.
+- Não imprimir QR code, JID, telefone real, payload de cliente, `EVOLUTION_DATABASE_URL`, `DATABASE_CONNECTION_URI` ou credenciais da Evolution.
+- Payloads `@lid` devem preferir `remoteJidAlt`/`participantAlt` só quando apontarem para `@s.whatsapp.net`; `fromMe=true` nunca vira lead.
+
 ## Fechamento Obrigatório Da Tarefa
 
 No fim de qualquer tarefa com alteração de arquivo:
@@ -36,6 +46,7 @@ Esse mapa é a referência obrigatória para entender PC1, PC2, dependências do
 ## Regras De Trabalho
 
 - Não altere `.env` sem rodar `scripts/env-vault.sh sync` depois.
+- Não rode `scripts/env-vault.sh sync` se isso remover `EVOLUTION_DATABASE_URL={SECRET}` ou outros placeholders obrigatórios de `.env.example`; restaure o contrato mascarado antes de finalizar.
 - Não versionar segredos, tokens, telefones sensíveis ou chaves reais.
 - Testes de atendimento devem usar `/test/chat?...&send=false` para não enviar WhatsApp real.
 - Auditoria de voz/PC1/PC2 deve usar `.venv/bin/python -m sre.probes tts-audit`; para gerar sample local sem WhatsApp real, use `--synthesize`.
