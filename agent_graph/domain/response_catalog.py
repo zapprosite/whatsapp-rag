@@ -208,6 +208,27 @@ def render_response(action_type: str, ctx: ResponseContext) -> str:
     elif action_type == "confirm_calendar_slot":
         return f"Perfeito, deixei separada a opção de {ctx.preferred_window or 'horário escolhido'} para confirmação."
 
+    elif action_type == "answer_services_list":
+        return (
+            "Trabalhamos com instalação, manutenção, higienização e visita técnica para ar-condicionado.\n\n"
+            "Também atendemos casos maiores, como infraestrutura, cassete, piso-teto, splitão, VRF/VRV, dutos e projetos comerciais ou residenciais de alto padrão.\n\n"
+            "Os serviços mais comuns são:\n\n"
+            "1. Instalação simples\n"
+            "2. Higienização\n"
+            "3. Manutenção ou conserto\n"
+            "4. Visita técnica de análise\n\n"
+            "Me fala qual desses você precisa hoje?"
+        )
+
+    elif action_type == "answer_clarification_llm":
+        return (
+            "Claro, vou explicar de forma simples.\n\n"
+            "Se for instalação simples, o valor base é R$850.\n\n"
+            "Se faltar alguma informação, foto ou precisar avaliar o local, seguimos como visita técnica de R$50. Esse valor pode ser abatido se o orçamento final for aprovado.\n\n"
+            "Para higienização, split padrão funcionando fica R$200 por aparelho.\n\n"
+            "Qual serviço você quer ver primeiro?"
+        )
+
     # Se for uma ação desconhecida ou não listada
     return (
         "Consigo te ajudar sim. Você quer instalação, manutenção ou higienização?"

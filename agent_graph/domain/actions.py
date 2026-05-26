@@ -23,6 +23,9 @@ NextActionType = Literal[
     "active_service_followup",
     "fallback_recover_context",
     "explain_last_offer",
+    "answer_open_question_llm",
+    "answer_services_list",
+    "answer_clarification_llm",
 ]
 
 

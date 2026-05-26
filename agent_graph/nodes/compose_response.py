@@ -113,6 +113,35 @@ async def _llm_answer(state: dict[str, Any], action: NextAction) -> str:
     return await _polish_ptbr_if_enabled(response, user_text)
 
 
+async def _llm_answer_open_question(state: dict[str, Any]) -> str:
+    user_text = _latest_user_text(state)
+    system_prompt = (
+        "Você é o Will, atendente de suporte/onboarding da Refrimix Tecnologia no WhatsApp.\n"
+        "Responda em português brasileiro, de forma humana, educada, direta e consultiva.\n\n"
+        "POLÍTICA COMERCIAL FIXA (NUNCA INVENTE OUTROS PREÇOS):\n"
+        "- Instalação simples costa/costa, até 3 metros e com acesso fácil: R$850.\n"
+        "- Higienização de split padrão funcionando: R$200 por aparelho.\n"
+        "- Manutenção ou conserto: visita/análise técnica de R$50 (abatível se o orçamento final for aprovado).\n"
+        "- Se faltar foto, informação técnica ou for fora do padrão: visita técnica de R$50 (abatível se o orçamento final for aprovado).\n"
+        "- Projetos complexos, VRF/VRV, dutos, cassete, piso-teto, splitão, multi split, acima de 18.000 BTUs, alto padrão residencial/comercial ou elétrica: visita técnica/projeto a partir de R$50 conforme complexidade.\n\n"
+        "DIRETRIZES DE RESPOSTA:\n"
+        "- Responda à pergunta do cliente de forma útil e direta.\n"
+        "- Seja curto e objetivo (limite absoluto de 700 caracteres).\n"
+        "- NUNCA invente preços ou prazos fora da política comercial acima.\n"
+        "- Evite parecer robô ou fazer interrogatório de dados.\n"
+        "- NUNCA repita a mesma pergunta determinística rígida ou repita perguntas genéricas de onboarding se o cliente fez uma pergunta aberta.\n"
+        "- Termine com uma chamada para ação (CTA) amigável e leve."
+    )
+    prompt_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Mensagem do cliente: {user_text}"}
+    ]
+    response = await nodes_module.llm_chat(prompt_messages, max_retries=2)
+    if len(response) > 700:
+        response = response[:697] + "..."
+    return await _polish_ptbr_if_enabled(response, user_text)
+
+
 async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
     messages = list(state.get("messages") or [])
     lead_state = deepcopy(state.get("lead_state") or {})
@@ -159,10 +188,14 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
         "reject_security",
         "handoff_human",
         "confirm_calendar_slot",
+        "answer_services_list",
+        "answer_clarification_llm",
     }
 
     if action_type in catalog_actions:
         response = render_response(action_type, ctx)
+    elif action_type == "answer_open_question_llm":
+        response = await _llm_answer_open_question(state)
     elif action_type == "active_service_followup":
         response = _active_service_response(user_text, (state.get("customer_data") or {}).get("active_service") or {})
     elif action_type == "offer_calendar_slots":

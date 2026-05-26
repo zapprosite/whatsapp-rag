@@ -84,8 +84,10 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
         )
     elif understanding.get("is_greeting") and not understanding.get("service_mentioned") and not (customer_data.get("memory") or {}).get("is_conversation_started"):
         action = make_action("welcome_onboarding", service=None)
+    elif understanding.get("kind") == "services_list_question":
+        action = make_action("answer_services_list")
     elif understanding.get("kind") == "clarification_request" or understanding.get("asks_clarification"):
-        action = make_action("explain_last_offer", service=service)
+        action = make_action("answer_clarification_llm")
     elif understanding.get("asks_process"):
         action = make_action("explain_process", service=service)
     elif understanding.get("kind") == "capability_question":
@@ -117,6 +119,8 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             action = make_action("fallback_recover_context", notes=["slot_choice_out_of_range"])
     elif state.get("intent") == "unknown":
         action = make_action("fallback_recover_context", needs_rag=True)
+    elif understanding.get("kind") in {"process_question", "answer_question"} and not service and not understanding.get("service_mentioned"):
+        action = make_action("answer_open_question_llm")
     elif not service:
         action = make_action("ask_basic_service")
     elif commercial_decision.path == "fixed_installation_simple" and understanding.get("kind") not in {"window_preference", "calendar_request"}:

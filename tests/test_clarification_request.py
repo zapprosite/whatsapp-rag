@@ -34,7 +34,7 @@ async def test_plan_next_action_clarification_routing():
     
     res = await plan_next_action(state)
     action = res["next_action"]
-    assert action["type"] == "explain_last_offer"
+    assert action["type"] == "answer_clarification_llm"
 
 @pytest.mark.anyio
 async def test_end_to_end_clarification_flow():

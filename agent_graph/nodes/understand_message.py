@@ -72,6 +72,24 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
             "o que inclui",
         )
     )
+    asks_services_list = any(
+        term in text
+        for term in (
+            "quais serviços",
+            "quais servicos",
+            "serviços que oferecem",
+            "servicos que oferecem",
+            "o que vocês fazem",
+            "o que voces fazem",
+            "com o que trabalham",
+            "quais atendimentos",
+            "que serviços vocês fazem",
+            "que servicos voces fazem",
+            "o que vcs fazem",
+            "quais servicos vcs",
+            "quais serviços vcs",
+        )
+    )
     asks_price = any(term in text for term in ("quanto", "quanto fica", "valor", "preço", "preco", "custa"))
     asks_calendar = any(
         term in text
@@ -127,6 +145,8 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
     kind = "unknown"
     if malicious:
         kind = "security"
+    elif asks_services_list:
+        kind = "services_list_question"
     elif asks_clarification:
         kind = "clarification_request"
     elif asks_process:
