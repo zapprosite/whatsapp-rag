@@ -50,6 +50,36 @@ def _contains_pushy_sales(text: str) -> bool:
     return any(term in text for term in pressure_terms)
 
 
+def _is_invalid_value(value: Any) -> bool:
+    if value is None:
+        return True
+    s = str(value).strip()
+    if not s:
+        return True
+    folded = _fold(s)
+    invalid_exact = {"[audio]", "audio", "[imagem]", "imagem", "[image]", "local informado", "nao informado", "unknown", "none", "null"}
+    if folded in invalid_exact:
+        return True
+    if folded.startswith("[audio") or folded.startswith("[imagem"):
+        return True
+    return False
+
+
+def _has_minimum_data_for_appointment_guard(lead_state: dict[str, Any], service: str | None) -> bool:
+    city = lead_state.get("cidade_bairro")
+    if _is_invalid_value(city):
+        return False
+    fotos = lead_state.get("fotos") or {}
+    manutencao = lead_state.get("manutencao") or {}
+    conserto = lead_state.get("conserto") or {}
+    instalacao = lead_state.get("instalacao") or {}
+    if service in {"manutencao", "higienizacao"}:
+        return any([fotos.get("aparelho"), manutencao.get("pinga_agua") is not None, manutencao.get("cheiro_ruim") is not None, manutencao.get("tempo_sem_manutencao") is not None, conserto.get("liga") is not None, conserto.get("gela") is not None])
+    if service == "instalacao":
+        return any([lead_state.get("btus"), fotos.get("local_interno"), fotos.get("local_externo"), instalacao.get("ponto_eletrico_exclusivo") is not None])
+    return True
+
+
 def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple[bool, list[str]]:
     lead_state = state.get("lead_state") or {}
     customer_data = state.get("customer_data") or {}
@@ -124,5 +154,22 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
         violations.append("non_ptbr")
     if "vou passar para um humano" in text and state.get("handoff_mode") in (None, "none"):
         violations.append("unwanted_handoff")
+
+    # Novas violations para bugs de loop/placeholder/copy interna
+    appointment = lead_state.get("appointment") or {}
+    if appointment.get("preferred_window") and any(phrase in text for phrase in ("manhã ou tarde", "manha ou tarde", "qual período", "qual periodo", "melhor período", "melhor periodo")):
+        violations.append("asked_preferred_window_again")
+
+    if "[áudio]" in response or "[audio]" in response or "[imagem]" in response:
+        violations.append("leaked_media_placeholder")
+
+    if any(phrase in text for phrase in ("ja tenho dados suficientes", "dados suficientes para encaminhar")):
+        if not _has_minimum_data_for_appointment_guard(lead_state, service):
+            violations.append("appointment_claim_without_minimum_data")
+
+    _safe_handoff_reasons = {"explicit_handoff", "sensitive_complaint", "complaint_or_risk", "electrical_risk"}
+    if any(phrase in text for phrase in ("sinalizar o gerente", "vou sinalizar o gerente", "gerente agora")):
+        if state.get("handoff_reason") not in _safe_handoff_reasons:
+            violations.append("unwanted_internal_process")
 
     return not violations, violations

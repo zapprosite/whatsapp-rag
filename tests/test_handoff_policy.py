@@ -312,7 +312,8 @@ def test_generate_no_context_soft_alert_response():
 
     assert result["handoff_mode"] == "soft_alert"
     assert result["handoff_reason"] == "no_context_needs_human_review"
-    assert "sinalizar o gerente" in response
+    # Frase de gerente removida do copy ao cliente; verificar que resposta pede tipo de serviço
+    assert "instalação" in response.lower() or "manutenção" in response.lower() or "higienização" in response.lower()
 
 
 def test_appointment_score_ready_sets_soft_alert(monkeypatch):
@@ -322,7 +323,8 @@ def test_appointment_score_ready_sets_soft_alert(monkeypatch):
         "tipo_servico": "instalacao",
         "nome": "João",
         "cidade_bairro": "Santos",
-        "fotos": {"aparelho": True},
+        "btus": "12000",
+        "fotos": {"aparelho": False, "local_interno": True, "local_externo": False, "disjuntor": False, "erro_display": False},
     }
 
     result = run(nodes.classify_service(state))

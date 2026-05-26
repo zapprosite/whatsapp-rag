@@ -75,6 +75,7 @@ _OWNER_WORTHY_REASONS = {
     "high_value_lead",
     "electrical_risk",
     "repeated_missing_critical_field",
+    "appointment_confirmed",
 }
 
 
