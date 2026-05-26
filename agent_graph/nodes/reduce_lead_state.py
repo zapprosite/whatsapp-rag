@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -21,6 +22,58 @@ _SHORT_ANSWER_FIELD_MAP: dict[str, tuple[str, str]] = {
     "liga": ("conserto", "liga"),
     "gela": ("conserto", "gela"),
 }
+
+
+def _extract_email(text: str) -> str | None:
+    match = re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", text)
+    return match.group(0) if match else None
+
+
+def _extract_full_name(text: str) -> str | None:
+    cleaned = text.strip()
+    if not cleaned or "@" in cleaned or any(ch.isdigit() for ch in cleaned):
+        return None
+    match = re.search(
+        r"(?:meu nome e|meu nome é|sou|aqui e|aqui é)?\s*([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]?[a-záéíóúâêôãõç]+){0,3})$",
+        cleaned,
+        re.I,
+    )
+    if not match:
+        return None
+    candidate = " ".join(part.capitalize() for part in match.group(1).split())
+    if len(candidate.split()) > 4:
+        return None
+    return candidate
+
+
+def _update_identity_from_state(lead_state: dict[str, Any], customer_data: dict[str, Any], user_text: str) -> None:
+    identity = lead_state.setdefault("lead_identity", {})
+    phone = customer_data.get("phone")
+    if phone:
+        identity["phone"] = phone
+
+    email = _extract_email(user_text)
+    if email and not identity.get("email"):
+        identity["email"] = email
+        lead_state["email"] = email
+
+    name_source = lead_state.get("nome") or identity.get("full_name") or _extract_full_name(user_text)
+    if name_source:
+        parts = str(name_source).strip().split()
+        identity["full_name"] = " ".join(parts)
+        identity["first_name"] = parts[0]
+        identity["last_name"] = " ".join(parts[1:]) if len(parts) > 1 else None
+        lead_state["nome"] = identity["full_name"]
+
+    if lead_state.get("address") and not identity.get("address"):
+        identity["address"] = lead_state["address"]
+
+    if identity.get("full_name") or identity.get("first_name"):
+        identity["identity_status"] = "identified"
+    elif identity.get("phone"):
+        identity["identity_status"] = "missing_name"
+    else:
+        identity["identity_status"] = "missing_phone"
 
 
 def _apply_short_answer(
@@ -91,6 +144,9 @@ def _apply_image_state(
 async def reduce_lead_state(state: dict[str, Any]) -> dict[str, Any]:
     lead_state = sanitize_lead_state(deepcopy(state.get("lead_state") or _lead_state_copy()))
     understanding = state.get("message_understanding") or {}
+    customer_data = state.get("customer_data") or {}
+    messages = state.get("messages") or []
+    user_text = str(getattr(messages[-1], "content", "") or "") if messages else ""
     service_mentioned = _normalize_service(understanding.get("service_mentioned"))
     if service_mentioned and not lead_state.get("tipo_servico") and understanding.get("kind") != "capability_question":
         lead_state["tipo_servico"] = service_mentioned
@@ -107,6 +163,7 @@ async def reduce_lead_state(state: dict[str, Any]) -> dict[str, Any]:
     if state.get("message_type") == "imageMessage" and vision_data:
         _apply_image_state(lead_state, vision_data, last_asked_field)
 
+    _update_identity_from_state(lead_state, customer_data, user_text)
     lead_state = sanitize_lead_state(lead_state)
     do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
     lead_state["calendar_stage"] = compute_calendar_stage(lead_state)

@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from agent_graph.nodes.nodes import _latest_human_text, redis_get, redis_set
+from agent_graph.nodes.sync_lead_sheet import sync_lead_sheet
 from agent_graph.services.alerts import send_agenda_group_message, send_owner_alert
 from agent_graph.services.calendar import create_service_event
 from agent_graph.services.tts import choose_voice_style, synthesize
@@ -57,6 +58,7 @@ async def dispatch_side_effects(state: dict[str, Any]) -> dict[str, Any]:
                 appointment["event_status"] = "created" if result else "failed"
                 if result:
                     appointment["calendar_event"] = result
+                    appointment["google_event_id"] = result.get("id")
             else:
                 service = lead_state.get("tipo_servico") or state.get("service") or "atendimento"
                 slot = next_action.get("selected_slot") or {}
@@ -77,6 +79,11 @@ async def dispatch_side_effects(state: dict[str, Any]) -> dict[str, Any]:
                     audio_bytes = await synthesize(text, choose_voice_style(state.get("conversation_objective"), state.get("outcome")))
                     if audio_bytes:
                         state["audio_bytes"] = audio_bytes
+        elif effect_type == "sync_lead_sheet":
+            try:
+                await sync_lead_sheet(state)
+            except Exception:
+                pass
 
         await redis_set(key, "1", ex=6 * 60 * 60)
         executed.append(effect_type or "unknown")

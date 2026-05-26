@@ -70,6 +70,7 @@ Refatorar o atendimento para:
 - `.venv/bin/python -m pytest tests/test_commercial_router.py::test_nao_consegue_horario_calls_calendar_when_schedule_allowed -vv`
 - `.venv/bin/python -m pytest tests/test_handoff_policy.py::test_graph_unknown_retrieves_and_generates_recovery -vv`
 - `.venv/bin/python -m pytest`
+- `./sync.sh --message "docs: adiciona onboarding e planilha de leads"`
 
 ## Rollback
 

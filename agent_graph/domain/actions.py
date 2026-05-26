@@ -3,6 +3,14 @@ from __future__ import annotations
 from typing import Any, Literal, TypedDict
 
 NextActionType = Literal[
+    "welcome_onboarding",
+    "ask_lead_name",
+    "ask_basic_service",
+    "ask_optional_contact_info",
+    "offer_fixed_installation",
+    "offer_fixed_hygienization",
+    "offer_technical_visit",
+    "offer_project_visit",
     "answer_question",
     "explain_process",
     "answer_capability_question",
@@ -24,6 +32,7 @@ class SideEffect(TypedDict, total=False):
         "google_calendar_freebusy",
         "google_calendar_insert",
         "tts_synthesize",
+        "sync_lead_sheet",
     ]
     payload: dict[str, Any]
 

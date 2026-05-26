@@ -657,8 +657,10 @@ def _question_for_field(field: str | None) -> str:
         "tubulacao_existente": "Já existe tubulação/infra pronta no local?",
         "tempo_sem_manutencao": "Faz quanto tempo que não passa por manutenção?",
         "pinga_agua": "Ele está pingando água?",
-        "nome": "Qual é seu nome?",
-    }.get(field, "Qual é o próximo detalhe que você já consegue me informar?")
+        "nome": "Me passa seu nome pra eu deixar o atendimento certinho?",
+        "address": "Pra deixar a visita certinha, me manda o endereço ou pelo menos bairro e referência?",
+        "email": "Se tiver e-mail, pode me mandar também pra ficar registrado no atendimento.",
+    }.get(field, "Me conta só o detalhe principal pra eu te orientar certo?")
 
 
 def infer_asked_field_from_response(response: str, missing_fields: list[str]) -> str | None:
@@ -693,10 +695,10 @@ def _repeated_field_strategy(field: str | None, lead_state: dict[str, Any]) -> s
     if not field or not should_avoid_reasking(field, lead_state):
         return None
     if field == "cidade_bairro":
-        return "Vou adiantar pelo que já tenho. Quando puder, me manda o bairro/cidade que eu fecho a disponibilidade certinha."
+        return "Sem problema.\n\nSe você quiser, a gente já pode seguir com visita técnica e eu confirmo a logística com o bairro depois."
     if field in {"foto_local_interno", "foto_local_externo", "foto_aparelho"}:
-        return "Vou adiantar pelo que já tenho. Quando puder, me manda as fotos que eu confirmo o melhor caminho sem te passar orientação errada."
-    return "Vou adiantar pelo que já tenho. Quando puder, me manda esse detalhe que eu fecho a orientação certinha."
+        return "Sem problema.\n\nA foto ajuda a adiantar, mas não trava o atendimento."
+    return "Sem problema.\n\nSe faltar esse detalhe agora, a gente segue com o próximo passo e ajusta isso no atendimento."
 
 
 def _city_price_for_installation(lead_state: dict[str, Any], text: str) -> str:
@@ -1658,7 +1660,7 @@ def _is_invalid_structured_value(value: Any) -> bool:
     return False
 
 
-_TEXT_LEAD_FIELDS = {"cidade_bairro", "nome", "marca", "btus", "modelo_aparelho", "tipo_imovel"}
+_TEXT_LEAD_FIELDS = {"cidade_bairro", "nome", "marca", "btus", "modelo_aparelho", "tipo_imovel", "email", "address"}
 
 
 def _clean_state_patch_value(key: str, value: Any) -> Any:
@@ -1688,7 +1690,24 @@ def sanitize_lead_state(lead_state: dict[str, Any]) -> dict[str, Any]:
         "appointment_stage": "not_ready",
         "last_confirmation_message_sent": None,
         "last_confirmation_turn_id": None,
+        "slot_start": None,
+        "slot_end": None,
+        "google_event_id": None,
     })
+    lead_state.setdefault("lead_identity", {
+        "phone": None,
+        "first_name": None,
+        "last_name": None,
+        "full_name": None,
+        "email": None,
+        "address": None,
+        "identity_status": "missing_name",
+        "name_asked_count": 0,
+        "email_asked_count": 0,
+        "address_asked_count": 0,
+    })
+    lead_state.setdefault("commercial_decision", {})
+    lead_state.setdefault("last_messages", {"user": None, "assistant": None})
     # Recalcula estágio real com base nos dados atuais
     refresh_appointment_state(lead_state, lead_state.get("tipo_servico"))
     return lead_state
@@ -3276,6 +3295,9 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
     user_message = next((_message_text(m) for m in reversed(messages) if _is_human_message(m)), None)
     ai_message = next((_message_text(m) for m in reversed(messages) if _is_ai_message(m)), None)
     lead_state = sanitize_lead_state(state.get("lead_state") or {})
+    lead_state.setdefault("last_messages", {})
+    lead_state["last_messages"]["user"] = user_message
+    lead_state["last_messages"]["assistant"] = ai_message
     memory = customer_data.get("memory") or {}
 
     if not diagnostic_no_send:
@@ -3326,11 +3348,20 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
                     data={
                         "lead_state": json.dumps(lead_state),
                         "conversation_summary": summary,
+                        "name": lead_state.get("nome"),
+                        "email": lead_state.get("email"),
+                        "address": lead_state.get("address"),
                         "already_asked_fields": json.dumps(already_asked_fields),
                         "missing_fields": json.dumps(missing_fields),
                         "do_not_ask": json.dumps(do_not_ask),
                         "service_type": lead_state.get("tipo_servico"),
+                        "commercial_path": (lead_state.get("commercial_decision") or {}).get("path"),
                         "city_bairro": lead_state.get("cidade_bairro"),
+                        "appointment_window": (lead_state.get("appointment") or {}).get("preferred_window"),
+                        "appointment_slot_start": (lead_state.get("appointment") or {}).get("slot_start"),
+                        "appointment_slot_end": (lead_state.get("appointment") or {}).get("slot_end"),
+                        "google_event_id": (lead_state.get("appointment") or {}).get("google_event_id"),
+                        "lead_status": "open",
                     },
                 )
                 await db.leadevent.create(
@@ -3386,6 +3417,8 @@ async def route_human(state: dict[str, Any]) -> dict[str, Any]:
 DEFAULT_LEAD_STATE = {
   "tipo_servico": None,
   "nome": None,
+  "email": None,
+  "address": None,
   "cidade_bairro": None,
   "tipo_imovel": None,
   "marca": None,
@@ -3443,6 +3476,26 @@ DEFAULT_LEAD_STATE = {
     "appointment_stage": "not_ready",
     "last_confirmation_message_sent": None,
     "last_confirmation_turn_id": None,
+    "slot_start": None,
+    "slot_end": None,
+    "google_event_id": None,
+  },
+  "lead_identity": {
+    "phone": None,
+    "first_name": None,
+    "last_name": None,
+    "full_name": None,
+    "email": None,
+    "address": None,
+    "identity_status": "missing_name",
+    "name_asked_count": 0,
+    "email_asked_count": 0,
+    "address_asked_count": 0
+  },
+  "commercial_decision": {},
+  "last_messages": {
+    "user": None,
+    "assistant": None
   },
   "unknown_context_count": 0,
   "human_takeover": False,
@@ -3806,6 +3859,21 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
             if not lead_state:
                 lead_state = _lead_state_copy()
             lead_state = sanitize_lead_state(lead_state)
+            identity = lead_state.setdefault("lead_identity", {})
+            identity["phone"] = phone
+            if lead.name and not lead_state.get("nome"):
+                lead_state["nome"] = lead.name
+            if lead.name and not identity.get("full_name"):
+                parts = str(lead.name).split()
+                identity["full_name"] = lead.name
+                identity["first_name"] = parts[0] if parts else None
+                identity["last_name"] = " ".join(parts[1:]) if len(parts) > 1 else None
+            if getattr(lead, "email", None):
+                lead_state["email"] = getattr(lead, "email")
+                identity["email"] = getattr(lead, "email")
+            if getattr(lead, "address", None):
+                lead_state["address"] = getattr(lead, "address")
+                identity["address"] = getattr(lead, "address")
                 
             already_asked_fields = json.loads(lead.already_asked_fields) if isinstance(lead.already_asked_fields, str) else (lead.already_asked_fields or [])
             missing_fields = json.loads(lead.missing_fields) if isinstance(lead.missing_fields, str) else (lead.missing_fields or ["tipo_servico", "cidade_bairro"])
@@ -4038,6 +4106,20 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
         lead_state["tipo_servico"] = detected_service_type
 
     lead_state = _infer_lead_fields_from_text(lead_state, user_text, state.get("message_type"))
+    lead_state.setdefault("lead_identity", {})
+    lead_state["lead_identity"]["phone"] = phone if phone != "unknown" else lead_state["lead_identity"].get("phone")
+    if lead_state.get("nome") and not lead_state["lead_identity"].get("full_name"):
+        parts = str(lead_state["nome"]).split()
+        lead_state["lead_identity"]["full_name"] = lead_state["nome"]
+        lead_state["lead_identity"]["first_name"] = parts[0] if parts else None
+        lead_state["lead_identity"]["last_name"] = " ".join(parts[1:]) if len(parts) > 1 else None
+    if lead_state.get("email"):
+        lead_state["lead_identity"]["email"] = lead_state.get("email")
+    if lead_state.get("address"):
+        lead_state["lead_identity"]["address"] = lead_state.get("address")
+    lead_state["lead_identity"]["identity_status"] = "identified" if lead_state["lead_identity"].get("full_name") else "missing_name"
+    lead_state.setdefault("last_messages", {})
+    lead_state["last_messages"]["user"] = user_text
 
     lead_state = sanitize_lead_state(lead_state)
     do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
@@ -4078,12 +4160,21 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
                     where={"phone": phone},
                     data={
                         "lead_state": json.dumps(lead_state),
+                        "name": lead_state.get("nome"),
+                        "email": lead_state.get("email"),
+                        "address": lead_state.get("address"),
                         "already_asked_fields": json.dumps(already_asked_fields),
                         "missing_fields": json.dumps(missing_fields),
                         "do_not_ask": json.dumps(do_not_ask),
                         "service_type": lead_state.get("tipo_servico"),
+                        "commercial_path": (lead_state.get("commercial_decision") or {}).get("path"),
                         "city_bairro": lead_state.get("cidade_bairro"),
                         "pipeline_stage": pipeline_stage,
+                        "appointment_window": (lead_state.get("appointment") or {}).get("preferred_window"),
+                        "appointment_slot_start": (lead_state.get("appointment") or {}).get("slot_start"),
+                        "appointment_slot_end": (lead_state.get("appointment") or {}).get("slot_end"),
+                        "google_event_id": (lead_state.get("appointment") or {}).get("google_event_id"),
+                        "lead_status": "open",
                         "last_user_message_at": datetime.now(),
                     }
                 )
