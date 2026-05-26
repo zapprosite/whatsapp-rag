@@ -12,6 +12,15 @@ from agent_graph.nodes.nodes import _lead_state_copy, sanitize_lead_state
 
 _COLUMN_CACHE: dict[str, set[str]] = {}
 _JSONB_COLUMNS = {"lead_state", "already_asked_fields", "missing_fields", "do_not_ask", "extracted_data", "metadata"}
+_TIMESTAMP_COLUMNS = {"created_at", "updated_at", "last_user_message_at"}
+
+
+def _placeholder(index: int, column: str) -> str:
+    if column in _JSONB_COLUMNS:
+        return f"${index}::jsonb"
+    if column in _TIMESTAMP_COLUMNS:
+        return f"${index}::timestamp"
+    return f"${index}"
 
 
 def _json_value(value: Any, default: Any) -> Any:
@@ -158,10 +167,7 @@ async def _load_or_create_lead_with_db(db: Prisma, phone: str, name: str | None 
                 insert_columns.append(column)
                 insert_values.append(value)
 
-        placeholders = ", ".join(
-            f"${index}::jsonb" if column in _JSONB_COLUMNS else f"${index}"
-            for index, column in enumerate(insert_columns, start=1)
-        )
+        placeholders = ", ".join(_placeholder(index, column) for index, column in enumerate(insert_columns, start=1))
         rows = await db.query_raw(
             f"INSERT INTO leads ({', '.join(insert_columns)}) VALUES ({placeholders}) RETURNING {', '.join(select_columns)}",
             *insert_values,
@@ -216,8 +222,7 @@ async def update_lead_state(
         for column, value in updates.items():
             if column not in columns:
                 continue
-            placeholder = f"${next_index}::jsonb" if column in _JSONB_COLUMNS else f"${next_index}"
-            set_parts.append(f"{column} = {placeholder}")
+            set_parts.append(f"{column} = {_placeholder(next_index, column)}")
             values.append(value)
             next_index += 1
 
@@ -250,10 +255,7 @@ async def create_lead_event(phone: str, role: str, message: str, extracted_data:
         if "created_at" in columns:
             insert_columns.append("created_at")
             insert_values.append(_utcnow())
-        placeholders = ", ".join(
-            f"${index}::jsonb" if column in _JSONB_COLUMNS else f"${index}"
-            for index, column in enumerate(insert_columns, start=1)
-        )
+        placeholders = ", ".join(_placeholder(index, column) for index, column in enumerate(insert_columns, start=1))
         await db.query_raw(
             f"INSERT INTO lead_events ({', '.join(insert_columns)}) VALUES ({placeholders}) RETURNING id",
             *insert_values,
