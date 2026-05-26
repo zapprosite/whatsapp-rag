@@ -53,11 +53,13 @@ Categorias usadas: `placeholder_intencional_seguro`, `exemplo_seguro`, `valor_re
 | `LOCAL_PTBR_MODEL` | texto | se polimento ativo | modelo local | vault/config local | placeholder_intencional_seguro |
 | `LOCAL_QWEN_BASE_URL` | URL operacional | nao | URL local | vault/config local | placeholder_intencional_seguro |
 | `LOCAL_QWEN_MODEL` | texto | nao | modelo local | vault/config local | placeholder_intencional_seguro |
+| `LEADS_SHEET_ENABLED` | booleano `0/1` | nao | `0` | vault/config local | placeholder_intencional_seguro |
 | `LOG_LEVEL` | enum | nao | nenhum | vault/config local | placeholder_intencional_seguro |
 | `MANUAL_TAKEOVER_TTL_SECONDS` | inteiro | nao | `86400` | codigo/README | config_sem_documentacao |
 | `MINIMAX_API_KEY` | segredo | recomendado | nenhum | vault/config local | placeholder_intencional_seguro |
 | `MINIMAX_BASE_URL` | URL | nao | endpoint MiniMax | vault/config local | placeholder_intencional_seguro |
 | `MINIMAX_MODEL` | texto | nao | `MiniMax-M2.7` | vault/config local | placeholder_intencional_seguro |
+| `MINIMAL_MVP_ENABLED` | booleano `0/1` | nao | `0` | vault/config local | placeholder_intencional_seguro |
 | `OMNIVOICE_URL` | URL operacional | nao | `http://127.0.0.1:8202` | vault/config local | valor_operacional_sensivel |
 | `OWNER_ALERTS_ENABLED` | booleano `0/1` | nao | `1` | `.env.example` | exemplo_seguro |
 | `OWNER_ALERT_DEDUP_TTL_SECONDS` | inteiro | nao | `21600` | `.env.example` | exemplo_seguro |
@@ -68,6 +70,7 @@ Categorias usadas: `placeholder_intencional_seguro`, `exemplo_seguro`, `valor_re
 | `PTBR_POLISH_ENABLED` | booleano `0/1` | nao | `0` | vault/config local | placeholder_intencional_seguro |
 | `QDRANT_COLLECTION` | texto | sim | colecao staging | vault/config local | placeholder_intencional_seguro |
 | `QDRANT_URL` | URL operacional | sim | `http://localhost:6333` | vault/config local | placeholder_intencional_seguro |
+| `RAG_ENABLED` | booleano `0/1` | nao | `1` fora do MVP, `0` no modo minimo | vault/config local | placeholder_intencional_seguro |
 | `RAG_MIN_SCORE` | decimal | nao | `0.35` | vault/config local | placeholder_intencional_seguro |
 | `RAG_TIMEOUT_SECONDS` | decimal | nao | nenhum documentado | `.env.example` | placeholder_intencional_seguro |
 | `REDIS_URL` | URL operacional | sim | `redis://localhost:6379` | vault/config local | placeholder_intencional_seguro |
@@ -76,6 +79,7 @@ Categorias usadas: `placeholder_intencional_seguro`, `exemplo_seguro`, `valor_re
 | `REFINAR_MAX_QUESTIONS` | inteiro | nao | `2` | codigo | config_sem_documentacao |
 | `REFINAR_MAX_RESPONSE_CHARS` | inteiro | nao | `650` | codigo | config_sem_documentacao |
 | `REFINAR_TIMEOUT_SECONDS` | decimal | nao | `90` | codigo | config_sem_documentacao |
+| `RESPONSE_GUARD_STRICT` | booleano `0/1` | nao | `0` no MVP | vault/config local | placeholder_intencional_seguro |
 | `SALES_CACHE_TTL_SECONDS` | inteiro | nao | `2592000` | vault/config local | placeholder_intencional_seguro |
 | `SRE_AUDIO_URL` | URL de teste | nao | URL publica de exemplo | codigo | config_sem_documentacao |
 | `SRE_FASTAPI_URL` | URL local | nao | `http://localhost:8000` | codigo | config_sem_documentacao |
@@ -90,16 +94,19 @@ Categorias usadas: `placeholder_intencional_seguro`, `exemplo_seguro`, `valor_re
 | `TTS_CHATTERBOX_LANGUAGE` | texto | nao | `pt` | vault/config local | placeholder_intencional_seguro |
 | `TTS_CHATTERBOX_SPEED_FACTOR` | decimal | nao | `1.0` | vault/config local | placeholder_intencional_seguro |
 | `TTS_CHATTERBOX_TEMPERATURE` | decimal | nao | `0.55` | vault/config local | placeholder_intencional_seguro |
+| `TTS_ENABLED` | booleano `0/1` | nao | `1` fora do MVP, `0` no modo minimo | vault/config local | placeholder_intencional_seguro |
 | `TTS_ENGINE` | enum | nao | `chatterbox` | vault/config local | placeholder_intencional_seguro |
 | `TTS_LOCALE` | locale | nao | `pt-BR` | vault/config local | placeholder_intencional_seguro |
 | `TTS_MAX_CHARS` | inteiro | nao | `420` | vault/config local | placeholder_intencional_seguro |
 | `TTS_OMNIVOICE_SPEED` | decimal | nao | vazio | vault/config local | placeholder_intencional_seguro |
 | `VALIDATED_REPLY_MIN_SCORE` | decimal | nao | `9.0` | vault/config local | placeholder_intencional_seguro |
+| `VISION_ENABLED` | booleano `0/1` | nao | `1` fora do MVP, `0` no modo minimo | vault/config local | placeholder_intencional_seguro |
 | `WEBHOOK_REDIS_TIMEOUT_SECONDS` | decimal | nao | `3.0` | vault/config local | placeholder_intencional_seguro |
 | `WHATSAPP_DLQ_KEY` | Redis key | nao | `whatsapp_rag:dead_letter` | codigo | config_sem_documentacao |
 | `WHATSAPP_PROCESSING_QUEUE_KEY` | Redis key | nao | `whatsapp_rag:processing` | codigo | config_sem_documentacao |
 | `WHATSAPP_QUEUE_KEY` | Redis key | nao | `whatsapp_rag:queue` | vault/config local | placeholder_intencional_seguro |
 | `WORKER_CONCURRENCY` | inteiro | nao | `4` | codigo | config_sem_documentacao |
+| `WORKER_HEARTBEAT_TTL_SECONDS` | inteiro | nao | `30` | codigo | config_sem_documentacao |
 | `WORKER_MAX_ATTEMPTS` | inteiro | nao | `3` | codigo | config_sem_documentacao |
 | `WORKER_MESSAGE_TIMEOUT_SECONDS` | decimal | nao | `180` | codigo | config_sem_documentacao |
 | `WORKER_QUEUE_POP_TIMEOUT_SECONDS` | inteiro | nao | `5` | codigo | config_sem_documentacao |

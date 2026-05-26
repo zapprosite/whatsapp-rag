@@ -45,6 +45,22 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
     slot_choice = int(text) if re.fullmatch(r"[123]", text) else None
     short_answer = _short_answer_kind(text)
 
+    asks_clarification = any(
+        term in text
+        for term in (
+            "não entendi",
+            "nao entendi",
+            "não compreendi",
+            "nao compreendi",
+            "como assim",
+            "explica melhor",
+            "pode explicar",
+            "não ficou claro",
+            "nao ficou claro",
+            "o que significa",
+            "não entendi isso",
+        )
+    )
     asks_process = any(
         term in text
         for term in (
@@ -54,6 +70,24 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
             "me explica",
             "qual o processo",
             "o que inclui",
+        )
+    )
+    asks_services_list = any(
+        term in text
+        for term in (
+            "quais serviços",
+            "quais servicos",
+            "serviços que oferecem",
+            "servicos que oferecem",
+            "o que vocês fazem",
+            "o que voces fazem",
+            "com o que trabalham",
+            "quais atendimentos",
+            "que serviços vocês fazem",
+            "que servicos voces fazem",
+            "o que vcs fazem",
+            "quais servicos vcs",
+            "quais serviços vcs",
         )
     )
     asks_price = any(term in text for term in ("quanto", "quanto fica", "valor", "preço", "preco", "custa"))
@@ -111,6 +145,10 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
     kind = "unknown"
     if malicious:
         kind = "security"
+    elif asks_services_list:
+        kind = "services_list_question"
+    elif asks_clarification:
+        kind = "clarification_request"
     elif asks_process:
         kind = "process_question"
     elif asks_capability:
@@ -142,6 +180,7 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
         "asks_calendar": asks_calendar,
         "asks_time_specific": asks_time_specific,
         "asks_capability": asks_capability,
+        "asks_clarification": asks_clarification,
         "unavailable_photo": unavailable_photo,
         "unavailable_infra": unavailable_infra,
         "is_greeting": is_greeting,

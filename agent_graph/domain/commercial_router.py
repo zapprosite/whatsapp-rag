@@ -45,6 +45,9 @@ _PROJECT_KEYWORDS = (
     "galpão",
     "eletrica",
     "elétrica",
+    "restaurante",
+    "projeto para",
+    "projeto de",
 )
 
 _NO_PHOTO_TERMS = (

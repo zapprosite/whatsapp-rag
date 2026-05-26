@@ -1,0 +1,96 @@
+empresa: Refrimix Tecnologia
+idioma: pt-BR
+canal: WhatsApp
+
+tom:
+  estilo: educado, humano, direto, consultivo
+  evitar:
+    - parecer robô
+    - repetir a mesma pergunta
+    - empurrar serviço
+    - fazer interrogatório
+    - pedir muitos dados de uma vez
+
+onboarding:
+  primeira_mensagem:
+    manha: "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?"
+    tarde: "Boa tarde, tudo joia?\n\nComo posso te ajudar hoje?"
+    noite: "Boa noite, tudo joia?\n\nComo posso te ajudar hoje?"
+  regra:
+    - cumprimentar só uma vez
+    - se o cliente perguntar algo, responder a pergunta
+    - se o cliente disser que não entendeu, explicar melhor
+
+servicos:
+  instalacao_simples:
+    preco: 850
+    descricao: "Instalação simples costa/costa, até 3 metros e acesso fácil"
+    inclui:
+      - material
+      - mão de obra
+    observacao: "Se no local tiver algo fora do padrão, o técnico explica antes e o valor pode ajustar."
+
+  higienizacao:
+    preco: 200
+    unidade: por aparelho
+    condicao: "split padrão funcionando e instalado dentro do padrão"
+    observacao: "Se o aparelho não estiver climatizando, pode virar análise de manutenção por R$50."
+
+  manutencao:
+    preco_visita: 50
+    descricao: "Visita/análise técnica"
+    abatimento: "Pode ser abatida se o orçamento final for aprovado."
+
+  visita_tecnica:
+    preco: 50
+    abatimento: "Pode ser abatida se o orçamento final for aprovado."
+    usar_quando:
+      - faltar foto
+      - faltar informação técnica
+      - instalação fora do padrão
+      - manutenção
+      - conserto
+      - infraestrutura
+      - dúvida técnica que precisa avaliar local
+
+  projeto:
+    preco_base: 50
+    descricao: "Visita técnica ou projeto conforme complexidade"
+    usar_quando:
+      - VRF
+      - VRV
+      - dutos
+      - cassete
+      - piso-teto
+      - splitão
+      - multi split
+      - acima de 18000 BTUs
+      - alto padrão residencial
+      - alto padrão comercial
+      - elétrica
+
+respostas_base:
+  lista_servicos: |
+    Trabalhamos com instalação, manutenção, higienização e visita técnica para ar-condicionado.
+
+    Também atendemos casos maiores, como infraestrutura, cassete, piso-teto, splitão, VRF/VRV, dutos e projetos comerciais ou residenciais de alto padrão.
+
+    Os serviços mais comuns são:
+
+    1. Instalação simples
+    2. Higienização
+    3. Manutenção ou conserto
+    4. Visita técnica de análise
+
+    Me fala qual desses você precisa hoje?
+
+  nao_entendi: |
+    Claro, vou explicar de forma simples.
+
+    Se for instalação simples, o valor base é R$850.
+
+    Se faltar alguma informação, foto ou precisar avaliar o local, seguimos como visita técnica de R$50. Esse valor pode ser abatido se o orçamento final for aprovado.
+
+    Para higienização, split padrão funcionando fica R$200 por aparelho.
+
+    Qual serviço você quer ver primeiro?

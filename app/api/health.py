@@ -26,6 +26,11 @@ from typing import Any
 
 from fastapi import APIRouter
 
+try:
+    from runtime import get_redis
+except ModuleNotFoundError:
+    from app.runtime import get_redis
+
 router = APIRouter(tags=["system"])
 
 

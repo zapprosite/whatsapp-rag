@@ -73,6 +73,64 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
     can_schedule_now = bool(commercial_decision.can_schedule_now)
     action: NextAction
 
+    import os
+    if str(os.getenv("MINIMAL_MVP_ENABLED", "0")).strip() == "1":
+        if understanding.get("malicious"):
+            action = make_action("reject_security")
+        elif state.get("handoff_mode") == "hard_transfer" or state.get("intent") in {"explicit_handoff", "sensitive_complaint"}:
+            action = make_action("handoff_human")
+        elif understanding.get("is_greeting") and not understanding.get("service_mentioned") and not persistent_history:
+            action = make_action("welcome_onboarding", service=None)
+        elif understanding.get("kind") == "services_list_question":
+            action = make_action("answer_services_list")
+        elif understanding.get("kind") == "clarification_request" or understanding.get("asks_clarification"):
+            action = make_action("answer_clarification_llm")
+        # window_preference tem prioridade sobre qualquer oferta de serviço
+        elif understanding.get("kind") == "window_preference" or (
+            understanding.get("window") and lead_state.get("last_asked_field") in {"preferred_window", "quantidade_aparelhos"}
+            and lead_state.get("appointment", {}).get("preferred_window")
+        ):
+            action = make_action("save_preferred_window", service=service, missing_field=next_missing)
+        # project_quote antes de ask_lead_name para não bloquear alto valor por falta de nome
+        elif commercial_decision.path == "project_quote":
+            action = make_action("offer_project_visit", service=service)
+        elif missing_name:
+            action = make_action("ask_lead_name", service=service)
+        elif not service:
+            action = make_action("ask_basic_service")
+        elif commercial_decision.path == "fixed_installation_simple":
+            action = make_action("offer_fixed_installation", service=service)
+        elif service in {"manutencao", "conserto"} or (
+            commercial_decision.path == "technical_visit_50" and service not in {"higienizacao"}
+        ):
+            action = make_action("offer_technical_visit", service=service)
+        elif service == "higienizacao" and commercial_decision.path == "fixed_hygienization":
+            qty = lead_state.get("higienizacao", {}).get("quantidade_aparelhos")
+            if qty is None:
+                lead_state["last_asked_field"] = "quantidade_aparelhos"
+                action = make_action("offer_fixed_hygienization", service=service, asks_field="quantidade_aparelhos")
+            else:
+                lead_state["last_asked_field"] = "preferred_window"
+                action = make_action("offer_hygienization_schedule", service=service, asks_field="preferred_window")
+        elif service == "higienizacao" and commercial_decision.path == "technical_visit_50":
+            # Aparelho não climatizando -> análise técnica, não pedir quantidade
+            lead_state["last_asked_field"] = "preferred_window"
+            action = make_action("offer_technical_visit", service=service)
+        else:
+            action = make_action("fallback_recover_context")
+
+        lead_state["calendar_stage"] = compute_calendar_stage(lead_state)
+        lead_state["conversation_stage"] = conversation_stage
+        lead_state["commercial_decision"] = commercial_decision.to_dict()
+        return {
+            "lead_state": lead_state,
+            "commercial_decision": commercial_decision.to_dict(),
+            "next_action": action,
+            "calendar_stage": lead_state.get("calendar_stage"),
+            "conversation_stage": lead_state.get("conversation_stage"),
+            "calendar_slots": (lead_state.get("appointment") or {}).get("offered_slots") or [],
+        }
+
     if understanding.get("malicious"):
         action = make_action("reject_security")
     elif customer_data.get("active_service"):
@@ -82,6 +140,12 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             "handoff_human",
             side_effects=[{"type": "send_owner_alert", "payload": {"reason": state.get("handoff_reason") or state.get("intent")}}],
         )
+    elif understanding.get("is_greeting") and not understanding.get("service_mentioned") and not (customer_data.get("memory") or {}).get("is_conversation_started"):
+        action = make_action("welcome_onboarding", service=None)
+    elif understanding.get("kind") == "services_list_question":
+        action = make_action("answer_services_list")
+    elif understanding.get("kind") == "clarification_request" or understanding.get("asks_clarification"):
+        action = make_action("answer_clarification_llm")
     elif understanding.get("asks_process"):
         action = make_action("explain_process", service=service)
     elif understanding.get("kind") == "capability_question":
@@ -113,6 +177,8 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             action = make_action("fallback_recover_context", notes=["slot_choice_out_of_range"])
     elif state.get("intent") == "unknown":
         action = make_action("fallback_recover_context", needs_rag=True)
+    elif understanding.get("kind") in {"process_question", "answer_question"} and not service and not understanding.get("service_mentioned"):
+        action = make_action("answer_open_question_llm")
     elif not service:
         action = make_action("ask_basic_service")
     elif commercial_decision.path == "fixed_installation_simple" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
@@ -122,11 +188,21 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
             side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
         )
     elif commercial_decision.path == "fixed_hygienization" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
-        action = make_action(
-            "offer_fixed_hygienization",
-            service=service,
-            side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
-        )
+        qty = lead_state.get("higienizacao", {}).get("quantidade_aparelhos")
+        if qty is None:
+            action = make_action(
+                "offer_fixed_hygienization",
+                service=service,
+                asks_field="quantidade_aparelhos",
+                side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
+            )
+        else:
+            action = make_action(
+                "offer_hygienization_schedule",
+                service=service,
+                asks_field="preferred_window",
+                side_effects=[{"type": "sync_lead_sheet", "payload": {}}],
+            )
     elif commercial_decision.path == "technical_visit_50" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
         action = make_action(
             "offer_technical_visit",

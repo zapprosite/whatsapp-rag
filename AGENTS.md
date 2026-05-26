@@ -40,9 +40,14 @@ No fim de qualquer tarefa com alteração de arquivo:
 
 Antes de qualquer alteração neste repositório, leia primeiro:
 
-[docs/mapa-pc1-pc2-refinamento.md](docs/mapa-pc1-pc2-refinamento.md)
+- [.context/docs/architecture.md](.context/docs/architecture.md) — arquitetura do MVP determinístico
+- [.context/docs/context.md](.context/docs/context.md) — entendimento macro do MVP
+- [.context/docs/decisions.md](.context/docs/decisions.md) — regras comerciais e preços
+- [.context/docs/database.md](.context/docs/database.md) — schema de leads e lead_state
+- [.context/docs/playbook.md](.context/docs/playbook.md) — playbook de incidentes
+- [.context/docs/evolution.md](.context/docs/evolution.md) — Evolution API e sessão
 
-Esse mapa é a referência obrigatória para entender PC1, PC2, dependências do WhatsApp RAG, falas prontas, semântico, RAG e fluxo de refinamento.
+Esses docs são a referência para contexto, não mais o mapa antigo de PC1/PC2.
 
 ## Regras De Trabalho
 
@@ -50,7 +55,7 @@ Esse mapa é a referência obrigatória para entender PC1, PC2, dependências do
 - Não rode `scripts/env-vault.sh sync` se isso remover `EVOLUTION_DATABASE_URL={SECRET}` ou outros placeholders obrigatórios de `.env.example`; restaure o contrato mascarado antes de finalizar.
 - Não versionar segredos, tokens, telefones sensíveis ou chaves reais.
 - Testes de atendimento devem usar `/test/chat?...&send=false` para não enviar WhatsApp real.
-- Auditoria de voz/PC1/PC2 deve usar `.venv/bin/python -m sre.probes tts-audit`; para gerar sample local sem WhatsApp real, use `--synthesize`.
-- Mudanças em `agent_graph/nodes/nodes.py` exigem rebuild/restart do container para produção.
-- Mudanças em `qdrant/hvac_top100.py` ou `qdrant/seed_hvac.py` exigem re-seed do Qdrant.
+- O pipeline MVP é determinístico: intent por regex, decisão comercial em `commercial_router.py`, respostas de `response_catalog.py`.
+- **Não adicionar lógica nova em `agent_graph/nodes/nodes.py`** — é dívida técnica de 4390 linhas, legado LangGraph. Novo código vai para `app/mvp_attendance.py` ou `agent_graph/domain/`.
+- Feature flags em `docker-compose.yml`: `MINIMAL_MVP_ENABLED=1`, `RAG_ENABLED=0`, `TTS_ENABLED=0`, `VISION_ENABLED=0`.
 - Antes de finalizar alterações de código, rode `.venv/bin/python -m pytest`.

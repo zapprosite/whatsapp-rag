@@ -20,7 +20,17 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from agent_graph.graph.graph import build_graph
 from agent_graph.services.alerts import send_owner_alert
 from agent_graph.services.conversation_memory import build_canonical_history
-from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
+from agent_graph.services.whatsapp import (
+    normalize_whatsapp_number,
+    send_whatsapp_presence,
+    send_whatsapp_text,
+)
+try:
+    from lead_repository import prisma_healthcheck
+    from mvp_attendance import minimal_mvp_enabled, process_mvp_message
+except ModuleNotFoundError:
+    from app.lead_repository import prisma_healthcheck
+    from app.mvp_attendance import minimal_mvp_enabled, process_mvp_message
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +43,7 @@ _QUEUE_KEY = os.getenv("WHATSAPP_QUEUE_KEY", "whatsapp_rag:queue")
 _PROCESSING_KEY = os.getenv("WHATSAPP_PROCESSING_QUEUE_KEY", "whatsapp_rag:processing")
 _DLQ_KEY = os.getenv("WHATSAPP_DLQ_KEY", "whatsapp_rag:dead_letter")
 _BOT_KEY = "whatsapp_rag:bot_enabled"
+_WORKER_HEARTBEAT_KEY = "whatsapp_rag:worker_heartbeat"
 
 _CONV_TTL = int(os.getenv("CONV_TTL_SECONDS", "1800"))
 _CONV_MAX_TURNS = int(os.getenv("CONV_MAX_TURNS", "6"))
@@ -44,6 +55,7 @@ _MAX_ATTEMPTS = max(1, int(os.getenv("WORKER_MAX_ATTEMPTS", "3")))
 _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
 _LOCK_REQUEUE_DELAY = float(os.getenv("CONV_LOCK_REQUEUE_DELAY_SECONDS", "0.4"))
+_WORKER_HEARTBEAT_TTL = max(30, int(os.getenv("WORKER_HEARTBEAT_TTL_SECONDS", "30")))
 _HANDOFF_ALERT_TTL = int(os.getenv("HANDOFF_ALERT_TTL_SECONDS", "21600"))
 _OWNER_ALERT_TTL = int(os.getenv("OWNER_ALERT_DEDUP_TTL_SECONDS", "21600"))
 _MANUAL_TAKEOVER_TTL = int(os.getenv("MANUAL_TAKEOVER_TTL_SECONDS", "86400"))
@@ -376,8 +388,12 @@ async def lifespan(app: FastAPI):
     """Lifespan: start queue consumers and tear down on shutdown."""
     global GRAPH, REDIS_POOL, WORKER_TASKS, SCHEDULER_TASKS
 
-    GRAPH = build_graph()
-    logger.info("LangGraph compiled OK")
+    if minimal_mvp_enabled():
+        GRAPH = None
+        logger.info("Modo MINIMAL_MVP_ENABLED=1 ativo; LangGraph fora do caminho crítico")
+    else:
+        GRAPH = build_graph()
+        logger.info("LangGraph compiled OK")
 
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     REDIS_POOL = redis.ConnectionPool.from_url(redis_url, decode_responses=True)
@@ -424,6 +440,34 @@ async def get_redis() -> redis.Redis:
     if REDIS_POOL is None:
         raise RuntimeError("Redis pool not initialized")
     return redis.Redis(connection_pool=REDIS_POOL)
+
+
+async def record_worker_heartbeat(r: redis.Redis, worker_id: int, phase: str) -> None:
+    payload = json.dumps(
+        {
+            "worker_id": worker_id,
+            "phase": phase,
+            "updated_at": datetime.now().isoformat(),
+        },
+        ensure_ascii=False,
+    )
+    await r.set(_WORKER_HEARTBEAT_KEY, payload, ex=_WORKER_HEARTBEAT_TTL)
+
+
+async def worker_heartbeat_status(r: redis.Redis | None = None) -> dict[str, Any]:
+    client = r or await get_redis()
+    raw = await client.get(_WORKER_HEARTBEAT_KEY)
+    if not raw:
+        return {"status": "down", "reason": "heartbeat ausente"}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"status": "down", "reason": "heartbeat inválido"}
+    return {"status": "up", **data}
+
+
+async def postgres_status() -> dict[str, str]:
+    return await prisma_healthcheck()
 
 
 async def send_whatsapp_message(phone: str, text: str, instance: str = "default") -> bool:
@@ -758,8 +802,32 @@ async def _requeue_item(
     logger.warning("Mensagem reenfileirada (%s): %s", reason, new_item[:180])
 
 
+@asynccontextmanager
+async def whatsapp_typing_indicator(phone: str, presence_type: str, instance: str = "default"):
+    """Envia sinal de presença dinâmico (composing/recording) e o mantém vivo de forma assíncrona."""
+    await send_whatsapp_presence(phone, presence_type, delay_ms=10000, instance=instance)
+
+    async def loop():
+        try:
+            while True:
+                await asyncio.sleep(8)
+                await send_whatsapp_presence(phone, presence_type, delay_ms=10000, instance=instance)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("Falha na atualização do sinal de presença: %s", exc)
+
+    task = asyncio.create_task(loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(Exception):
+            await task
+
+
 async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worker_id: int) -> None:
-    if GRAPH is None:
+    if GRAPH is None and not minimal_mvp_enabled():
         raise RuntimeError("LangGraph não inicializado")
 
     phone = normalize_whatsapp_number(payload.phone)
@@ -789,101 +857,174 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             logger.info("Humano assumiu; IA pausada para este contato: %s", phone)
             return
 
-        redis_history = await load_history(phone, r)
-        canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
-        is_first_message = not bool(memory_meta.get("is_conversation_started"))
-        messages_with_history = canonical_history + [HumanMessage(content=message_text)]
-        active_service = await load_active_customer_service(phone)
-        last_service = None if active_service else await load_last_customer_service(phone)
-        if active_service:
-            logger.info(
-                "Cliente %s tem serviço ativo: %s/%s",
-                phone,
-                active_service.get("service") or "-",
-                active_service.get("status") or "-",
-            )
-        elif last_service:
-            logger.info(
-                "Cliente %s tem serviço antigo: %s/%s",
-                phone,
-                last_service.get("service") or "-",
-                last_service.get("status") or "-",
-            )
+        # Envia sinal de presença dinâmico (composing/recording) conforme tipo de mensagem e TTS
+        tts_enabled = os.getenv("TTS_ENABLED", "1").strip() in {"1", "true", "yes", "on"}
+        presence_type = "recording" if (payload.message_type == "audioMessage" and tts_enabled) else "composing"
 
-        initial_state = {
-            "messages": messages_with_history,
-            "intent": None,
-            "service": None,
-            "outcome": None,
-            "handoff_mode": "none",
-            "handoff_reason": None,
-            "handoff_already_notified": False,
-            "rag_context": [],
-            "customer_data": {
-                "phone": phone,
-                "is_first_message": is_first_message,
-                "active_service": active_service,
-                "last_service": last_service,
-                "memory": memory_meta,
-            },
-            "is_human": False,
-            "confidence": 1.0,
-            "message_type": payload.message_type,
-            "msg_id": payload.msg_id,
-            "media_url": payload.media_url,
-            "media_base64": payload.media_base64,
-            "instance": instance,
-            "response_modality": None,
-            "audio_bytes": None,
-        }
+        async with whatsapp_typing_indicator(phone, presence_type, instance=instance):
+            redis_history = await load_history(phone, r)
+            if minimal_mvp_enabled():
+                result = await process_mvp_message(
+                    phone=phone,
+                    message_text=message_text,
+                    instance=instance,
+                    history=redis_history,
+                )
+                ai_message = next(
+                    (
+                        _message_text(message)
+                        for message in reversed(result.get("messages", []))
+                        if isinstance(message, AIMessage) and _message_text(message)
+                    ),
+                    None,
+                )
+                if ai_message:
+                    await save_history(phone, result["messages"], r)
+                    await send_whatsapp_message(phone, ai_message, instance)
+                else:
+                    logger.warning("Fluxo MVP não retornou resposta para %s", phone)
+                return
 
-        try:
-            result = await asyncio.wait_for(GRAPH.ainvoke(initial_state), timeout=_GRAPH_TIMEOUT)
-        except Exception as e:
-            logger.exception("Falha no grafo; usando fallback seguro para %s: %s", phone, e)
-            fallback = _safe_fallback_response(message_text)
-            result = {
-                "messages": messages_with_history + [AIMessage(content=fallback)],
-                "response_modality": "text",
+            canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
+            is_first_message = not bool(memory_meta.get("is_conversation_started"))
+            messages_with_history = canonical_history + [HumanMessage(content=message_text)]
+            active_service = await load_active_customer_service(phone)
+            last_service = None if active_service else await load_last_customer_service(phone)
+            if active_service:
+                logger.info(
+                    "Cliente %s tem serviço ativo: %s/%s",
+                    phone,
+                    active_service.get("service") or "-",
+                    active_service.get("status") or "-",
+                )
+            elif last_service:
+                logger.info(
+                    "Cliente %s tem serviço antigo: %s/%s",
+                    phone,
+                    last_service.get("service") or "-",
+                    last_service.get("status") or "-",
+                )
+
+            initial_state = {
+                "messages": messages_with_history,
+                "intent": None,
+                "service": None,
+                "outcome": None,
                 "handoff_mode": "none",
                 "handoff_reason": None,
-                "outcome": "fallback_seguro",
+                "handoff_already_notified": False,
+                "rag_context": [],
+                "customer_data": {
+                    "phone": phone,
+                    "is_first_message": is_first_message,
+                    "active_service": active_service,
+                    "last_service": last_service,
+                    "memory": memory_meta,
+                },
+                "is_human": False,
+                "confidence": 1.0,
+                "message_type": payload.message_type,
+                "msg_id": payload.msg_id,
+                "media_url": payload.media_url,
+                "media_base64": payload.media_base64,
+                "instance": instance,
+                "response_modality": None,
+                "audio_bytes": None,
             }
 
-        await maybe_notify_owner_from_result(
-            r,
-            phone=phone,
-            message_text=message_text,
-            result=result,
-            instance=instance,
-        )
+            try:
+                result = await asyncio.wait_for(GRAPH.ainvoke(initial_state), timeout=_GRAPH_TIMEOUT)
+            except Exception as e:
+                logger.exception("Falha no grafo; usando fallback seguro para %s: %s", phone, e)
+                fallback = _safe_fallback_response(message_text)
+                result = {
+                    "messages": messages_with_history + [AIMessage(content=fallback)],
+                    "response_modality": "text",
+                    "handoff_mode": "none",
+                    "handoff_reason": None,
+                    "outcome": "fallback_seguro",
+                }
 
-        messages_out = result.get("messages", [])
-        ai_message = next(
-            (
-                _message_text(message)
-                for message in reversed(messages_out)
-                if isinstance(message, AIMessage) and _message_text(message)
-            ),
-            None,
-        )
+            await maybe_notify_owner_from_result(
+                r,
+                phone=phone,
+                message_text=message_text,
+                result=result,
+                instance=instance,
+            )
 
-        if ai_message:
-            clean_history = list(messages_with_history) + [AIMessage(content=ai_message)]
-            await save_history(phone, clean_history, r)
-            logger.info("Histórico salvo: %s (%s msgs)", phone, len(clean_history))
+            messages_out = result.get("messages", [])
+            ai_message = next(
+                (
+                    _message_text(message)
+                    for message in reversed(messages_out)
+                    if isinstance(message, AIMessage) and _message_text(message)
+                ),
+                None,
+            )
 
-        modality = result.get("response_modality", "text")
-        audio_bytes = result.get("audio_bytes")
+            import hashlib
+            response_hash = "N/A"
+            if ai_message:
+                response_hash = hashlib.md5(ai_message.encode("utf-8")).hexdigest()
+                prev_hash_key = f"prev_resp_hash:{phone}"
+                prev_user_text_key = f"prev_user_text:{phone}"
+                previous_response_hash = await r.get(prev_hash_key)
+                previous_user_text = await r.get(prev_user_text_key)
 
-        if modality == "audio" and isinstance(audio_bytes, bytes) and audio_bytes:
-            sent = await send_whatsapp_audio(phone, audio_bytes, instance)
-            if not sent and ai_message:
+                if previous_response_hash == response_hash and message_text != previous_user_text:
+                    logger.warning(
+                        "[possible_response_loop] DETECTED LOOP FOR %s. "
+                        "Previous response was identical, but user input changed. "
+                        "Response: %s", phone, ai_message[:100]
+                    )
+
+                await r.set(prev_hash_key, response_hash, ex=1800)
+                await r.set(prev_user_text_key, message_text, ex=1800)
+
+            understanding = result.get("message_understanding") or {}
+            lead_state = result.get("lead_state") or {}
+            comm_dec = lead_state.get("commercial_decision") or result.get("commercial_decision") or {}
+            next_action = result.get("next_action") or {}
+
+            logger.info(
+                "[DEBUG_LOGS] Phone: %s | MessageType: %s | UserText: %s | "
+                "Transcript: %s | UnderstandingKind: %s | LastAskedField: %s | "
+                "AppliedShortAnswer: %s | Service: %s | CommercialPath: %s | "
+                "NextActionType: %s | ResponseModality: %s | TTSEnabled: %s | "
+                "VisionCalled: %s | ResponseHash: %s",
+                phone,
+                payload.message_type,
+                message_text,
+                ai_message if payload.message_type == "audioMessage" else "N/A",
+                understanding.get("kind"),
+                lead_state.get("last_asked_field"),
+                result.get("short_answer_applied") or lead_state.get("short_answer_applied"),
+                lead_state.get("tipo_servico"),
+                comm_dec.get("path"),
+                next_action.get("type"),
+                result.get("response_modality"),
+                os.getenv("TTS_ENABLED", "1"),
+                result.get("vision_called", False),
+                response_hash,
+            )
+
+            if ai_message:
+                clean_history = list(messages_with_history) + [AIMessage(content=ai_message)]
+                await save_history(phone, clean_history, r)
+                logger.info("Histórico salvo: %s (%s msgs)", phone, len(clean_history))
+
+            modality = result.get("response_modality", "text")
+            audio_bytes = result.get("audio_bytes")
+
+            if modality == "audio" and isinstance(audio_bytes, bytes) and audio_bytes:
+                sent = await send_whatsapp_audio(phone, audio_bytes, instance)
+                if not sent and ai_message:
+                    await send_whatsapp_message(phone, ai_message, instance)
+            elif ai_message:
                 await send_whatsapp_message(phone, ai_message, instance)
-        elif ai_message:
-            await send_whatsapp_message(phone, ai_message, instance)
-        else:
-            logger.warning("Nenhuma resposta AI no resultado para %s", phone)
+            else:
+                logger.warning("Nenhuma resposta AI no resultado para %s", phone)
 
 
 async def process_queue_item(raw_item: str, worker_id: int) -> None:
@@ -900,12 +1041,15 @@ async def worker_loop(worker_id: int = 0) -> None:
     while True:
         raw_item: str | None = None
         try:
+            await record_worker_heartbeat(r, worker_id, "idle")
             raw_item = await r.brpoplpush(_QUEUE_KEY, _PROCESSING_KEY, timeout=_QUEUE_POP_TIMEOUT)
             if raw_item is None:
                 continue
 
+            await record_worker_heartbeat(r, worker_id, "processing")
             await asyncio.wait_for(process_queue_item(raw_item, worker_id), timeout=_MESSAGE_TIMEOUT)
             await _ack_queue_item(r, raw_item)
+            await record_worker_heartbeat(r, worker_id, "processed")
 
         except asyncio.CancelledError:
             raise

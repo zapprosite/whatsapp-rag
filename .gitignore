@@ -49,6 +49,9 @@ tts_travalinguAs_v2.wav
 htmlcov/
 .coverage
 
+# Artefatos locais do ai-context / harness MCP
+.context/harness/
+
 # Rascunhos locais
 rascunho-*.md
 

@@ -1,0 +1,11 @@
+{
+    "result": {
+        "collections": [
+            {
+                "name": "voice_embeddings"
+            }
+        ]
+    },
+    "status": "ok",
+    "time": 2.76e-06
+}
