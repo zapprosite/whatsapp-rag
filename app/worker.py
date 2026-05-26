@@ -21,6 +21,8 @@ from agent_graph.graph.graph import build_graph
 from agent_graph.services.alerts import send_owner_alert
 from agent_graph.services.conversation_memory import build_canonical_history
 from agent_graph.services.whatsapp import normalize_whatsapp_number, send_whatsapp_text
+from app.lead_repository import prisma_healthcheck
+from app.mvp_attendance import minimal_mvp_enabled, process_mvp_message
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ _QUEUE_KEY = os.getenv("WHATSAPP_QUEUE_KEY", "whatsapp_rag:queue")
 _PROCESSING_KEY = os.getenv("WHATSAPP_PROCESSING_QUEUE_KEY", "whatsapp_rag:processing")
 _DLQ_KEY = os.getenv("WHATSAPP_DLQ_KEY", "whatsapp_rag:dead_letter")
 _BOT_KEY = "whatsapp_rag:bot_enabled"
+_WORKER_HEARTBEAT_KEY = "whatsapp_rag:worker_heartbeat"
 
 _CONV_TTL = int(os.getenv("CONV_TTL_SECONDS", "1800"))
 _CONV_MAX_TURNS = int(os.getenv("CONV_MAX_TURNS", "6"))
@@ -44,6 +47,7 @@ _MAX_ATTEMPTS = max(1, int(os.getenv("WORKER_MAX_ATTEMPTS", "3")))
 _LOCK_TTL = int(os.getenv("CONV_LOCK_TTL_SECONDS", "240"))
 _LOCK_WAIT = float(os.getenv("CONV_LOCK_WAIT_SECONDS", "20"))
 _LOCK_REQUEUE_DELAY = float(os.getenv("CONV_LOCK_REQUEUE_DELAY_SECONDS", "0.4"))
+_WORKER_HEARTBEAT_TTL = max(30, int(os.getenv("WORKER_HEARTBEAT_TTL_SECONDS", "30")))
 _HANDOFF_ALERT_TTL = int(os.getenv("HANDOFF_ALERT_TTL_SECONDS", "21600"))
 _OWNER_ALERT_TTL = int(os.getenv("OWNER_ALERT_DEDUP_TTL_SECONDS", "21600"))
 _MANUAL_TAKEOVER_TTL = int(os.getenv("MANUAL_TAKEOVER_TTL_SECONDS", "86400"))
@@ -376,8 +380,12 @@ async def lifespan(app: FastAPI):
     """Lifespan: start queue consumers and tear down on shutdown."""
     global GRAPH, REDIS_POOL, WORKER_TASKS, SCHEDULER_TASKS
 
-    GRAPH = build_graph()
-    logger.info("LangGraph compiled OK")
+    if minimal_mvp_enabled():
+        GRAPH = None
+        logger.info("Modo MINIMAL_MVP_ENABLED=1 ativo; LangGraph fora do caminho crítico")
+    else:
+        GRAPH = build_graph()
+        logger.info("LangGraph compiled OK")
 
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     REDIS_POOL = redis.ConnectionPool.from_url(redis_url, decode_responses=True)
@@ -424,6 +432,34 @@ async def get_redis() -> redis.Redis:
     if REDIS_POOL is None:
         raise RuntimeError("Redis pool not initialized")
     return redis.Redis(connection_pool=REDIS_POOL)
+
+
+async def record_worker_heartbeat(r: redis.Redis, worker_id: int, phase: str) -> None:
+    payload = json.dumps(
+        {
+            "worker_id": worker_id,
+            "phase": phase,
+            "updated_at": datetime.now().isoformat(),
+        },
+        ensure_ascii=False,
+    )
+    await r.set(_WORKER_HEARTBEAT_KEY, payload, ex=_WORKER_HEARTBEAT_TTL)
+
+
+async def worker_heartbeat_status(r: redis.Redis | None = None) -> dict[str, Any]:
+    client = r or await get_redis()
+    raw = await client.get(_WORKER_HEARTBEAT_KEY)
+    if not raw:
+        return {"status": "down", "reason": "heartbeat ausente"}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"status": "down", "reason": "heartbeat inválido"}
+    return {"status": "up", **data}
+
+
+async def postgres_status() -> dict[str, str]:
+    return await prisma_healthcheck()
 
 
 async def send_whatsapp_message(phone: str, text: str, instance: str = "default") -> bool:
@@ -759,7 +795,7 @@ async def _requeue_item(
 
 
 async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worker_id: int) -> None:
-    if GRAPH is None:
+    if GRAPH is None and not minimal_mvp_enabled():
         raise RuntimeError("LangGraph não inicializado")
 
     phone = normalize_whatsapp_number(payload.phone)
@@ -790,6 +826,28 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
             return
 
         redis_history = await load_history(phone, r)
+        if minimal_mvp_enabled():
+            result = await process_mvp_message(
+                phone=phone,
+                message_text=message_text,
+                instance=instance,
+                history=redis_history,
+            )
+            ai_message = next(
+                (
+                    _message_text(message)
+                    for message in reversed(result.get("messages", []))
+                    if isinstance(message, AIMessage) and _message_text(message)
+                ),
+                None,
+            )
+            if ai_message:
+                await save_history(phone, result["messages"], r)
+                await send_whatsapp_message(phone, ai_message, instance)
+            else:
+                logger.warning("Fluxo MVP não retornou resposta para %s", phone)
+            return
+
         canonical_history, memory_meta = await build_canonical_history(phone, redis_history)
         is_first_message = not bool(memory_meta.get("is_conversation_started"))
         messages_with_history = canonical_history + [HumanMessage(content=message_text)]
@@ -900,12 +958,15 @@ async def worker_loop(worker_id: int = 0) -> None:
     while True:
         raw_item: str | None = None
         try:
+            await record_worker_heartbeat(r, worker_id, "idle")
             raw_item = await r.brpoplpush(_QUEUE_KEY, _PROCESSING_KEY, timeout=_QUEUE_POP_TIMEOUT)
             if raw_item is None:
                 continue
 
+            await record_worker_heartbeat(r, worker_id, "processing")
             await asyncio.wait_for(process_queue_item(raw_item, worker_id), timeout=_MESSAGE_TIMEOUT)
             await _ack_queue_item(r, raw_item)
+            await record_worker_heartbeat(r, worker_id, "processed")
 
         except asyncio.CancelledError:
             raise

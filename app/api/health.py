@@ -3,19 +3,20 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 try:
-    from runtime import get_redis
+    from runtime import get_redis, postgres_status, worker_heartbeat_status
 except ModuleNotFoundError:
-    from app.runtime import get_redis
+    from app.runtime import get_redis, postgres_status, worker_heartbeat_status
 
 router = APIRouter(tags=["system"])
 
 
 @router.get("/health")
-async def health() -> dict[str, Any]:
-    status: dict[str, str] = {"status": "ok"}
+async def health(response: Response) -> dict[str, Any]:
+    status: dict[str, Any] = {"status": "ok"}
+    failed = False
 
     try:
         r = await get_redis()
@@ -23,19 +24,29 @@ async def health() -> dict[str, Any]:
         status["redis"] = "up"
     except Exception as e:
         status["redis"] = f"down: {e}"
+        failed = True
 
     try:
-        from qdrant_client import QdrantClient
-
-        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
-        qc = QdrantClient(url=qdrant_url)
-        qc.get_collections()
-        status["qdrant"] = "up"
+        status.update(await postgres_status())
     except Exception as e:
-        status["qdrant"] = f"down: {e}"
+        status["postgres"] = f"down: {e}"
+        status["prisma"] = "down"
+        failed = True
 
-    status["langgraph"] = "up"
-    status["worker"] = "running"
+    try:
+        r = await get_redis()
+        heartbeat = await worker_heartbeat_status(r)
+        status["worker"] = heartbeat
+        if heartbeat.get("status") != "up":
+            failed = True
+    except Exception as e:
+        status["worker"] = {"status": "down", "reason": str(e)}
+        failed = True
+
+    status["langgraph"] = "disabled" if os.getenv("MINIMAL_MVP_ENABLED", "0") == "1" else "up"
+    if failed:
+        status["status"] = "degraded"
+        response.status_code = 503
     return status
 
 
