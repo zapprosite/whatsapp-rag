@@ -73,6 +73,47 @@ async def plan_next_action(state: dict[str, Any]) -> dict[str, Any]:
     can_schedule_now = bool(commercial_decision.can_schedule_now)
     action: NextAction
 
+    import os
+    if str(os.getenv("MINIMAL_MVP_ENABLED", "0")).strip() == "1":
+        if understanding.get("malicious"):
+            action = make_action("reject_security")
+        elif state.get("handoff_mode") == "hard_transfer" or state.get("intent") in {"explicit_handoff", "sensitive_complaint"}:
+            action = make_action("handoff_human")
+        elif understanding.get("is_greeting") and not understanding.get("service_mentioned") and not persistent_history:
+            action = make_action("welcome_onboarding", service=None)
+        elif understanding.get("kind") == "services_list_question":
+            action = make_action("answer_services_list")
+        elif understanding.get("kind") == "clarification_request" or understanding.get("asks_clarification"):
+            action = make_action("answer_clarification_llm")
+        elif missing_name:
+            action = make_action("ask_lead_name", service=service)
+        elif not service:
+            action = make_action("ask_basic_service")
+        elif commercial_decision.path == "fixed_installation_simple" and understanding.get("kind") not in {"window_preference", "calendar_request"}:
+            action = make_action("offer_fixed_installation", service=service)
+        elif service in {"manutencao", "conserto"} or commercial_decision.path == "technical_visit_50":
+            action = make_action("offer_technical_visit", service=service)
+        elif service == "higienizacao" and commercial_decision.path == "fixed_hygienization":
+            action = make_action("offer_fixed_hygienization", service=service)
+        elif commercial_decision.path == "project_quote":
+            action = make_action("offer_project_visit", service=service)
+        elif understanding.get("kind") == "window_preference":
+            action = make_action("save_preferred_window", service=service, missing_field=next_missing)
+        else:
+            action = make_action("fallback_recover_context")
+
+        lead_state["calendar_stage"] = compute_calendar_stage(lead_state)
+        lead_state["conversation_stage"] = conversation_stage
+        lead_state["commercial_decision"] = commercial_decision.to_dict()
+        return {
+            "lead_state": lead_state,
+            "commercial_decision": commercial_decision.to_dict(),
+            "next_action": action,
+            "calendar_stage": lead_state.get("calendar_stage"),
+            "conversation_stage": lead_state.get("conversation_stage"),
+            "calendar_slots": (lead_state.get("appointment") or {}).get("offered_slots") or [],
+        }
+
     if understanding.get("malicious"):
         action = make_action("reject_security")
     elif customer_data.get("active_service"):

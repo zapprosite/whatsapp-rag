@@ -118,6 +118,7 @@ def test_bom_dia_responde_onboarding(monkeypatch):
 def test_instalacao_responde_caminho_comercial(monkeypatch):
     lead_state = _lead_state_copy()
     lead_state["tipo_servico"] = "instalacao"
+    lead_state["nome"] = "Will"
     lead_state["btus"] = "12000"
     lead_state["fotos"]["local_interno"] = True
     lead_state["fotos"]["local_externo"] = True
@@ -136,8 +137,9 @@ def test_instalacao_responde_caminho_comercial(monkeypatch):
     )
 
     assert _last_text(result) == (
+        "Perfeito.\n\n"
         "Instalação simples costa/costa, até 3 metros e com acesso fácil, fica R$850 com material e mão de obra.\n\n"
-        "Se no local tiver algo fora do padrão, o técnico explica antes e o valor pode ajustar.\n\n"
+        "Esse valor considera ponto elétrico individual e cenário dentro do padrão. Se no local tiver algo fora disso, o técnico explica antes e o valor pode ajustar.\n\n"
         "Qual período fica melhor: manhã ou tarde?"
     )
 
@@ -145,6 +147,7 @@ def test_instalacao_responde_caminho_comercial(monkeypatch):
 def test_nao_tenho_foto_oferece_visita_50(monkeypatch):
     lead_state = _lead_state_copy()
     lead_state["tipo_servico"] = "instalacao"
+    lead_state["nome"] = "Will"
     _mock_repo(monkeypatch, lead_state, event_count=1)
 
     result = run(
@@ -162,6 +165,7 @@ def test_nao_tenho_foto_oferece_visita_50(monkeypatch):
 def test_manutencao_oferece_visita_50(monkeypatch):
     lead_state = _lead_state_copy()
     lead_state["tipo_servico"] = "manutencao"
+    lead_state["nome"] = "Will"
     _mock_repo(monkeypatch, lead_state, event_count=1)
 
     result = run(
@@ -176,6 +180,7 @@ def test_manutencao_oferece_visita_50(monkeypatch):
     assert _last_text(result) == (
         "Para manutenção, o caminho correto é visita/análise técnica.\n\n"
         "A visita fica R$50 e pode ser abatida se o orçamento final for aprovado.\n\n"
+        "No local o técnico verifica o sintoma. Se der para resolver ali, passa o valor para aprovação. Se precisar retirar ou testar em laboratório, os valores são passados separados.\n\n"
         "Qual período fica melhor para a visita?"
     )
 
@@ -183,6 +188,7 @@ def test_manutencao_oferece_visita_50(monkeypatch):
 def test_higienizacao_oferece_200(monkeypatch):
     lead_state = _lead_state_copy()
     lead_state["tipo_servico"] = "higienizacao"
+    lead_state["nome"] = "Will"
     _mock_repo(monkeypatch, lead_state, event_count=1)
 
     result = run(
@@ -313,7 +319,7 @@ def test_bootstrap_instalacao_completo(monkeypatch):
     assert responses == [
         "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?",
         "Perfeito.\n\nMe passa seu nome pra eu deixar o atendimento certinho?",
-        "Instalação simples costa/costa, até 3 metros e com acesso fácil, fica R$850 com material e mão de obra.\n\nSe no local tiver algo fora do padrão, o técnico explica antes e o valor pode ajustar.\n\nQual período fica melhor: manhã ou tarde?",
+        "Perfeito.\n\nInstalação simples costa/costa, até 3 metros e com acesso fácil, fica R$850 com material e mão de obra.\n\nEsse valor considera ponto elétrico individual e cenário dentro do padrão. Se no local tiver algo fora disso, o técnico explica antes e o valor pode ajustar.\n\nQual período fica melhor: manhã ou tarde?",
     ]
     assert store["lead_state"]["nome"] == "Will"
     assert store["lead_state"]["tipo_servico"] == "instalacao"
@@ -346,7 +352,7 @@ def test_bootstrap_manutencao_completo(monkeypatch):
     assert responses == [
         "Bom dia, tudo joia?\n\nComo posso te ajudar hoje?",
         "Perfeito.\n\nMe passa seu nome pra eu deixar o atendimento certinho?",
-        "Para manutenção, o caminho correto é visita/análise técnica.\n\nA visita fica R$50 e pode ser abatida se o orçamento final for aprovado.\n\nQual período fica melhor para a visita?",
+        "Para manutenção, o caminho correto é visita/análise técnica.\n\nA visita fica R$50 e pode ser abatida se o orçamento final for aprovado.\n\nNo local o técnico verifica o sintoma. Se der para resolver ali, passa o valor para aprovação. Se precisar retirar ou testar em laboratório, os valores são passados separados.\n\nQual período fica melhor para a visita?",
     ]
     assert store["lead_state"]["tipo_servico"] == "manutencao"
     assert store["lead_state"]["nome"] == "Will"

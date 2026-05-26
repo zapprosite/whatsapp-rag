@@ -184,6 +184,42 @@ def update_lead_state_mvp(lead_state: dict[str, Any], user_text: str, phone: str
     return sanitize_lead_state(updated)
 
 
+def compose_response_mvp_catalog(
+    next_action_type: str,
+    lead_state: dict[str, Any],
+) -> str:
+    from agent_graph.domain.response_catalog import ResponseContext, render_response
+
+    ctx = ResponseContext(
+        greeting="Bom dia",
+        service=lead_state.get("tipo_servico"),
+        name=lead_state.get("nome"),
+        preferred_window=lead_state.get("appointment", {}).get("preferred_window"),
+    )
+    action_map = {
+        "welcome_onboarding": "welcome_onboarding",
+        "ask_lead_name": "ask_lead_name",
+        "ask_basic_service": "ask_basic_service",
+        "offer_fixed_installation": "offer_fixed_installation",
+        "offer_technical_visit": "offer_technical_visit",
+        "offer_fixed_hygienization": "offer_fixed_hygienization",
+        "offer_project_visit": "offer_project_visit",
+        "save_preferred_window": "save_preferred_window",
+        "fallback_recover_context": "fallback_recover_context",
+        "answer_services_list": "answer_services_list",
+        "answer_clarification_llm": "answer_clarification",
+        "handoff_human": "handoff_human",
+    }
+    action_type = action_map.get(next_action_type, "fallback_recover_context")
+    return render_response(action_type, ctx)
+
+
+def _is_welcome(text: str) -> bool:
+    return "tudo joia?" in text and "ajudar" in text or "Como posso te ajudar hoje?" in text
+
+def _is_ask_service(text: str) -> bool:
+    return "instalação" in text and "manutenção" in text and "higienização" in text and "conserto" in text
+
 def compose_response_mvp(
     user_text: str,
     lead_state: dict[str, Any],
@@ -194,35 +230,31 @@ def compose_response_mvp(
     service = lead_state.get("tipo_servico")
     if is_first_message and is_generic_greeting_or_message(user_text) and not service:
         lead_state["pipeline_stage"] = "new"
-        return _WELCOME_RESPONSE, lead_state
+        return compose_response_mvp_catalog("welcome_onboarding", lead_state), lead_state
 
     if not service:
         lead_state["pipeline_stage"] = "awaiting_service"
-        return _ASK_SERVICE_RESPONSE, lead_state
+        return compose_response_mvp_catalog("ask_basic_service", lead_state), lead_state
 
-    if _answered_service_prompt(previous_assistant, service) and not lead_state.get("nome"):
+    if (_is_welcome(previous_assistant) or _is_ask_service(previous_assistant)) and not lead_state.get("nome"):
         lead_state["pipeline_stage"] = "awaiting_name"
-        return _ASK_NAME_RESPONSE, lead_state
+        return compose_response_mvp_catalog("ask_lead_name", lead_state), lead_state
 
     decision = decide_commercial_path(lead_state, user_text).to_dict()
     lead_state["commercial_decision"] = decision
     lead_state["pipeline_stage"] = _service_pipeline_stage(service, decision.get("path"))
 
     if decision.get("path") == "fixed_installation_simple":
-        return _INSTALL_SIMPLE_RESPONSE, lead_state
+        return compose_response_mvp_catalog("offer_fixed_installation", lead_state), lead_state
     if service in {"manutencao", "conserto"} or decision.get("path") == "technical_visit_50" and service == "manutencao":
-        return _MAINTENANCE_RESPONSE, lead_state
+        return compose_response_mvp_catalog("offer_technical_visit", lead_state), lead_state
     if service == "higienizacao" and decision.get("path") == "fixed_hygienization":
-        return _HYGIENIZATION_RESPONSE, lead_state
+        return compose_response_mvp_catalog("offer_fixed_hygienization", lead_state), lead_state
     if decision.get("path") == "technical_visit_50":
-        if service == "higienizacao":
-            return _MAINTENANCE_RESPONSE, lead_state
-        return _INSTALL_VISIT_RESPONSE, lead_state
+        return compose_response_mvp_catalog("offer_technical_visit", lead_state), lead_state
     if service == "higienizacao":
-        return _HYGIENIZATION_RESPONSE, lead_state
-    if service in {"manutencao", "conserto"}:
-        return _MAINTENANCE_RESPONSE, lead_state
-    return _INSTALL_VISIT_RESPONSE, lead_state
+        return compose_response_mvp_catalog("offer_fixed_hygienization", lead_state), lead_state
+    return compose_response_mvp_catalog("offer_technical_visit", lead_state), lead_state
 
 
 async def process_mvp_message(
@@ -232,20 +264,55 @@ async def process_mvp_message(
     instance: str,
     history: list[BaseMessage],
 ) -> dict[str, Any]:
-    del instance
+    from agent_graph.nodes.understand_message import understand_message
+    from agent_graph.nodes.plan_next_action import plan_next_action
+
     lead = await load_or_create_lead(phone)
     lead_state = update_lead_state_mvp(lead.get("lead_state") or {}, message_text, phone)
-    previous_assistant = _last_assistant_text(history)
+
     is_first_message = not history and int(lead.get("event_count") or 0) == 0
-    response_text, lead_state = compose_response_mvp(
-        message_text,
-        lead_state,
-        is_first_message=is_first_message,
-        previous_assistant=previous_assistant,
-    )
+
+    state = {
+        "messages": history + [HumanMessage(content=message_text)],
+        "lead_state": lead_state,
+        "customer_data": {
+            "phone": phone,
+            "is_first_message": is_first_message,
+            "memory": {
+                "is_conversation_started": not is_first_message,
+            }
+        },
+        "missing_fields": [],
+        "do_not_ask": []
+    }
+
+    # FASE 4 - Determinar intent determinístico
+    understanding_res = await understand_message(state)
+    state["message_understanding"] = understanding_res["message_understanding"]
+
+    # FASE 5 - Planejar a próxima ação usando as regras determinísticas
+    plan_res = await plan_next_action(state)
+    lead_state = plan_res["lead_state"]
+    next_action = plan_res["next_action"]
+    next_action_type = next_action.get("type", "fallback_recover_context")
+
+    # FASE 3 - Catalogo de Resposta
+    response_text = compose_response_mvp_catalog(next_action_type, lead_state)
+
     lead_state.setdefault("last_messages", {})["assistant"] = response_text
     service = lead_state.get("tipo_servico")
-    pipeline_stage = str(lead_state.get("pipeline_stage") or _service_pipeline_stage(service, (lead_state.get("commercial_decision") or {}).get("path")))
+
+    if not service:
+        pipeline_stage = "awaiting_service"
+    elif not lead_state.get("nome"):
+        pipeline_stage = "awaiting_name"
+    elif next_action_type in {"offer_fixed_installation", "offer_technical_visit", "offer_fixed_hygienization", "offer_project_visit"}:
+        pipeline_stage = "pre_agendamento"
+    else:
+        pipeline_stage = "qualified"
+
+    lead_state["pipeline_stage"] = pipeline_stage
+
     await update_lead_state(
         phone,
         lead_state,
