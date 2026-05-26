@@ -12,6 +12,7 @@ normalize_whatsapp_number = worker_module.normalize_whatsapp_number
 manual_takeover_key = worker_module.manual_takeover_key
 is_manual_takeover = worker_module.is_manual_takeover
 set_manual_takeover = worker_module.set_manual_takeover
+reset_test_conversation_state = worker_module.reset_test_conversation_state
 
 
 def queue_key() -> str:

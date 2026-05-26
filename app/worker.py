@@ -266,6 +266,21 @@ def manual_takeover_key(phone: str) -> str:
     return f"manual_takeover:{_safe_key(normalize_whatsapp_number(phone) or phone)}"
 
 
+def conversation_history_key(phone: str) -> str:
+    normalized = normalize_whatsapp_number(phone) or phone
+    return f"conv_history:{normalized}"
+
+
+def conversation_lock_key(phone: str) -> str:
+    normalized = normalize_whatsapp_number(phone) or phone
+    return f"conv_lock:{_safe_key(normalized)}"
+
+
+def handoff_state_key(phone: str) -> str:
+    normalized = normalize_whatsapp_number(phone) or phone
+    return f"handoff_state:{_safe_key(normalized)}"
+
+
 async def is_manual_takeover(r: redis.Redis, phone: str) -> bool:
     return await r.get(manual_takeover_key(phone)) == "1"
 
@@ -276,6 +291,84 @@ async def set_manual_takeover(r: redis.Redis, phone: str, enabled: bool) -> None
         await r.set(key, "1", ex=_MANUAL_TAKEOVER_TTL)
     else:
         await r.delete(key)
+
+
+async def reset_test_conversation_state(r: redis.Redis, phone: str) -> dict[str, Any]:
+    normalized = normalize_whatsapp_number(phone) or phone
+    deleted_keys: list[str] = []
+
+    fixed_keys = [
+        conversation_history_key(normalized),
+        manual_takeover_key(normalized),
+        conversation_lock_key(normalized),
+        handoff_state_key(normalized),
+    ]
+    for key in fixed_keys:
+        try:
+            removed = await r.delete(key)
+        except Exception:
+            removed = 0
+        if removed:
+            deleted_keys.append(key)
+
+    side_effect_pattern = f"side_effect:*:{normalized}:*"
+    if hasattr(r, "scan_iter"):
+        async for key in r.scan_iter(match=side_effect_pattern):
+            try:
+                removed = await r.delete(key)
+            except Exception:
+                removed = 0
+            if removed:
+                deleted_keys.append(str(key))
+
+    persistent_reset = False
+    deleted_events = 0
+    if os.getenv("DATABASE_URL"):
+        try:
+            from prisma import Prisma
+
+            db = Prisma()
+            await db.connect()
+            try:
+                lead = await db.lead.find_unique(where={"phone": normalized})
+                if lead:
+                    await db.lead.update(
+                        where={"phone": normalized},
+                        data={
+                            "name": None,
+                            "service": None,
+                            "address": None,
+                            "window": None,
+                            "service_type": None,
+                            "pipeline_stage": "new",
+                            "city_bairro": None,
+                            "urgency": None,
+                            "lead_state": json.dumps({}),
+                            "conversation_summary": None,
+                            "already_asked_fields": json.dumps([]),
+                            "missing_fields": json.dumps(["tipo_servico", "cidade_bairro"]),
+                            "do_not_ask": json.dumps([]),
+                            "last_user_message_at": None,
+                        },
+                    )
+                    deleted_events = await db.query_raw(
+                        "DELETE FROM lead_events WHERE lead_id = $1",
+                        str(lead.id),
+                    ) or 0
+                    persistent_reset = True
+            finally:
+                await db.disconnect()
+        except Exception as e:
+            logger.warning("Falha ao resetar estado persistido de teste do admin: %s", e)
+
+    logger.info("Conversa de teste do admin resetada com sucesso")
+    return {
+        "phone": normalized,
+        "deleted_keys": deleted_keys,
+        "deleted_keys_count": len(deleted_keys),
+        "persistent_reset": persistent_reset,
+        "deleted_events": int(deleted_events or 0),
+    }
 
 
 @asynccontextmanager

@@ -5,9 +5,9 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
+import agent_graph.nodes.nodes as nodes_module
 from agent_graph.domain.actions import NextAction
 from agent_graph.nodes.nodes import (
-    WILL_SYSTEM_PROMPT,
     _active_service_response,
     _direct_price_response,
     _human_service_label,
@@ -18,7 +18,6 @@ from agent_graph.nodes.nodes import (
     _process_question_response,
     _question_for_field,
     _unknown_recovery_response,
-    llm_chat,
 )
 from agent_graph.services.calendar import format_slots_for_whatsapp
 
@@ -60,9 +59,9 @@ async def _llm_answer(state: dict[str, Any], action: NextAction) -> str:
         "Responda em português brasileiro, direto, sem inventar preço ou agenda. "
         "Se precisar perguntar algo, faça só uma pergunta objetiva no final."
     )
-    response = await llm_chat(
+    response = await nodes_module.llm_chat(
         [
-            {"role": "system", "content": WILL_SYSTEM_PROMPT},
+            {"role": "system", "content": nodes_module.WILL_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
         max_retries=2,
