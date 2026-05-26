@@ -3257,7 +3257,10 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
     outcome = state.get("outcome")
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
-    diagnostic_no_send = bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested"))
+    diagnostic_no_send = (
+        (bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested")))
+        or state.get("instance") == "test"
+    )
 
     user_message = next((_message_text(m) for m in reversed(messages) if _is_human_message(m)), None)
     ai_message = next((_message_text(m) for m in reversed(messages) if _is_ai_message(m)), None)
@@ -3274,6 +3277,7 @@ async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
                 "ai_message": ai_message or "",
                 "is_human": state.get("is_human", False),
                 "metadata": {
+                    "next_action": state.get("next_action"),
                     "outcome": outcome,
                     "handoff_mode": state.get("handoff_mode"),
                     "handoff_reason": state.get("handoff_reason"),
@@ -3752,7 +3756,10 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
     # ── 1. Inicializa o estado com os dados do banco ────────────────────────
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
-    diagnostic_no_send = bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested"))
+    diagnostic_no_send = (
+        (bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested")))
+        or state.get("instance") == "test"
+    )
     
     lead_state = None
     already_asked_fields = []
@@ -3857,39 +3864,25 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
             observations = vision_data.get("observations", "")
             logger.info(f"Vision structured: type={image_type!r} obs={observations[:60]!r}")
 
-            # Atualiza fotos no lead_state com base no tipo detectado
-            fotos = lead_state.setdefault("fotos", {})
             if image_type == "local_interno_instalacao":
-                fotos["local_interno"] = True
                 combined = f"[Imagem recebida: foto do local interno para instalação. {observations}]"
             elif image_type == "local_externo_instalacao":
-                fotos["local_externo"] = True
                 combined = f"[Imagem recebida: foto do local externo para condensadora. {observations}]"
             elif image_type in {"equipamento_ar_condicionado", "etiqueta_tecnica"}:
-                fotos["aparelho"] = True
                 eq = vision_data.get("equipment_context") or {}
                 brand = eq.get("brand")
                 model = eq.get("model")
                 btus = eq.get("btus")
-                if brand and not lead_state.get("marca"):
-                    lead_state["marca"] = brand
-                if btus and not lead_state.get("btus"):
-                    lead_state["btus"] = str(btus)
                 combined = f"[Imagem recebida: equipamento de ar condicionado. {observations}]"
                 if brand or btus:
                     combined += f" Dados extraídos: {', '.join(filter(None, [brand, model, f'{btus} BTUs' if btus else None]))}."
             elif image_type == "quadro_eletrico_disjuntor":
-                fotos["disjuntor"] = True
                 combined = f"[Imagem recebida: quadro elétrico/disjuntor. {observations}]"
             else:
                 combined = f"[Imagem recebida: {observations or 'ambiente genérico'}]"
 
-            lead_state["last_image_analysis"] = vision_data
             if caption:
                 combined = f"{combined}\n{caption}"
-
-            # Recomputa campos após atualizar fotos
-            do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
 
             new_messages = list(messages)
             if new_messages and _is_human_message(new_messages[-1]):
@@ -3904,6 +3897,7 @@ async def preprocess_input(state: dict[str, Any]) -> dict[str, Any]:
                 "missing_fields": missing_fields,
                 "do_not_ask": do_not_ask,
                 "conversation_summary": conversation_summary,
+                "vision_data": vision_data,
             }
         except Exception as e:
             logger.error(f"Vision falhou: {e}")
@@ -3934,7 +3928,10 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
 
     customer_data = state.get("customer_data", {})
     phone = customer_data.get("phone", "unknown")
-    diagnostic_no_send = bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested"))
+    diagnostic_no_send = (
+        (bool(customer_data.get("diagnostic_mode")) and not bool(customer_data.get("send_requested")))
+        or state.get("instance") == "test"
+    )
     
     lead_state = sanitize_lead_state(state.get("lead_state") or _lead_state_copy())
     last_message = messages[-1]
@@ -4030,13 +4027,6 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
         lead_state["tipo_servico"] = detected_service_type
 
     lead_state = _infer_lead_fields_from_text(lead_state, user_text, state.get("message_type"))
-
-    # Detectar e persistir preferência de janela de horário
-    window = _detect_preferred_window(user_text)
-    if window:
-        appointment = lead_state.setdefault("appointment", {"preferred_window": None, "confirmed_window": False, "appointment_alert_sent": False})
-        appointment["preferred_window"] = window
-        # confirmed_window só quando appointment_ready real; preferência antecipada não confirma
 
     lead_state = sanitize_lead_state(lead_state)
     do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)

@@ -85,6 +85,62 @@ def _has_minimum_data_for_appointment_guard(lead_state: dict[str, Any], service:
     return True
 
 
+def _validate_next_action_contract(response: str, state: dict[str, Any], text: str) -> list[str]:
+    next_action = state.get("next_action") or {}
+    action_type = next_action.get("type")
+    violations: list[str] = []
+    if not action_type:
+        return violations
+
+    if action_type == "explain_process":
+        if not any(term in text for term in ("funciona assim", "primeiro", "processo")):
+            violations.append("action_missing_process_explanation")
+        if (
+            "período registrado" in text
+            or "periodo registrado" in text
+            or ("deixei o período da" in text and "registrado" in text)
+            or ("deixei o periodo da" in text and "registrado" in text)
+        ):
+            violations.append("action_process_contains_window_confirmation")
+
+    if action_type == "answer_capability_question":
+        if not any(term in text for term in ("sim", "não", "nao")):
+            violations.append("action_capability_missing_yes_no")
+        if re.search(r"instala[cç][aã]o, manuten[cç][aã]o ou higieniza", text):
+            violations.append("action_capability_asked_service_again")
+
+    if action_type == "ask_missing_field":
+        missing_field = next_action.get("missing_field")
+        if missing_field:
+            field_patterns = {
+                "cidade_bairro": ("cidade", "bairro"),
+                "foto_local_externo": ("condensadora", "local externo"),
+                "foto_local_interno": ("local interno", "unidade interna"),
+                "ponto_eletrico_exclusivo": ("ponto elétrico", "ponto eletrico"),
+                "btus": ("btu", "capacidade"),
+            }
+            patterns = field_patterns.get(missing_field, ())
+            if patterns and not any(pattern in text for pattern in patterns):
+                violations.append("action_missing_correct_field")
+        if "agendamento confirmado" in text or "deixei separada a opção" in text:
+            violations.append("action_missing_field_confirmed_schedule")
+
+    if action_type == "offer_calendar_slots":
+        slots = state.get("calendar_slots") or ((state.get("lead_state") or {}).get("appointment") or {}).get("offered_slots") or []
+        if not slots:
+            violations.append("action_offer_slots_without_state_slots")
+        if not re.search(r"1\..+2\..+3\.", response, re.S):
+            violations.append("action_offer_slots_without_numbered_options")
+
+    if action_type != "confirm_calendar_slot":
+        if "agendamento confirmado" in text:
+            violations.append("action_unexpected_schedule_confirmation")
+        if action_type != "save_preferred_window" and ("período registrado" in text or "periodo registrado" in text):
+            violations.append("action_unexpected_window_confirmation")
+
+    return violations
+
+
 def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple[bool, list[str]]:
     lead_state = state.get("lead_state") or {}
     customer_data = state.get("customer_data") or {}
@@ -153,7 +209,13 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
         violations.append("too_long")
     if response.strip() and response.strip()[-1] not in ".?!":
         violations.append("possible_truncated_response")
-    if in_progress and "?" not in response and state.get("conversation_objective") not in {"security_reject", "human_handoff"}:
+    next_action_type = ((state.get("next_action") or {}).get("type"))
+    if (
+        in_progress
+        and "?" not in response
+        and state.get("conversation_objective") not in {"security_reject", "human_handoff"}
+        and next_action_type not in {"confirm_calendar_slot", "save_preferred_window", "offer_calendar_slots"}
+    ):
         violations.append("missing_next_step")
     if re.search(r"\bvos\b|\bteu aparelho avariado\b|\bpresupuesto\b|\bservicio\b", text):
         violations.append("non_ptbr")
@@ -205,5 +267,7 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
     if service == "instalacao" and any(phrase in text for phrase in schedule_ask_phrases):
         if not _has_minimum_data_for_appointment_guard(lead_state, service):
             violations.append("schedule_before_requirements")
+
+    violations.extend(_validate_next_action_contract(response, state, text))
 
     return not violations, violations

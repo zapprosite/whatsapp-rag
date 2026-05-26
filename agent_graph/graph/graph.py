@@ -9,16 +9,21 @@ from agent_graph.nodes.nodes import (
     extract_lead_data,
     classify_service,
     retrieve_knowledge,
-    generate_response,
     language_guard_check,
     response_guard_check,
     format_whatsapp,
     decide_response_modality,
     tts_voice_clone,
-    dispatch_appointment_alert,
     save_interaction,
-    route_human,
 )
+from agent_graph.nodes.compose_response import compose_response
+from agent_graph.nodes.dispatch_side_effects import dispatch_side_effects
+from agent_graph.nodes.plan_next_action import plan_next_action
+from agent_graph.nodes.reduce_lead_state import reduce_lead_state
+from agent_graph.nodes.understand_message import understand_message
+
+# Compatibilidade com testes e imports legados.
+dispatch_appointment_alert = dispatch_side_effects
 
 
 class RagContextItem(TypedDict, total=False):
@@ -71,23 +76,26 @@ class AgentState(TypedDict):
     response_guard_violations: list[str] | None
     domain_disambiguation: dict[str, Any] | None
     selected_template: dict[str, Any] | None
+    message_understanding: dict[str, Any] | None
+    next_action: dict[str, Any] | None
+    conversation_stage: str | None
+    calendar_stage: str | None
+    vision_data: dict[str, Any] | None
+    calendar_slots: list[dict[str, Any]] | None
+    short_answer_applied: bool | None
 
 
-def route_after_classify(state: AgentState) -> str:
-    handoff_mode = state.get("handoff_mode")
-    intent = state.get("intent")
-    if handoff_mode == "hard_transfer":
-        return "route_human"
-    if intent in {"onboarding", "security_rejected"}:
-        # Saudação — pula RAG, vai direto pra geração (resposta de apresentação)
-        return "generate_response"
-    return "retrieve_knowledge"
+def route_after_plan(state: AgentState) -> str:
+    next_action = state.get("next_action") or {}
+    if next_action.get("needs_rag"):
+        return "retrieve_knowledge"
+    return "compose_response"
 
 
 def route_after_modality(state: AgentState) -> str:
     if state.get("response_modality") == "audio":
         return "tts_voice_clone"
-    return "dispatch_appointment_alert"
+    return "dispatch_side_effects"
 
 
 def build_graph() -> StateGraph:
@@ -96,37 +104,41 @@ def build_graph() -> StateGraph:
     # ── Nós ────────────────────────────────────────────────────────────────────
     workflow.add_node("preprocess_input",         preprocess_input)
     workflow.add_node("extract_lead_data",        extract_lead_data)
+    workflow.add_node("understand_message",       understand_message)
+    workflow.add_node("reduce_lead_state",        reduce_lead_state)
     workflow.add_node("classify_service",         classify_service)
+    workflow.add_node("plan_next_action",         plan_next_action)
     workflow.add_node("retrieve_knowledge",       retrieve_knowledge)
-    workflow.add_node("generate_response",        generate_response)
+    workflow.add_node("compose_response",         compose_response)
     workflow.add_node("language_guard_check",     language_guard_check)
     workflow.add_node("response_guard_check",     response_guard_check)
     workflow.add_node("format_whatsapp",          format_whatsapp)
     workflow.add_node("decide_response_modality", decide_response_modality)
     workflow.add_node("tts_voice_clone",          tts_voice_clone)
-    workflow.add_node("dispatch_appointment_alert", dispatch_appointment_alert)
+    workflow.add_node("dispatch_side_effects",    dispatch_side_effects)
     workflow.add_node("save_interaction",         save_interaction)
-    workflow.add_node("route_human",              route_human)
 
     # ── Entrypoint ─────────────────────────────────────────────────────────────
     workflow.set_entry_point("preprocess_input")
 
     # ── Arestas ────────────────────────────────────────────────────────────────
     workflow.add_edge("preprocess_input", "extract_lead_data")
-    workflow.add_edge("extract_lead_data", "classify_service")
+    workflow.add_edge("extract_lead_data", "understand_message")
+    workflow.add_edge("understand_message", "reduce_lead_state")
+    workflow.add_edge("reduce_lead_state", "classify_service")
+    workflow.add_edge("classify_service", "plan_next_action")
 
     workflow.add_conditional_edges(
-        "classify_service",
-        route_after_classify,
+        "plan_next_action",
+        route_after_plan,
         {
-            "route_human":        "route_human",
             "retrieve_knowledge": "retrieve_knowledge",
-            "generate_response":  "generate_response",
+            "compose_response":   "compose_response",
         },
     )
 
-    workflow.add_edge("retrieve_knowledge",   "generate_response")
-    workflow.add_edge("generate_response",    "language_guard_check")
+    workflow.add_edge("retrieve_knowledge",   "compose_response")
+    workflow.add_edge("compose_response",     "language_guard_check")
     workflow.add_edge("language_guard_check", "response_guard_check")
     workflow.add_edge("response_guard_check", "format_whatsapp")
     workflow.add_edge("format_whatsapp",      "decide_response_modality")
@@ -136,13 +148,12 @@ def build_graph() -> StateGraph:
         route_after_modality,
         {
             "tts_voice_clone":            "tts_voice_clone",
-            "dispatch_appointment_alert": "dispatch_appointment_alert",
+            "dispatch_side_effects":      "dispatch_side_effects",
         },
     )
 
-    workflow.add_edge("tts_voice_clone",            "dispatch_appointment_alert")
-    workflow.add_edge("dispatch_appointment_alert", "save_interaction")
+    workflow.add_edge("tts_voice_clone",            "dispatch_side_effects")
+    workflow.add_edge("dispatch_side_effects",      "save_interaction")
     workflow.add_edge("save_interaction",           END)
-    workflow.add_edge("route_human",                "save_interaction")
 
     return workflow.compile()
