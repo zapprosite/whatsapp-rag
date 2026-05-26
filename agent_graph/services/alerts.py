@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from agent_graph.services.whatsapp import send_whatsapp_group_text, send_whatsapp_text
@@ -43,6 +44,10 @@ def _format_owner_alert(alert: dict[str, Any]) -> str:
     return "\n".join(lines)[:3500]
 
 
+def _normalize_phone_digits(phone: str) -> str:
+    return re.sub(r"\D", "", phone or "")
+
+
 async def send_owner_alert(alert: dict[str, Any]) -> bool:
     if not _enabled("OWNER_ALERTS_ENABLED", "1"):
         logger.info("OWNER_ALERTS_ENABLED=0; alerta owner não enviado")
@@ -56,6 +61,15 @@ async def send_owner_alert(alert: dict[str, Any]) -> bool:
     owner_phone = os.getenv("OWNER_PHONE", "")
     if not owner_phone:
         logger.warning("OWNER_PHONE não configurado; alerta owner não enviado")
+        return False
+
+    # Guarda: nunca enviar mensagem operacional para o próprio lead
+    lead_phone = str(alert.get("phone") or "")
+    if lead_phone and _normalize_phone_digits(owner_phone) == _normalize_phone_digits(lead_phone):
+        logger.warning(
+            "OWNER_PHONE igual ao lead %s; alerta owner suprimido para não vazar mensagem operacional ao cliente",
+            lead_phone,
+        )
         return False
 
     instance = str(alert.get("instance") or "default")
@@ -74,21 +88,61 @@ async def send_agenda_group_message(text: str) -> bool:
     return await send_whatsapp_group_text(group_jid, text, os.getenv("EVOLUTION_INSTANCE", "default"))
 
 
+_SERVICE_LABELS: dict[str, str] = {
+    "instalacao": "instalação",
+    "manutencao": "manutenção",
+    "higienizacao": "higienização",
+    "projeto-central": "projeto de climatização",
+    "pmoc": "PMOC",
+    "consultoria": "consultoria técnica",
+    "conserto": "conserto",
+    "eletrica": "análise elétrica",
+}
+
+
+def _agenda_service_label(service: str | None) -> str:
+    return _SERVICE_LABELS.get(service or "", service or "serviço não classificado")
+
+
+def _format_agenda_alert(lead_data: dict) -> str:
+    """Resumo estruturado de agendamento — sem histórico de conversa."""
+    service = _agenda_service_label(lead_data.get("service"))
+    address = lead_data.get("address") or "local não informado"
+    window = lead_data.get("window") or "horário a combinar"
+    phone = lead_data.get("phone") or "sem telefone"
+    name = lead_data.get("name") or "sem nome"
+    lines = [
+        "*AGENDAMENTO CONFIRMADO*",
+        f"Telefone: {phone}",
+        f"Cliente: {name}",
+        f"Serviço: {service}",
+        f"Local: {address}",
+        f"Janela: {window}",
+        "Próximo passo: Confirmar execução no WhatsApp do cliente.",
+    ]
+    return "\n".join(lines)
+
+
 async def send_appointment_alert(lead_data: dict) -> bool:
-    """Alerta o owner apenas quando há sinal claro de agendamento confirmado."""
+    """Envia alerta de agendamento confirmado para o grupo de agenda (fallback: owner)."""
+    text = _format_agenda_alert(lead_data)
+    if _enabled("AGENDA_GROUP_ENABLED", "1"):
+        group_jid = os.getenv("AGENDA_GROUP_JID", "").strip()
+        if group_jid:
+            return await send_agenda_group_message(text)
+        logger.warning("AGENDA_GROUP_ENABLED=1 mas AGENDA_GROUP_JID vazio; usando fallback owner")
+
+    # Fallback: owner (se grupo não configurado)
     return await send_owner_alert(
         {
             "title": "AGENDAMENTO CONFIRMADO",
             "phone": lead_data.get("phone"),
             "name": lead_data.get("name"),
-            "reason": lead_data.get("reason") or "appointment_confirmed",
+            "reason": "appointment_confirmed",
             "service": lead_data.get("service"),
             "city_bairro": lead_data.get("address"),
             "last_message": lead_data.get("last_message") or "não informada",
-            "summary": (
-                f"{lead_data.get('name') or 'sem nome'}; serviço {lead_data.get('service') or 'não classificado'}; "
-                f"local {lead_data.get('address') or 'não informado'}; janela {lead_data.get('window') or 'a combinar'}."
-            ),
+            "summary": text,
             "next_step": "Confirmar execução e janela diretamente no WhatsApp do cliente.",
             "priority": "normal",
             "instance": lead_data.get("instance") or "default",

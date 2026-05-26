@@ -64,3 +64,78 @@ def test_blocks_internal_segment_leak():
 
     assert ok is False
     assert "internal_segment_leak" in violations
+
+
+def test_violation_leaked_media_placeholder():
+    ok, violations = validate_response_before_send(
+        "Agendamento de manutenção em [áudio].",
+        {"lead_state": {"tipo_servico": "manutencao"}},
+    )
+    assert ok is False
+    assert "leaked_media_placeholder" in violations
+
+
+def test_violation_asked_preferred_window_again():
+    ok, violations = validate_response_before_send(
+        "Me confirma o melhor período: manhã ou tarde?",
+        {
+            "lead_state": {
+                "tipo_servico": "manutencao",
+                "appointment": {"preferred_window": "tarde", "confirmed_window": True},
+            }
+        },
+    )
+    assert ok is False
+    assert "asked_preferred_window_again" in violations
+
+
+def test_violation_unwanted_internal_manager_phrase():
+    ok, violations = validate_response_before_send(
+        "Vou sinalizar o gerente agora para confirmar a melhor janela.",
+        {"lead_state": {"tipo_servico": "manutencao"}, "handoff_reason": None},
+    )
+    assert ok is False
+    assert "unwanted_internal_process" in violations
+
+
+def test_violation_appointment_claim_without_minimum_data():
+    ok, violations = validate_response_before_send(
+        "Perfeito, já tenho dados suficientes para encaminhar o agendamento de manutencao em [áudio].",
+        {
+            "lead_state": {
+                "tipo_servico": "manutencao",
+                "cidade_bairro": None,
+                "manutencao": {},
+                "fotos": {},
+                "conserto": {},
+                "appointment": {},
+            }
+        },
+    )
+    assert ok is False
+    assert "appointment_claim_without_minimum_data" in violations or "leaked_media_placeholder" in violations
+
+
+def test_no_violation_when_window_not_yet_registered():
+    ok, violations = validate_response_before_send(
+        "Me confirma o melhor período: manhã ou tarde?",
+        {
+            "lead_state": {
+                "tipo_servico": "manutencao",
+                "appointment": {"preferred_window": None},
+                "appointment_ready": True,
+            }
+        },
+    )
+    assert "asked_preferred_window_again" not in violations
+
+
+def test_no_internal_manager_leak_with_safe_handoff():
+    ok, violations = validate_response_before_send(
+        "Vou sinalizar o gerente agora, é uma reclamação grave.",
+        {
+            "lead_state": {"tipo_servico": "manutencao"},
+            "handoff_reason": "sensitive_complaint",
+        },
+    )
+    assert "unwanted_internal_process" not in violations

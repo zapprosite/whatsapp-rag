@@ -75,6 +75,7 @@ _OWNER_WORTHY_REASONS = {
     "high_value_lead",
     "electrical_risk",
     "repeated_missing_critical_field",
+    "appointment_confirmed",
 }
 
 
@@ -521,6 +522,11 @@ async def maybe_notify_owner_from_result(
     reason = result.get("handoff_reason") or result.get("outcome") or "sem_motivo"
     reason = str(reason)
     if mode == "hard_transfer" and result.get("handoff_already_notified"):
+        return False
+
+    # appointment_confirmed é tratado exclusivamente por dispatch_appointment_alert → grupo de agenda
+    if reason == "appointment_confirmed":
+        logger.info("appointment_confirmed delegado ao dispatch_appointment_alert; worker skip")
         return False
 
     owner_worthy = reason in _OWNER_WORTHY_REASONS or reason.startswith("high_value")

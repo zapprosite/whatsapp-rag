@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter
@@ -236,14 +237,17 @@ async def test_chat(
     media_url: str = "",
     send: bool = False,
 ) -> dict[str, Any]:
-    result = await _invoke_graph(_build_state(message, phone="+5511900000001", send=send, media_type=media_type, media_url=media_url))
+    # Phone único por chamada para garantir estado isolado entre testes
+    _ts = int(time.time() * 1000) % 10_000_000_000
+    test_phone = f"+551{_ts:010d}"
+    result = await _invoke_graph(_build_state(message, phone=test_phone, send=send, media_type=media_type, media_url=media_url))
     if "error" in result:
         return result
 
     ai_message = _last_ai_message(result.get("messages", []))
     sent_to_whatsapp = False
     if send and ai_message:
-        sent_to_whatsapp = await send_whatsapp_message("+5511900000001", ai_message, "test")
+        sent_to_whatsapp = await send_whatsapp_message(test_phone, ai_message, "test")
 
     return {
         "input": message,
