@@ -164,6 +164,31 @@ GOOGLE_CALENDAR_TIMEZONE=America/Sao_Paulo
 
 Sem credencial, o bot não inventa horário. Ele coleta cidade, fotos, dados do serviço e pede melhor período para o gerente confirmar.
 
+## Onboarding e Cadastro Leve do Lead
+
+- O telefone vem automaticamente do WhatsApp.
+- O nome deve ser coletado de forma natural.
+- Sobrenome, e-mail e endereço ajudam, mas não devem travar conversa.
+- Endereço completo só deve ser pedido perto de visita/agendamento.
+- O bot não deve dizer que nome é obrigatório.
+- O bot deve pedir: "Me passa seu nome pra eu deixar o atendimento certinho?"
+
+## Política de Agendamento
+
+- Foto ajuda, mas não trava atendimento.
+- Campos técnicos úteis não bloqueiam visita técnica.
+- Se faltar dado, oferecer visita técnica R$50 abatível.
+- O bot não deve ficar perguntando "próximo detalhe".
+- O bot deve avançar para agendamento quando houver caminho comercial claro.
+
+## Planilha de Leads
+
+- PostgreSQL é fonte da verdade.
+- Planilha é export/sync operacional.
+- Campos mínimos: telefone, nome, serviço, status, cidade/bairro, data, próximo passo.
+- Não salvar segredos.
+- Falha na planilha não pode interromper atendimento.
+
 ## Critérios de Qualidade de Resposta (para avaliação automatizada)
 
 Uma boa resposta do Will deve:

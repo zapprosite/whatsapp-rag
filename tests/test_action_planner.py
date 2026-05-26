@@ -46,12 +46,12 @@ def test_capability_question_returns_capability_action():
     assert result["next_action"]["type"] == "answer_capability_question"
 
 
-def test_calendar_request_with_missing_requirements_asks_missing_field():
+def test_calendar_request_with_missing_requirements_offers_technical_visit():
     state = _base_state()
     state["message_understanding"] = {"kind": "calendar_request", "asks_calendar": True}
 
     result = run(plan_next_action(state))
-    assert result["next_action"]["type"] == "ask_missing_field"
+    assert result["next_action"]["type"] == "offer_technical_visit"
 
 
 def test_calendar_request_with_requirements_offers_slots(monkeypatch):

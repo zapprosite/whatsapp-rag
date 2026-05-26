@@ -51,3 +51,7 @@ htmlcov/
 
 # Rascunhos locais
 rascunho-*.md
+
+# Exports operacionais
+exports/*.csv
+exports/*.xlsx

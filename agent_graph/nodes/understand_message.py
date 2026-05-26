@@ -93,6 +93,8 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
             "tambem trabalham com",
         )
     ) and service_mentioned is not None
+    is_greeting = any(term == text or text.startswith(f"{term} ") for term in ("oi", "ola", "olá", "opa", "bom dia", "boa tarde", "boa noite"))
+    is_generic = is_greeting or text in {"tudo bem", "td bem", "preciso de ajuda", "quero saber", "tenho uma dúvida", "tenho uma duvida"}
 
     malicious = False
     security_guard = state.get("security_guard") or {}
@@ -142,6 +144,8 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
         "asks_capability": asks_capability,
         "unavailable_photo": unavailable_photo,
         "unavailable_infra": unavailable_infra,
+        "is_greeting": is_greeting,
+        "is_generic": is_generic,
         "malicious": malicious,
     }
     return {"message_understanding": understanding}

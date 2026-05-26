@@ -94,6 +94,31 @@ def _validate_next_action_contract(response: str, state: dict[str, Any], text: s
     if not action_type:
         return violations
 
+    if action_type == "ask_lead_name":
+        if "nome" not in text:
+            violations.append("action_missing_name_request")
+        if "e-mail" in text or "email" in text or "endere" in text:
+            violations.append("action_name_request_mixed_fields")
+
+    if action_type == "welcome_onboarding":
+        if not any(term in text for term in ("bom dia", "boa tarde", "boa noite")):
+            violations.append("action_missing_time_greeting")
+        if (state.get("customer_data") or {}).get("memory", {}).get("is_conversation_started"):
+            violations.append("action_repeated_welcome")
+
+    if action_type == "offer_technical_visit":
+        if "r$50" not in text:
+            violations.append("action_missing_visit_price")
+        if "abat" not in text:
+            violations.append("action_missing_visit_abatement")
+        if "sem foto" in text or "manda foto" in text and "não trava" not in text and "nao trava" not in text:
+            violations.append("action_photo_became_blocking")
+
+    if action_type == "offer_fixed_installation":
+        for required in ("r$850", "até 3 metros", "acesso fácil"):
+            if required not in text:
+                violations.append(f"action_missing_fixed_installation:{required}")
+
     if action_type == "explain_process":
         if not any(term in text for term in ("funciona assim", "primeiro", "processo")):
             violations.append("action_missing_process_explanation")
@@ -157,6 +182,8 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
         violations.append("asked_service_type_again")
     if in_progress and ("oi, tudo bem" in text or "olá, tudo bem" in text or "ola, tudo bem" in text):
         violations.append("repeated_greeting")
+    if in_progress and any(term in text for term in ("bom dia", "boa tarde", "boa noite")) and ((state.get("next_action") or {}).get("type") == "welcome_onboarding"):
+        violations.append("repeated_greeting")
     if service and ("como posso ajudar" in text or "qual serviço você precisa" in text):
         violations.append("generic_restart")
 
@@ -190,6 +217,11 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
         "database url",
         "system prompt",
         "prompt interno",
+        "qual é o próximo detalhe que você já consegue me informar",
+        "vou adiantar pelo que já tenho",
+        "quando puder, me manda as fotos que eu confirmo o melhor caminho",
+        "não consigo agendar sem foto",
+        "nao consigo agendar sem foto",
     )
     if any(term in text for term in forbidden):
         violations.append("forbidden_claim_or_secret")

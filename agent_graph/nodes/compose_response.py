@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from typing import Any
 
 from langchain_core.messages import AIMessage
 
 from agent_graph.domain.commercial_router import decide_commercial_path
+from agent_graph.domain.onboarding import greeting_by_time
 import agent_graph.nodes.nodes as nodes_module
 from agent_graph.domain.actions import NextAction
 from agent_graph.nodes.nodes import (
@@ -39,6 +41,16 @@ def _missing_field_human(field: str | None) -> str:
         "btus": "a capacidade em BTUs ou o modelo do aparelho",
     }
     return mapping.get(field, "um detalhe importante")
+
+
+def _service_ack(service: str | None) -> str:
+    mapping = {
+        "instalacao": "Consigo te ajudar com instalação sim.",
+        "higienizacao": "Consigo te ajudar com higienização sim.",
+        "manutencao": "Consigo te ajudar com manutenção sim.",
+        "conserto": "Consigo te ajudar com conserto sim.",
+    }
+    return mapping.get(service, "Consigo te ajudar sim.")
 
 
 def _commercial_response(state: dict[str, Any], service: str | None, user_text: str, lead_state: dict[str, Any]) -> str:
@@ -130,9 +142,65 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
     do_not_ask = list(state.get("do_not_ask") or [])
     user_text = _latest_user_text(state)
     appointment = lead_state.setdefault("appointment", {})
+    identity = lead_state.setdefault("lead_identity", {})
+    greeting = greeting_by_time(datetime.now())
 
     if action_type == "reject_security":
         response = state.get("safe_response") or "Não consigo seguir por esse caminho. Se a sua dúvida for sobre ar-condicionado, me fala em uma frase simples o que você precisa."
+    elif action_type == "welcome_onboarding":
+        response = f"{greeting}, tudo joia?\n\nComo posso te ajudar hoje?"
+    elif action_type == "ask_lead_name":
+        prefix = ""
+        notes = action.get("notes") or []
+        if "include_greeting" in notes:
+            prefix = f"{greeting}, tudo joia?\n\n"
+        elif service:
+            prefix = f"{_service_ack(service)}\n\n"
+        response = f"{prefix}Me passa seu nome pra eu deixar o atendimento certinho?"
+    elif action_type == "ask_basic_service":
+        response = "Entendi.\n\nIsso é instalação, manutenção, higienização ou conserto?"
+    elif action_type == "ask_optional_contact_info":
+        response = "Se tiver e-mail, pode me mandar também pra ficar registrado no atendimento."
+    elif action_type == "offer_fixed_installation":
+        response = (
+            "Perfeito.\n\n"
+            "Instalação simples costa/costa, até 3 metros e com acesso fácil, fica R$850 com material e mão de obra.\n\n"
+            "Esse valor considera ponto elétrico individual e cenário dentro do padrão. Se no local tiver algo fora disso, o técnico explica antes e o valor pode ajustar.\n\n"
+            "Qual período fica melhor: manhã ou tarde?"
+        )
+    elif action_type == "offer_fixed_hygienization":
+        response = (
+            "Higienização de split padrão fica R$200 por aparelho, desde que o equipamento esteja funcionando e instalado dentro do padrão.\n\n"
+            "Se o aparelho não estiver climatizando, o atendimento pode virar análise de manutenção por R$50.\n\n"
+            "Quantos aparelhos são?"
+        )
+    elif action_type == "offer_technical_visit":
+        if service == "instalacao":
+            response = (
+                "Sem problema.\n\n"
+                "A foto ajuda a adiantar, mas não trava o atendimento.\n\n"
+                "Como ainda falta confirmar o local completo, seguimos como visita técnica de R$50. Se o orçamento final for aprovado, esse valor pode ser abatido.\n\n"
+                "Qual período fica melhor: manhã ou tarde?"
+            )
+        elif service == "manutencao":
+            response = (
+                "Para manutenção, o caminho correto é visita/análise técnica.\n\n"
+                "A visita fica R$50 e pode ser abatida se o orçamento final for aprovado.\n\n"
+                "No local o técnico verifica o sintoma. Se der para resolver ali, passa o valor para aprovação. Se precisar retirar ou testar em laboratório, os valores são passados separados.\n\n"
+                "Qual período fica melhor para a visita?"
+            )
+        else:
+            response = (
+                "Sem problema.\n\n"
+                "Seguimos como visita técnica de R$50 e esse valor pode ser abatido se o orçamento final for aprovado.\n\n"
+                "Qual período fica melhor: manhã ou tarde?"
+            )
+    elif action_type == "offer_project_visit":
+        response = (
+            "Esse caso sai do escopo de serviço fixo.\n\n"
+            "Para esse tipo de atendimento, fazemos visita técnica ou projeto a partir de R$50 nas proximidades, podendo ajustar conforme distância e complexidade.\n\n"
+            "Me passa cidade/bairro e tipo de ambiente para direcionar certo?"
+        )
     elif action_type == "active_service_followup":
         response = _active_service_response(user_text, (state.get("customer_data") or {}).get("active_service") or {})
     elif action_type == "handoff_human":
@@ -178,7 +246,17 @@ async def compose_response(state: dict[str, Any]) -> dict[str, Any]:
     else:
         response = _unknown_recovery_response(user_text)
 
-    response = await _polish_ptbr_if_enabled(response, user_text)
+    if action_type not in {
+        "welcome_onboarding",
+        "ask_lead_name",
+        "ask_basic_service",
+        "ask_optional_contact_info",
+        "offer_fixed_installation",
+        "offer_fixed_hygienization",
+        "offer_technical_visit",
+        "offer_project_visit",
+    }:
+        response = await _polish_ptbr_if_enabled(response, user_text)
     return {
         "messages": messages + [AIMessage(content=response)],
         "lead_state": lead_state,

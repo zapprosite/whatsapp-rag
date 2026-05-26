@@ -32,14 +32,21 @@ model Lead {
   id                   String      @id @default(uuid())
   phone                String      @unique
   name                 String?
+  email                String?
   service              String?
   address              String?
   window               String?
   source               String?     @default("whatsapp")
   service_type         String?
+  commercial_path      String?
   pipeline_stage       String?     @default("new")
   city_bairro          String?
   urgency              String?
+  appointment_window   String?
+  appointment_slot_start DateTime?
+  appointment_slot_end DateTime?
+  google_event_id      String?
+  lead_status          String?     @default("open")
   lead_state           Json?       @default("{}")
   conversation_summary String?
   already_asked_fields Json?       @default("[]")
