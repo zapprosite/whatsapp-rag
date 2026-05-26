@@ -1,0 +1,120 @@
+terms:
+  ar:
+    domain_meaning: ar-condicionado
+    query_expansion: ar-condicionado aparelho split climatizacao HVAC-R
+    wrong_meanings:
+      - ar atmosferico generico
+      - vento
+      - qualidade do ar sem equipamento
+    disambiguation_rule: Se o lead fala "meu ar", "o ar", "instalar ar" ou "ar parou", interpretar como ar-condicionado.
+
+  gas:
+    aliases:
+      - gás
+      - gas
+    domain_meaning: fluido refrigerante do ar-condicionado
+    query_expansion: fluido refrigerante vazamento nao gela diagnostico tecnico
+    wrong_meanings:
+      - gas de cozinha
+      - combustivel
+    disambiguation_rule: Em manutenção HVAC, gás é fluido refrigerante; nunca prometer completar sem avaliar vazamento.
+
+  carga:
+    domain_meaning: carga de gas ou carga termica, depende do contexto
+    variants:
+      carga_de_gas:
+        signals:
+          - gás
+          - gas
+          - não gela
+          - nao gela
+          - completar
+          - vazamento
+        query_expansion: carga de fluido refrigerante vazamento nao gela diagnostico manutencao
+        service: manutencao
+      carga_termica:
+        signals:
+          - dimensionamento
+          - BTUs
+          - btu
+          - ambiente
+          - metragem
+          - projeto
+        query_expansion: carga termica dimensionamento BTUs metragem ambiente projeto climatizacao
+        service: consultoria
+    disambiguation_rule: Nunca assumir carga de gas quando o contexto for projeto, dimensionamento, metragem ou BTUs.
+
+  central:
+    domain_meaning: sistema central de climatizacao ou ar-condicionado central
+    query_expansion: sistema central climatizacao duto VRF VRV splitao projeto carga termica
+    wrong_meanings:
+      - central de atendimento
+      - central telefonica
+    disambiguation_rule: Se vier com duto, VRF, VRV, splitão, carga térmica ou obra, tratar como projeto central.
+
+  split:
+    domain_meaning: aparelho split de ar-condicionado
+    query_expansion: aparelho split evaporadora condensadora BTUs instalacao manutencao
+    wrong_meanings:
+      - dividir
+      - separacao
+      - split financeiro
+    disambiguation_rule: Em conversa HVAC, split é equipamento, salvo contexto contrário.
+
+  cassete:
+    aliases:
+      - cassete
+      - cassette
+    domain_meaning: evaporadora cassete de teto
+    query_expansion: evaporadora cassete teto forro drenagem bomba acesso manutencao
+    wrong_meanings:
+      - cassete de audio
+      - fita
+    disambiguation_rule: Em HVAC, cassete é aparelho de teto.
+
+  placa:
+    domain_meaning: placa eletronica do ar-condicionado
+    query_expansion: placa eletronica ar-condicionado defeito nao liga erro painel queda energia diagnostico tecnico
+    wrong_meanings:
+      - placa de carro
+      - placa de identificacao generica
+    disambiguation_rule: Se vier com erro, queimou, não liga ou queda de energia, tratar como componente eletrônico.
+
+  ponto:
+    domain_meaning: ponto eletrico, ponto de dreno ou ponto de instalacao
+    variants:
+      ponto_eletrico:
+        signals:
+          - elétrico
+          - eletrico
+          - disjuntor
+          - tomada
+          - 220
+        query_expansion: ponto eletrico exclusivo disjuntor circuito cabo instalacao
+        service: eletrica
+      ponto_instalacao:
+        signals:
+          - evaporadora
+          - condensadora
+          - parede
+          - local
+        query_expansion: ponto de instalacao evaporadora condensadora parede dreno distancia
+        service: instalacao
+    disambiguation_rule: Desambiguar por sinais de elétrica ou instalação física.
+
+  retorno:
+    domain_meaning: retorno de atendimento, retorno tecnico ou volta do problema
+    query_expansion: pos-venda retorno atendimento problema voltou acompanhamento tecnico
+    wrong_meanings:
+      - retorno financeiro
+      - return em programacao
+    disambiguation_rule: Se cliente fala "retorno", verificar se é pós-venda ou reclamação, não lead novo.
+
+  preventiva:
+    domain_meaning: manutencao preventiva
+    query_expansion: manutencao preventiva higienizacao PMOC contrato recorrencia aparelhos empresa
+    possible_services:
+      - higienizacao
+      - pmoc
+      - manutencao
+    disambiguation_rule: Se residencial e 1-2 splits, puxar higienização/preventiva simples. Se empresa, vários aparelhos, laudo ou contrato, puxar PMOC/contrato.

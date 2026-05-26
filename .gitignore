@@ -48,3 +48,6 @@ tts_travalinguAs_v2.wav
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Rascunhos locais
+rascunho-*.md

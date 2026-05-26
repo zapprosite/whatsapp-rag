@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://refrimix.local/schemas/rag_document.schema.json",
+  "title": "Documento RAG Refrimix",
+  "type": "object",
+  "required": ["doc_type", "service", "segment_market", "segment_tier", "stage", "goal", "priority", "source", "text"],
+  "additionalProperties": true,
+  "properties": {
+    "doc_type": {"type": "string"},
+    "service": {"type": ["string", "null"]},
+    "segment_market": {"enum": ["residential", "commercial", "mixed", "unknown"]},
+    "segment_tier": {"enum": ["common", "high_end", "high_value", "unknown"]},
+    "stage": {"type": "string"},
+    "goal": {"type": "string"},
+    "priority": {"type": "integer", "minimum": 1, "maximum": 100},
+    "source": {"type": "string"},
+    "text": {"type": "string", "minLength": 1}
+  }
+}

@@ -12,6 +12,44 @@ def _asks_more_than_two_questions(text: str) -> bool:
     return text.count("?") > 2
 
 
+def _contains_segment_leak(text: str) -> bool:
+    leaks = (
+        "segment_market",
+        "segment_tier",
+        "lead alto valor",
+        "lead de alto valor",
+        "commercial_high_value",
+        "residential_high_end",
+        "residential_common",
+        "commercial_common",
+        "segmento interno",
+        "perfil interno",
+    )
+    return any(term in text for term in leaks)
+
+
+def _contains_pushy_sales(text: str) -> bool:
+    pressure_terms = (
+        "últimas vagas",
+        "ultimas vagas",
+        "promoção imperdível",
+        "promocao imperdivel",
+        "só até agora",
+        "so ate agora",
+        "só hoje",
+        "so hoje",
+        "fechando agora",
+        "fechando hoje",
+        "vamos fechar",
+        "posso fechar",
+        "garanto sua vaga",
+        "garantir sua vaga",
+        "melhor preço",
+        "melhor preco",
+    )
+    return any(term in text for term in pressure_terms)
+
+
 def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple[bool, list[str]]:
     lead_state = state.get("lead_state") or {}
     customer_data = state.get("customer_data") or {}
@@ -62,10 +100,26 @@ def validate_response_before_send(response: str, state: dict[str, Any]) -> tuple
     )
     if any(term in text for term in forbidden):
         violations.append("forbidden_claim_or_secret")
+    if _contains_pushy_sales(text):
+        violations.append("pushy_sales_pressure")
+    if _contains_segment_leak(text):
+        violations.append("internal_segment_leak")
+    try:
+        from agent_graph.services.domain_disambiguation import find_forbidden_context_drift
+
+        drift_hits = find_forbidden_context_drift(response)
+        if drift_hits:
+            violations.extend(f"context_drift:{hit}" for hit in drift_hits)
+    except Exception:
+        pass
     if _asks_more_than_two_questions(response):
         violations.append("too_many_questions")
     if len(response) > 1500:
         violations.append("too_long")
+    if response.strip() and response.strip()[-1] not in ".?!":
+        violations.append("possible_truncated_response")
+    if in_progress and "?" not in response and state.get("conversation_objective") not in {"security_reject", "human_handoff"}:
+        violations.append("missing_next_step")
     if re.search(r"\bvos\b|\bteu aparelho avariado\b|\bpresupuesto\b|\bservicio\b", text):
         violations.append("non_ptbr")
     if "vou passar para um humano" in text and state.get("handoff_mode") in (None, "none"):

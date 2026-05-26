@@ -80,6 +80,16 @@ def test_pmoc_owner_alert(monkeypatch):
     assert result["handoff_reason"] == "high_value_pmoc"
 
 
+def test_restaurant_vrf_pmoc_prefers_project_over_installation(monkeypatch):
+    patch_classifier_llm(monkeypatch, "instalacao")
+
+    result = run(nodes.classify_service(base_state("Tenho um restaurante e preciso ver VRF com PMOC")))
+
+    assert result["service"] == "projeto-central"
+    assert result["handoff_mode"] == "soft_alert"
+    assert result["handoff_reason"] in {"high_value_vrf", "high_value_pmoc", "high_value_lead"}
+
+
 def test_regular_higienizacao_no_owner_high_value(monkeypatch):
     patch_classifier_llm(monkeypatch, "higienizacao")
 

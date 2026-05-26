@@ -18,7 +18,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from openai import OpenAI
 
-from agent_graph.utils.llm_output import parse_llm_json
+from agent_graph.utils.llm_output import parse_llm_json, parse_llm_json_value
 
 try:
     import httpx
@@ -127,6 +127,11 @@ def upsert_validated_reply_qdrant(lead_msg: str, servico: str, ideal: str) -> No
                     vector=vector.tolist(),
                     payload={
                         "service_name": normalize_service(servico),
+                        "service": normalize_service(servico) or "geral",
+                        "segment_market": "unknown",
+                        "segment_tier": "unknown",
+                        "stage": "qualification",
+                        "goal": "qualify_quote",
                         "outcome": "validated_reply",
                         "doc_type": "validated_reply",
                         "priority": 1,
@@ -154,6 +159,46 @@ class ScoreAvaliacao(BaseModel):
     resposta_natural_ptbr: float = Field(default=0.0, description="Nota 0-10 de naturalidade WhatsApp pt-BR Refrimix")
     proxima_pergunta_util: float = Field(default=0.0, description="Nota 0-10 se a pergunta final avança a venda")
 
+
+def _coerce_score_avaliacao(content: str) -> ScoreAvaliacao:
+    """Aceita JSON do juiz mesmo quando ele devolve rubrica detalhada."""
+    data = parse_llm_json_value(content)
+    if isinstance(data, list) and data:
+        data = data[0]
+    if not isinstance(data, dict):
+        return parse_llm_json(content, ScoreAvaliacao)
+
+    if {"score", "falhas", "ideal", "nivel", "regra"}.issubset(data):
+        return ScoreAvaliacao.model_validate(data)
+
+    score_parts = [
+        data.get("conversao"),
+        data.get("tom"),
+        data.get("qualificacao"),
+        data.get("preco"),
+        data.get("multimodal"),
+        data.get("concisa_audio"),
+        data.get("resposta_natural_ptbr"),
+        data.get("proxima_pergunta_util"),
+    ]
+    numeric_scores = [float(value) for value in score_parts if isinstance(value, (int, float))]
+    score = float(data.get("nota") or data.get("score_final") or (sum(numeric_scores) / len(numeric_scores) if numeric_scores else 0.0))
+    falhas = data.get("falhas") or data.get("problemas") or data.get("erros") or []
+    if isinstance(falhas, str):
+        falhas = [falhas]
+    ideal = data.get("ideal") or data.get("resposta_ideal") or data.get("resposta_correta") or ""
+    return ScoreAvaliacao(
+        score=max(0.0, min(10.0, score)),
+        falhas=[str(item) for item in falhas][:2],
+        ideal=str(ideal),
+        nivel=int(data.get("nivel") or 1),
+        regra=str(data.get("regra") or ""),
+        handoff_indevido=bool(data.get("handoff_indevido") or False),
+        resposta_natural_ptbr=float(data.get("resposta_natural_ptbr") or data.get("ptbr") or 0.0),
+        proxima_pergunta_util=float(data.get("proxima_pergunta_util") or 0.0),
+    )
+
+
 def call_judge(messages: list[dict[str, str]], system: str) -> ScoreAvaliacao:
     """Usa OpenAI com Structured Outputs para garantir o retorno via Groq ou Qwen Local."""
     payload_msgs = [{"role": "system", "content": system}] + messages
@@ -167,7 +212,7 @@ def call_judge(messages: list[dict[str, str]], system: str) -> ScoreAvaliacao:
             temperature=0.2,
         )
         content = response.choices[0].message.content or ""
-        return parse_llm_json(content, ScoreAvaliacao)
+        return _coerce_score_avaliacao(content)
 
     try:
         return _do_call(LOCAL_QWEN_BASE_URL, "sk-local", LOCAL_QWEN_MODEL)
@@ -251,6 +296,26 @@ class CenarioDeTeste(BaseModel):
 class ListaCenarios(BaseModel):
     cenarios: list[CenarioDeTeste]
 
+
+def _coerce_lista_cenarios(content: str) -> ListaCenarios:
+    data = parse_llm_json_value(content)
+    if isinstance(data, list):
+        normalized = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            normalized.append(
+                {
+                    "msg": item.get("msg") or item.get("lead") or item.get("mensagem") or item.get("message") or "",
+                    "servico": item.get("servico") or item.get("service") or item.get("intent") or "unknown",
+                }
+            )
+        return ListaCenarios.model_validate({"cenarios": normalized})
+    if isinstance(data, dict) and "cenarios" not in data:
+        data = {"cenarios": data.get("scenarios") or data.get("casos") or []}
+    return ListaCenarios.model_validate(data)
+
+
 def gerar_cenarios_com_llm(playbook: str, n: int = 10) -> list[tuple[str, str]]:
     """Gera cenários novos e difíceis usando o LLM juiz."""
     system = f"""Você é um gerador de cenários de teste para um bot de vendas HVAC.
@@ -276,7 +341,7 @@ Você deve responder com um JSON válido correspondente ao schema solicitado."""
             temperature=0.7,
         )
         content = response.choices[0].message.content or ""
-        data = parse_llm_json(content, ListaCenarios)
+        data = _coerce_lista_cenarios(content)
         return [(c.msg, normalize_service(c.servico) or "?") for c in data.cenarios]
 
     try:

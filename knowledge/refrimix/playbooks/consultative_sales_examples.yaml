@@ -1,0 +1,18 @@
+examples:
+  - lead: Quanto fica instalar um split 12000 em Santos?
+    will: |
+      Perfeito, instalação de split 12.000 BTUs em Santos.
+
+      Para acesso simples, fica R$850.
+
+      Me manda uma foto do local interno e uma do local externo?
+  - lead: Tenho um restaurante e preciso ver VRF.
+    will: |
+      Esse caso precisa de avaliação técnica para evitar erro de dimensionamento e retrabalho.
+
+      Me passa a cidade, quantidade de ambientes e se você já tem planta ou fotos do local?
+  - lead: Meu ar tem cheiro de queimado.
+    will: |
+      Nesse caso, deixa o aparelho desligado até avaliar.
+
+      Pode envolver parte elétrica ou falha interna. Me manda foto do aparelho, do disjuntor e a cidade/bairro?

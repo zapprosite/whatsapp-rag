@@ -464,6 +464,8 @@ def _normalize_text(text: str) -> str:
 def _normalize_service(service: str | None) -> str | None:
     if service == "hygienizacao":
         return "higienizacao"
+    if service == "conserto":
+        return "manutencao"
     return service
 
 
@@ -530,6 +532,16 @@ def _infer_lead_fields_from_text(lead_state: dict[str, Any], text: str, message_
         btu_match = re.search(r"\b(\d{1,2}\.?\d{3}|\d{4,5})\s*(?:btu|btus)\b", folded)
         if btu_match:
             updated["btus"] = btu_match.group(1).replace(".", "")
+        elif (
+            updated.get("tipo_servico") in {"instalacao", "manutencao", "higienizacao"}
+            or _contains_any(folded, ("split", "ar condicionado", "ar-condicionado", "instalar", "instalacao", "instalação"))
+        ):
+            common_btu_match = re.search(
+                r"\b(7000|7500|9000|12000|18000|22000|24000|30000|36000|48000|60000)\b",
+                folded,
+            )
+            if common_btu_match:
+                updated["btus"] = common_btu_match.group(1)
 
     if not updated.get("cidade_bairro"):
         city_terms = (
@@ -787,6 +799,8 @@ def _clean_whatsapp_markdown(text: str) -> str:
     if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ("'", '"'):
         cleaned = cleaned[1:-1].strip()
     cleaned = "\n".join(re.sub(r"[ \t]{2,}", " ", line).strip() for line in cleaned.splitlines())
+    cleaned = re.sub(r"([,;:])(?=\S)", r"\1 ", cleaned)
+    cleaned = re.sub(r"(?<!\d)([.!?])(?=[A-Za-zÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç])", r"\1 ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
@@ -904,7 +918,13 @@ def _truncate_whatsapp_blocks(text: str, outcome: str | None, max_chars: int) ->
         base = text[:limit].rsplit(" ", 1)[0].strip()
     if cta.rstrip("?")[:18].lower() not in base.lower() and "?" not in base:
         base = f"{base}{suffix}".strip()
-    return base[:max_chars].strip()
+    if len(base) <= max_chars:
+        return base.strip()
+    candidate = base[:max_chars].rstrip()
+    sentence_cut = max(candidate.rfind("."), candidate.rfind("?"), candidate.rfind("!"))
+    if sentence_cut >= max(40, int(max_chars * 0.35)):
+        return candidate[: sentence_cut + 1].strip()
+    return candidate.rsplit(" ", 1)[0].rstrip(" ,;:") + "."
 
 
 def _format_customer_whatsapp_response(text: str, outcome: str | None, max_chars: int = 850) -> str:
@@ -968,6 +988,38 @@ def _shape_whatsapp_response(text: str, outcome: str | None, max_chars: int = 85
     return formatted
 
 
+def _looks_like_incomplete_customer_response(text: str) -> bool:
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    last_line = next((line.strip() for line in reversed(stripped.splitlines()) if line.strip()), "")
+    if re.match(r"^\d+[\.)]\s+\S", last_line):
+        return False
+    return stripped[-1] not in ".?!"
+
+
+def _fallback_after_truncated_format(state: dict[str, Any]) -> str:
+    lead_state = state.get("lead_state") or {}
+    service = _normalize_service(lead_state.get("tipo_servico") or state.get("service"))
+    user_text = _fold_text(_latest_human_text(state.get("messages", [])))
+    if service == "manutencao":
+        if _contains_any(user_text, ("disjuntor cai", "ponto eletrico", "ponto elétrico", "fio esquenta", "cheiro de queimado")):
+            return (
+                "Isso é sério. Deixa o ar desligado por segurança.\n\n"
+                "Me manda uma foto do disjuntor e do aparelho?"
+            )
+        return (
+            "Entendi. Em manutenção, precisa testar antes de condenar peça.\n\n"
+            "Me manda uma foto do aparelho ou do painel de erro e me fala a cidade/bairro?"
+        )
+    if service == "instalacao":
+        return (
+            "Entendi. Pra eu avaliar a instalação sem te passar valor errado, preciso ver o local.\n\n"
+            "Me manda uma foto do local interno e uma do local externo?"
+        )
+    return "Entendi. Me passa o serviço, a cidade/bairro e uma foto do aparelho?"
+
+
 async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
     if os.getenv("PTBR_POLISH_ENABLED", "0") != "1":
         return response
@@ -984,6 +1036,8 @@ async def _polish_ptbr_if_enabled(response: str, user_text: str) -> str:
                     "Não use emoji. "
                     "Não use português europeu. "
                     "Não use espanhol. "
+                    "Não use termos fora do nicho de ar-condicionado, como cassete de áudio, split financeiro, carga de bateria, placa do veículo, framework ou cliente HTTP. "
+                    "Se houver palavra ambígua, preserve o sentido HVAC-R: ar é ar-condicionado, placa é placa eletrônica, cassete é evaporadora cassete, retorno é acompanhamento de atendimento. "
                     "Use quebras de linha naturais. "
                     "Se forem pedidos 2 ou mais dados, use lista numerada curta. "
                     "Evite texto tudo junto. "
@@ -1042,7 +1096,41 @@ async def redis_set(key: str, value: str, ex: int | None = None) -> None:
 
 _RAG_TIMEOUT_SECONDS = _env_float("RAG_TIMEOUT_SECONDS", 8.0)
 
-def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[dict[str, Any]]:
+
+def _qdrant_search_with_filters(
+    query: str,
+    service: str | None,
+    top_k: int,
+    *,
+    segment_market: str | None = None,
+    segment_tier: str | None = None,
+    goal: str | None = None,
+    stage: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        return qdrant_search(
+            query,
+            service,
+            top_k,
+            segment_market=segment_market,
+            segment_tier=segment_tier,
+            goal=goal,
+            stage=stage,
+        )
+    except TypeError:
+        # Mantém compatibilidade com testes e monkeypatches antigos de qdrant_search.
+        return qdrant_search(query, service, top_k)
+
+def qdrant_search(
+    query: str,
+    service_name: str | None,
+    top_k: int = 5,
+    *,
+    segment_market: str | None = None,
+    segment_tier: str | None = None,
+    goal: str | None = None,
+    stage: str | None = None,
+) -> list[dict[str, Any]]:
     from qdrant_client import QdrantClient
     from fastembed import TextEmbedding
 
@@ -1060,13 +1148,32 @@ def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[
     except Exception:
         return []
 
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import Filter, FieldCondition, MatchAny, MatchValue
 
     filter_conditions = None
+    must_conditions = []
+    should_conditions = []
     if service_name:
-        filter_conditions = Filter(
-            must=[FieldCondition(key="service_name", match=MatchValue(value=service_name))]
+        should_conditions.append(
+            FieldCondition(key="service", match=MatchAny(any=[service_name, "geral", "unknown"]))
         )
+        should_conditions.append(FieldCondition(key="service_name", match=MatchValue(value=service_name)))
+    if segment_market:
+        must_conditions.append(
+            FieldCondition(key="segment_market", match=MatchAny(any=[segment_market, "mixed", "unknown"]))
+        )
+    if segment_tier:
+        must_conditions.append(
+            FieldCondition(key="segment_tier", match=MatchAny(any=[segment_tier, "unknown"]))
+        )
+    if goal:
+        must_conditions.append(FieldCondition(key="goal", match=MatchAny(any=[goal, "geral"])))
+    if stage:
+        must_conditions.append(FieldCondition(key="stage", match=MatchAny(any=[stage, "geral"])))
+    if must_conditions:
+        filter_conditions = Filter(must=must_conditions, should=should_conditions or None)
+    elif should_conditions:
+        filter_conditions = Filter(should=should_conditions)
 
     results = client.query_points(
         collection_name=collection,
@@ -1085,7 +1192,83 @@ def qdrant_search(query: str, service_name: str | None, top_k: int = 5) -> list[
         priority = int(payload.get("priority", 50))
         ranked.append({"id": r.id, "score": r.score, "priority": priority, "payload": payload})
 
-    return sorted(ranked, key=lambda x: (x["priority"], -(x["score"] or 0)))[:top_k]
+    return sorted(ranked, key=lambda x: (-x["priority"], -(x["score"] or 0)))[:top_k]
+
+
+async def _search_rag_layers(
+    query: str,
+    user_text: str,
+    service: str | None,
+    *,
+    segment_market: str | None,
+    segment_tier: str | None,
+    goal: str | None,
+    stage: str | None,
+    top_k: int = 5,
+) -> list[dict[str, Any]]:
+    """Busca RAG em camadas: filtro forte primeiro, relaxamento controlado depois."""
+    attempts = [
+        {
+            "query": query,
+            "service": service,
+            "segment_market": segment_market,
+            "segment_tier": segment_tier,
+            "goal": goal,
+            "stage": stage,
+        },
+        {
+            "query": query,
+            "service": service,
+            "segment_market": None,
+            "segment_tier": None,
+            "goal": goal,
+            "stage": None,
+        },
+        {
+            "query": query,
+            "service": service,
+            "segment_market": None,
+            "segment_tier": None,
+            "goal": None,
+            "stage": None,
+        },
+        {
+            "query": user_text,
+            "service": None,
+            "segment_market": None,
+            "segment_tier": None,
+            "goal": None,
+            "stage": None,
+        },
+    ]
+
+    rag_context: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    for attempt in attempts:
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                _qdrant_search_with_filters,
+                attempt["query"],
+                attempt["service"],
+                top_k,
+                segment_market=attempt["segment_market"],
+                segment_tier=attempt["segment_tier"],
+                goal=attempt["goal"],
+                stage=attempt["stage"],
+            ),
+            timeout=_RAG_TIMEOUT_SECONDS,
+        )
+        for ctx in results:
+            ctx_id = ctx.get("id")
+            if ctx_id in seen:
+                continue
+            rag_context.append(ctx)
+            seen.add(ctx_id)
+            if len(rag_context) >= top_k:
+                return rag_context
+        if len(rag_context) >= 3:
+            break
+    return rag_context[:top_k]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1311,11 +1494,11 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
 
 
 def _fallback_service_for_high_value(text: str) -> str | None:
-    if any(term in text for term in ("pmoc", "laudo", "art", "preventiva")):
-        return "pmoc"
-    if any(term in text for term in ("vrf", "vrv", "duto", "dutado", "restaurante", "galpao", "sistema central", "multi split", "multisplit", "splitao", "splitão", "cassete", "piso teto", "piso-teto")):
+    if _contains_any(text, ("vrf", "vrv", "duto", "dutado", "restaurante", "galpao", "sistema central", "multi split", "multisplit", "splitao", "splitão", "cassete", "piso teto", "piso-teto")):
         return "projeto-central"
-    if any(term in text for term in ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
+    if _contains_any(text, ("pmoc", "laudo", "art", "preventiva")):
+        return "pmoc"
+    if _contains_any(text, ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
         return "consultoria"
     return None
 
@@ -1602,6 +1785,11 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("comecou a pingar", 6): "manutencao",
         ("pinga agua", 5): "manutencao",
         ("vazando agua", 5): "manutencao",
+        ("placa eletrônica", 6): "manutencao",
+        ("placa eletronica", 6): "manutencao",
+        ("problema na placa", 6): "manutencao",
+        ("placa queimou", 6): "manutencao",
+        ("queda de energia", 5): "manutencao",
         ("não liga", 4): "manutencao",
         ("queimou", 3): "manutencao",
         ("deu ruim no ar", 3): "manutencao",
@@ -1610,8 +1798,8 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("manutenção", 1): "manutencao",
         ("consertar", 1): "manutencao",
         ("defeito", 1): "manutencao",
-        ("pmoc", 5): "pmoc",
-        ("laudo pmoc", 5): "pmoc",
+        ("pmoc", 8): "pmoc",
+        ("laudo pmoc", 9): "pmoc",
         ("art", 5): "pmoc",
         ("certificado dos aparelhos", 5): "pmoc",
         ("certificado", 3): "pmoc",
@@ -1651,6 +1839,12 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("o que é melhor", 3): "consultoria",
         ("qual capacidade", 3): "consultoria",
         ("melhor para", 2): "consultoria",
+        ("vrf", 9): "projeto-central",
+        ("vrv", 9): "projeto-central",
+        ("duto", 7): "projeto-central",
+        ("dutado", 7): "projeto-central",
+        ("splitão", 7): "projeto-central",
+        ("splitao", 7): "projeto-central",
         ("projeto central", 5): "projeto-central",
         ("central de climatização", 6): "projeto-central",
         ("multi split", 4): "projeto-central",
@@ -1719,9 +1913,13 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     if _looks_like_pmoc_preventive_plan(semantic_text):
         intent = "pmoc"
 
+    high_value_service = _fallback_service_for_high_value(semantic_text)
+    if high_value_service and intent in {None, "unknown", "instalacao"}:
+        intent = high_value_service
+
     # Se intent ainda None (sem keywords e LLM falhou) → recuperação conversacional, não handoff.
     if intent is None:
-        intent = _fallback_service_for_high_value(semantic_text) or "unknown"
+        intent = high_value_service or "unknown"
 
     current_service = _normalize_service(lead_state.get("tipo_servico"))
     correction = detect_service_correction(user_text, current_service)
@@ -1730,7 +1928,9 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         lead_state["previous_tipo_servico"] = current_service
         lead_state["tipo_servico"] = correction
         intent = correction
-    elif current_service and intent in _SERVICE_INTENTS and intent != current_service:
+    elif current_service and intent in _SERVICE_INTENTS and intent != current_service and not (
+        current_service == "instalacao" and high_value_service in {"pmoc", "projeto-central", "consultoria"}
+    ):
         intent = current_service
     elif current_service and intent in {None, "unknown"}:
         intent = current_service
@@ -1818,6 +2018,11 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
     """Busca contexto técnico e comercial no Qdrant com FastEmbed."""
     messages = state.get("messages", [])
     service = _normalize_service(state.get("service"))
+    lead_state = state.get("lead_state") or {}
+    lead_mind = lead_state.get("lead_mind") if isinstance(lead_state, dict) else {}
+    segment = (lead_mind or {}).get("segment") or {}
+    conversation_goal = state.get("conversation_objective") or lead_state.get("conversation_goal")
+    stage = lead_state.get("pipeline_stage") or lead_state.get("relationship_type")
 
     if not messages:
         return {"rag_context": [], "messages": messages}
@@ -1828,26 +2033,28 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
         _message_text(m) for m in messages[-6:]
         if _is_human_message(m) and _message_text(m)
     ]
-    query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
+    try:
+        from agent_graph.services.domain_disambiguation import build_rag_query, select_response_template
+
+        query, domain_disambiguation = build_rag_query(user_text, lead_state, recent_human)
+        selected_template = select_response_template(state, user_text)
+    except Exception as e:
+        logger.warning("domain_disambiguation falhou; usando query simples: %s", e)
+        query = f"servico={service or 'geral'} lead={' | '.join(recent_human[-3:])}"
+        domain_disambiguation = {"original_query": user_text, "rewritten_query": query, "matched_terms": [], "applied_rules": []}
+        selected_template = None
 
     try:
-        rag_context = await asyncio.wait_for(
-            asyncio.to_thread(qdrant_search, query, service, 5),
-            timeout=_RAG_TIMEOUT_SECONDS,
+        rag_context = await _search_rag_layers(
+            query,
+            user_text,
+            service,
+            segment_market=segment.get("market"),
+            segment_tier=segment.get("tier"),
+            goal=conversation_goal,
+            stage=stage,
+            top_k=5,
         )
-        if len(rag_context) < 3:
-            # Complementa com conhecimento geral de vendas, preço e políticas.
-            seen = {ctx["id"] for ctx in rag_context}
-            general_context = await asyncio.wait_for(
-                asyncio.to_thread(qdrant_search, user_text, None, 5),
-                timeout=_RAG_TIMEOUT_SECONDS,
-            )
-            for ctx in general_context:
-                if ctx["id"] not in seen:
-                    rag_context.append(ctx)
-                    seen.add(ctx["id"])
-                if len(rag_context) >= 5:
-                    break
     except asyncio.TimeoutError:
         logger.warning("Qdrant search excedeu timeout de %.1fs", _RAG_TIMEOUT_SECONDS)
         rag_context = []
@@ -1855,7 +2062,13 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
         logger.warning(f"Qdrant search falhou: {e}")
         rag_context = []
 
-    return {"rag_context": rag_context, "service": service, "messages": messages}
+    return {
+        "rag_context": rag_context,
+        "service": service,
+        "messages": messages,
+        "domain_disambiguation": domain_disambiguation,
+        "selected_template": selected_template,
+    }
 
 
 async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
@@ -2052,6 +2265,14 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         title = payload.get("title", "contexto")
         context_parts.append(f"[{doc_type} | {title}]\n{text}")
     context_str = "\n---\n".join(context_parts) or ""
+    domain_disambiguation = state.get("domain_disambiguation") or {}
+    selected_template = state.get("selected_template")
+    try:
+        from agent_graph.services.domain_disambiguation import template_context_for_prompt
+
+        template_context = template_context_for_prompt(selected_template if isinstance(selected_template, dict) else None)
+    except Exception:
+        template_context = "Nenhum template específico. Use as regras de estado e o contexto recuperado."
     if _contains_any(_normalize_text(user_text), _SCHEDULING_TERMS):
         try:
             from agent_graph.services.calendar import get_availability_summary
@@ -2106,6 +2327,13 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"- Estado estruturado atual: {json.dumps(lead_state, ensure_ascii=False)}\n"
         f"- Informações já fornecidas (PROIBIDO PERGUNTAR): {do_not_ask}\n"
         f"- Próximas informações em falta que você deve obter: {missing_fields}\n\n"
+        f"DESAMBIGUAÇÃO DE DOMÍNIO HVAC-R:\n"
+        f"- Query original: {domain_disambiguation.get('original_query') or user_text}\n"
+        f"- Query desambiguada para RAG: {domain_disambiguation.get('rewritten_query') or user_text}\n"
+        f"- Termos ambíguos detectados: {domain_disambiguation.get('matched_terms') or []}\n"
+        f"- Regras aplicadas: {domain_disambiguation.get('applied_rules') or []}\n\n"
+        f"TEMPLATE FLEXÍVEL RECOMENDADO:\n"
+        f"{template_context}\n\n"
         f"Objetivo único desta resposta: {conversation_objective}.\n"
         f"Não tente cumprir outro objetivo.\n"
         f"Política comercial: venda consultiva, sem pressão, sem promoção agressiva, sem 'últimas vagas', sem 'vamos fechar?' cedo demais. Explique o risco de passar valor errado, peça o dado mínimo e mostre o próximo passo.\n"
@@ -2123,7 +2351,8 @@ async def generate_response(state: dict[str, Any]) -> dict[str, Any]:
         f"6. Nunca diga visita gratuita. Fora os dois preços fixos, conduza para análise técnica de R$50 abatível no orçamento aprovado.\n"
         f"7. Formate como WhatsApp humano: sem emoji; com parágrafos curtos; com linha em branco entre blocos; se pedir 2 ou mais dados, use lista numerada; não entregue texto tudo junto; não use cabeçalhos markdown; não use bullets decorativos; não use 'Prezado cliente'; não use português europeu; não use espanhol.\n"
         f"8. Estrutura ideal: primeiro bloco confirma o que entendeu; segundo bloco explica o necessário em 1 ou 2 frases; terceiro bloco pede o próximo dado ou lista os dados necessários; última linha conduz para orçamento/agendamento.\n"
-        f"9. Não use emoji em mensagens para cliente final."
+        f"9. Não use emoji em mensagens para cliente final.\n"
+        f"10. Não use termos fora do nicho de ar-condicionado. Exemplos proibidos: cassete de áudio, split financeiro, carga de bateria, placa do veículo, framework, cliente HTTP, como modelo de linguagem."
     )
     llm_messages.append({"role": "user", "content": user_prompt})
 
@@ -2316,6 +2545,19 @@ async def response_guard_check(state: dict[str, Any]) -> dict[str, Any]:
             fixed = "Vi aqui que você já tem atendimento em andamento com a Refrimix.\n\nMe fala o que precisa atualizar nesse serviço?"
         elif lead_state.get("appointment_ready") or relationship == "ready_to_schedule":
             fixed = "Perfeito, já tenho o principal para seguir com o atendimento.\n\nMe confirma o melhor período: manhã ou tarde?"
+        elif service == "manutencao":
+            user_text = _fold_text(_latest_human_text(state.get("messages", [])))
+            if _contains_any(user_text, ("disjuntor cai", "ponto eletrico", "ponto elétrico", "fio esquenta", "cheiro de queimado")):
+                fixed = (
+                    "Isso é sério. O ideal é deixar o ar desligado agora por segurança.\n\n"
+                    "Pode envolver sobrecarga, cabo inadequado, disjuntor fora do padrão ou falha no equipamento.\n\n"
+                    "Me manda uma foto do disjuntor e do aparelho?"
+                )
+            else:
+                fixed = (
+                    "Entendi. Em manutenção, precisa testar antes de condenar peça ou passar valor fechado.\n\n"
+                    "Me manda uma foto do aparelho ou do painel de erro e me fala a cidade/bairro?"
+                )
         elif service == "instalacao":
             next_field = _important_missing_field(missing_fields, do_not_ask, lead_state)
             next_question = _repeated_field_strategy(next_field, lead_state) or _question_for_field(next_field)
@@ -2354,6 +2596,9 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
     formatted = _strip_customer_emojis(formatted)
     formatted = re.sub(r"\n{3,}", "\n\n", formatted).strip()
     formatted = formatted.strip()
+    if _looks_like_incomplete_customer_response(formatted):
+        logger.warning("format_whatsapp detectou resposta possivelmente truncada; aplicando fallback")
+        formatted = _fallback_after_truncated_format(state)
 
     if len(formatted) > 1500:
         formatted = _truncate_whatsapp_blocks(
@@ -2363,7 +2608,18 @@ async def format_whatsapp(state: dict[str, Any]) -> dict[str, Any]:
         )
         formatted = f"{formatted}\n\nQual a sua dúvida principal?".strip()
 
-    return {"messages": messages[:-1] + [AIMessage(content=formatted)]}
+    tts_text = None
+    try:
+        from agent_graph.services.speech_adapter import build_tts_text
+
+        lead_state = state.get("lead_state") or {}
+        lead_mind = lead_state.get("lead_mind") if isinstance(lead_state, dict) else None
+        goal = state.get("conversation_objective") or lead_state.get("conversation_goal")
+        tts_text = build_tts_text(formatted, lead_mind if isinstance(lead_mind, dict) else None, goal)
+    except Exception as e:
+        logger.warning("speech_adapter falhou: %s", e)
+
+    return {"messages": messages[:-1] + [AIMessage(content=formatted)], "tts_text": tts_text}
 
 
 async def save_interaction(state: dict[str, Any]) -> dict[str, Any]:
@@ -3038,6 +3294,8 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     if state_patch:
         for k, v in state_patch.items():
             if v is not None:
+                if k == "tipo_servico" and isinstance(v, str):
+                    v = _normalize_service(v) or v
                 if k in lead_state and isinstance(lead_state[k], dict) and isinstance(v, dict):
                     lead_state[k].update(v)
                 else:
@@ -3055,6 +3313,29 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
     do_not_ask, already_asked_fields, missing_fields = compute_fields_status(lead_state)
     lead_state, relationship_type = _apply_relationship_and_appointment(state, lead_state)
     pipeline_stage = "ready_to_schedule" if lead_state.get("appointment_ready") else relationship_type
+    lead_state["pipeline_stage"] = pipeline_stage
+    conversation_goal = compute_conversation_objective(
+        {**state, "service": lead_state.get("tipo_servico") or state.get("service"), "lead_state": lead_state},
+        lead_state,
+    )
+    lead_state["conversation_goal"] = conversation_goal
+
+    try:
+        from agent_graph.domain.lead_mind import compact_lead_mind_if_needed, update_from_lead_state
+
+        lead_mind = update_from_lead_state(
+            lead_state.get("lead_mind") if isinstance(lead_state.get("lead_mind"), dict) else None,
+            lead_state,
+            user_text,
+            phone=phone if phone != "unknown" else None,
+            conversation_goal=conversation_goal,
+            conversation_summary=conversation_summary,
+            do_not_ask=do_not_ask,
+            missing_fields=missing_fields,
+        )
+        lead_state["lead_mind"] = compact_lead_mind_if_needed(lead_mind)
+    except Exception as e:
+        logger.warning("Falha ao atualizar lead_mind: %s", e)
     
     if phone and phone != "unknown" and not diagnostic_no_send:
         from prisma import Prisma
@@ -3096,6 +3377,7 @@ async def extract_lead_data(state: dict[str, Any]) -> dict[str, Any]:
         "missing_fields": missing_fields,
         "do_not_ask": do_not_ask,
         "service": lead_state.get("tipo_servico") or state.get("service"),
+        "conversation_objective": conversation_goal,
         "handoff_mode": "soft_alert" if lead_state.get("appointment_ready") else state.get("handoff_mode"),
         "handoff_reason": "appointment_ready" if lead_state.get("appointment_ready") else state.get("handoff_reason"),
     }
@@ -3144,8 +3426,9 @@ async def tts_voice_clone(state: dict[str, Any]) -> dict[str, Any]:
     messages = state.get("messages", [])
     intent = state.get("intent")
     outcome = state.get("outcome")
+    goal = state.get("conversation_objective") or (state.get("lead_state") or {}).get("conversation_goal")
 
-    ai_text = next(
+    ai_text = state.get("tts_text") or next(
         (_message_text(m) for m in reversed(messages) if _is_ai_message(m)),
         "",
     )
@@ -3153,7 +3436,7 @@ async def tts_voice_clone(state: dict[str, Any]) -> dict[str, Any]:
     if not ai_text:
         return {"response_modality": "text"}
 
-    voice_style = choose_voice_style(intent, outcome)
+    voice_style = choose_voice_style(goal or intent, outcome)
     try:
         audio_bytes = await synthesize(ai_text, voice_style)
         if audio_bytes:

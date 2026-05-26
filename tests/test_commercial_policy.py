@@ -60,6 +60,14 @@ def test_installation_price_does_not_ask_btu_again():
     assert "btu" not in response.lower().rstrip("?")
 
 
+def test_fallback_extractor_reads_common_unitless_btu_for_split():
+    lead_state = nodes._infer_lead_fields_from_text({}, "Quanto fica instalar um split 12000 em Santos?")
+
+    assert lead_state["tipo_servico"] == "instalacao"
+    assert lead_state["btus"] == "12000"
+    assert lead_state["cidade_bairro"] == "santos"
+
+
 def test_santos_installation_price_uses_850_for_simple_access():
     lead_state = {"tipo_servico": "instalacao", "cidade_bairro": "Santos"}
     response = nodes._direct_price_response(

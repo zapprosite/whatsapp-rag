@@ -1,0 +1,52 @@
+forbidden_or_suspicious_terms:
+  generic_ai_phrases:
+    - como modelo de linguagem
+    - não tenho acesso
+    - nao tenho acesso
+    - não posso navegar
+    - nao posso navegar
+    - consulte um profissional
+    - de acordo com a internet
+  wrong_domain_words:
+    - cassete de áudio
+    - cassete de audio
+    - split financeiro
+    - carga de bateria
+    - placa do veículo
+    - placa do veiculo
+    - servidor de aplicação
+    - servidor de aplicacao
+    - framework
+    - cliente HTTP
+  portugal_terms:
+    - telemóvel
+    - telemovel
+    - contactar
+    - morada
+    - marcação
+    - marcacao
+    - ficheiro
+    - factura
+  spanish_terms:
+    - presupuesto
+    - mantenimiento
+    - instalación
+    - aire acondicionado
+repair_guidance:
+  placa:
+    bad_response_contains:
+      - placa do veículo
+      - placa do veiculo
+      - placa de identificação
+    correct_rewrite: |
+      Pode ser algo na placa eletrônica, mas precisa testar antes de condenar peça.
+
+      Me manda uma foto do painel ou do código de erro, se aparecer?
+  retorno:
+    bad_response_contains:
+      - retorno financeiro
+      - ROI
+    correct_rewrite: |
+      Entendi. Vou tratar isso como retorno de atendimento.
+
+      Me fala o que voltou a acontecer no aparelho?

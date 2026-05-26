@@ -34,3 +34,33 @@ def test_infers_asked_field_from_response():
 
     assert field == "btus"
     assert should_avoid_reasking("cidade_bairro", {"ask_count_by_field": {"cidade_bairro": 2}}) is True
+
+
+def test_detects_possible_truncated_response():
+    ok, violations = validate_response_before_send(
+        "Entendi. Pode ser placa eletrônica, mas antes preciso",
+        {"lead_state": {"tipo_servico": "manutencao"}},
+    )
+
+    assert ok is False
+    assert "possible_truncated_response" in violations
+
+
+def test_blocks_pushy_sales_pressure():
+    ok, violations = validate_response_before_send(
+        "Tenho últimas vagas hoje, vamos fechar agora?",
+        {"lead_state": {"tipo_servico": "instalacao"}},
+    )
+
+    assert ok is False
+    assert "pushy_sales_pressure" in violations
+
+
+def test_blocks_internal_segment_leak():
+    ok, violations = validate_response_before_send(
+        "Esse é um lead alto valor do segmento commercial_high_value.",
+        {"lead_state": {"tipo_servico": "pmoc"}},
+    )
+
+    assert ok is False
+    assert "internal_segment_leak" in violations

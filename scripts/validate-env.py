@@ -45,6 +45,12 @@ def is_present(value: str | None) -> bool:
     return bool(value and value.strip() and value.strip() != "{SECRET}")
 
 
+def same_secret_value(left: str | None, right: str | None) -> bool:
+    if not is_present(left) or not is_present(right):
+        return False
+    return left.strip() == right.strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Valida .env sem revelar valores.")
     parser.add_argument("--env-file", default=".env", help="Arquivo local ignorado pelo git.")
@@ -64,6 +70,16 @@ def main() -> int:
     if missing:
         print("Ambiente incompleto. Variaveis ausentes ou mascaradas:")
         for name in missing:
+            print(f"- {name}")
+        return 1
+
+    invalid: list[str] = []
+    if same_secret_value(merged.get("EVOLUTION_DATABASE_URL"), merged.get("DATABASE_URL")):
+        invalid.append("EVOLUTION_DATABASE_URL_nao_pode_reusar_DATABASE_URL")
+
+    if invalid:
+        print("Ambiente invalido. Corrija os contratos abaixo sem expor valores:")
+        for name in invalid:
             print(f"- {name}")
         return 1
 

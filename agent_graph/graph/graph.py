@@ -57,6 +57,7 @@ class AgentState(TypedDict):
     # Resposta
     response_modality: Literal["text", "audio"] | None
     audio_bytes: bytes | None      # bytes WAV do TTS (não serializado no Redis)
+    tts_text: str | None
     # Memória operacional Postgres 17
     lead_state: dict[str, Any] | None
     already_asked_fields: list[str] | None
@@ -68,6 +69,8 @@ class AgentState(TypedDict):
     safe_response: str | None
     continuation_response: str | None
     response_guard_violations: list[str] | None
+    domain_disambiguation: dict[str, Any] | None
+    selected_template: dict[str, Any] | None
 
 
 def route_after_classify(state: AgentState) -> str:

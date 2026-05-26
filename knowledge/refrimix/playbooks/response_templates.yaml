@@ -1,0 +1,49 @@
+templates:
+  instalacao_preco_simples:
+    when:
+      service: instalacao
+      user_intent: price_question
+      segment: residential_common
+    required_context:
+      - cidade_bairro
+    template: |
+      Perfeito, instalação de split em {cidade_bairro}.
+
+      Para acesso simples, fica {preco}.
+
+      Se tiver telhado, altura, distância grande ou ponto elétrico fora do padrão, precisa avaliar antes para não passar valor errado.
+
+      Me manda uma foto do local interno e uma do local externo?
+
+  duvida_tecnica_curta:
+    when:
+      goal: answer_question
+    template: |
+      Entendi.
+
+      {resposta_tecnica_curta}
+
+      Se quiser seguir com atendimento, me manda {proximo_dado}.
+
+  alto_valor_projeto:
+    when:
+      segment: commercial_high_value
+    template: |
+      Esse caso é mais técnico e vale avaliar com cuidado para evitar erro de dimensionamento e retrabalho.
+
+      Me passa, por favor:
+
+      1. Cidade/bairro
+      2. Tipo de ambiente
+      3. Quantidade de ambientes ou aparelhos
+      4. Se já tem planta ou fotos do local
+
+      Com isso eu direciono o atendimento certo.
+
+  retorno_pos_venda:
+    when:
+      relationship_type: active_customer
+    template: |
+      Entendi. Vou tratar isso como acompanhamento do atendimento, não como orçamento novo.
+
+      Me fala o que voltou a acontecer no aparelho?
