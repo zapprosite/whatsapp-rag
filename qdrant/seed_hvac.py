@@ -14,15 +14,16 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 try:
     from qdrant.hvac_top100 import TOP100_FAQ
+    from qdrant.rag_documents import load_refrimix_documents
 except ModuleNotFoundError:
     from hvac_top100 import TOP100_FAQ
+    from rag_documents import load_refrimix_documents
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
@@ -34,7 +35,19 @@ EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 VECTOR_DIM = 384
 LEGACY_COLLECTIONS = ("whatsapp_rag", "hvac_r_sandbox_smoke")
 ROOT_DIR = Path(__file__).resolve().parents[1]
-REFRIMIX_KNOWLEDGE_DIR = ROOT_DIR / "knowledge" / "refrimix"
+PAYLOAD_INDEX_FIELDS = {
+    "doc_type": models.PayloadSchemaType.KEYWORD,
+    "service": models.PayloadSchemaType.KEYWORD,
+    "stage": models.PayloadSchemaType.KEYWORD,
+    "goal": models.PayloadSchemaType.KEYWORD,
+    "segment_market": models.PayloadSchemaType.KEYWORD,
+    "segment_tier": models.PayloadSchemaType.KEYWORD,
+    "intent": models.PayloadSchemaType.KEYWORD,
+    "cta_type": models.PayloadSchemaType.KEYWORD,
+    "priority": models.PayloadSchemaType.INTEGER,
+    "tags": models.PayloadSchemaType.KEYWORD,
+    "source": models.PayloadSchemaType.KEYWORD,
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,90 +96,9 @@ def _infer_goal(outcome: str | None) -> str:
     }.get(outcome or "", "qualify_quote")
 
 
-def _doc_segment_from_name(name: str) -> tuple[str, str]:
-    if "residential_high_end" in name:
-        return "residential", "high_end"
-    if "residential_common" in name:
-        return "residential", "common"
-    if "commercial_high" in name:
-        return "commercial", "high_value"
-    if "commercial_common" in name:
-        return "commercial", "common"
-    return "unknown", "unknown"
-
-
 def build_refrimix_documents() -> list[dict[str, Any]]:
-    """Transforma playbooks/docs versionados em documentos semânticos para Qdrant."""
-    docs: list[dict[str, Any]] = []
-    playbook_dir = REFRIMIX_KNOWLEDGE_DIR / "playbooks"
-    docs_dir = REFRIMIX_KNOWLEDGE_DIR / "docs"
-
-    for path in sorted(playbook_dir.glob("*.yaml")):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
-        doc_type_by_name = {
-            "tts_speech_policy": "tts_style",
-            "ambiguity_lexicon": "ambiguity_lexicon",
-            "forbidden_context_drift": "guardrail",
-            "response_templates": "response_template",
-        }
-        doc_type = doc_type_by_name.get(path.stem, "playbook")
-        goal = "high_value_project" if path.stem == "high_value_signals" else "qualify_quote"
-        docs.append(
-            {
-                "doc_type": doc_type,
-                "service": "geral",
-                "segment_market": "unknown",
-                "segment_tier": "unknown",
-                "stage": "geral",
-                "goal": goal,
-                "priority": 20,
-                "source": str(path.relative_to(ROOT_DIR)),
-                "title": path.stem,
-                "text": f"Playbook Refrimix {path.stem}:\n{text}",
-            }
-        )
-
-    ambiguity_cases = ROOT_DIR / "qdrant" / "refrimix_ambiguity_cases.jsonl"
-    if ambiguity_cases.exists():
-        for idx, line in enumerate(ambiguity_cases.read_text(encoding="utf-8").splitlines(), start=1):
-            line = line.strip()
-            if not line:
-                continue
-            docs.append(
-                {
-                    "doc_type": "ambiguity_case",
-                    "service": "geral",
-                    "segment_market": "unknown",
-                    "segment_tier": "unknown",
-                    "stage": "qualification",
-                    "goal": "qualify_quote",
-                    "priority": 8,
-                    "source": f"qdrant/refrimix_ambiguity_cases.jsonl#{idx}",
-                    "title": f"ambiguity_case_{idx}",
-                    "text": line,
-                }
-            )
-
-    for path in sorted(docs_dir.glob("*.md")):
-        segment_market, segment_tier = _doc_segment_from_name(path.stem)
-        service = "eletrica" if "electrical" in path.stem else "instalacao" if "installation" in path.stem else "geral"
-        goal = "safety_warning" if "electrical" in path.stem else "qualify_quote"
-        docs.append(
-            {
-                "doc_type": "technical_rule" if service != "geral" else "playbook",
-                "service": service,
-                "segment_market": segment_market,
-                "segment_tier": segment_tier,
-                "stage": "qualification",
-                "goal": goal,
-                "priority": 15,
-                "source": str(path.relative_to(ROOT_DIR)),
-                "title": path.stem,
-                "text": path.read_text(encoding="utf-8").strip(),
-            }
-        )
-    return docs
+    """Carrega JSONL versionado quando existir; senão monta direto dos fontes."""
+    return load_refrimix_documents()
 
 
 def recreate_collection(client: QdrantClient, collection: str) -> None:
@@ -182,6 +114,18 @@ def recreate_collection(client: QdrantClient, collection: str) -> None:
             distance=models.Distance.COSINE,
         ),
     )
+
+
+def create_payload_indexes(client: QdrantClient, collection: str) -> None:
+    for field_name, field_schema in PAYLOAD_INDEX_FIELDS.items():
+        try:
+            client.create_payload_index(
+                collection_name=collection,
+                field_name=field_name,
+                field_schema=field_schema,
+            )
+        except Exception as exc:
+            logger.warning("Não foi possível criar índice de payload '%s': %s", field_name, exc)
 
 
 def build_points(model: TextEmbedding) -> list[models.PointStruct]:
@@ -251,9 +195,10 @@ def main() -> None:
     recreate_collection(client, collection)
     points = build_points(model)
 
-    logger.info("Inserindo %s pontos top100", len(points))
+    logger.info("Inserindo %s pontos no RAG", len(points))
     operation_info = client.upsert(collection_name=collection, points=points)
     logger.info("Upsert completo: %s", operation_info)
+    create_payload_indexes(client, collection)
 
     if args.prune_legacy:
         prune_legacy_collections(client, collection)

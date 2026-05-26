@@ -11,9 +11,14 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / ".env")
 
 DEFAULT_WEBHOOK_URL = os.getenv("SRE_WEBHOOK_URL", "http://localhost:8000/webhook/evolution")
 DEFAULT_EVOLUTION_URL = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")

@@ -44,3 +44,23 @@ def test_detects_possible_truncated_response():
 
     assert ok is False
     assert "possible_truncated_response" in violations
+
+
+def test_blocks_pushy_sales_pressure():
+    ok, violations = validate_response_before_send(
+        "Tenho últimas vagas hoje, vamos fechar agora?",
+        {"lead_state": {"tipo_servico": "instalacao"}},
+    )
+
+    assert ok is False
+    assert "pushy_sales_pressure" in violations
+
+
+def test_blocks_internal_segment_leak():
+    ok, violations = validate_response_before_send(
+        "Esse é um lead alto valor do segmento commercial_high_value.",
+        {"lead_state": {"tipo_servico": "pmoc"}},
+    )
+
+    assert ok is False
+    assert "internal_segment_leak" in violations

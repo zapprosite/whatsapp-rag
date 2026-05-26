@@ -532,6 +532,16 @@ def _infer_lead_fields_from_text(lead_state: dict[str, Any], text: str, message_
         btu_match = re.search(r"\b(\d{1,2}\.?\d{3}|\d{4,5})\s*(?:btu|btus)\b", folded)
         if btu_match:
             updated["btus"] = btu_match.group(1).replace(".", "")
+        elif (
+            updated.get("tipo_servico") in {"instalacao", "manutencao", "higienizacao"}
+            or _contains_any(folded, ("split", "ar condicionado", "ar-condicionado", "instalar", "instalacao", "instalação"))
+        ):
+            common_btu_match = re.search(
+                r"\b(7000|7500|9000|12000|18000|22000|24000|30000|36000|48000|60000)\b",
+                folded,
+            )
+            if common_btu_match:
+                updated["btus"] = common_btu_match.group(1)
 
     if not updated.get("cidade_bairro"):
         city_terms = (
@@ -1182,7 +1192,83 @@ def qdrant_search(
         priority = int(payload.get("priority", 50))
         ranked.append({"id": r.id, "score": r.score, "priority": priority, "payload": payload})
 
-    return sorted(ranked, key=lambda x: (x["priority"], -(x["score"] or 0)))[:top_k]
+    return sorted(ranked, key=lambda x: (-x["priority"], -(x["score"] or 0)))[:top_k]
+
+
+async def _search_rag_layers(
+    query: str,
+    user_text: str,
+    service: str | None,
+    *,
+    segment_market: str | None,
+    segment_tier: str | None,
+    goal: str | None,
+    stage: str | None,
+    top_k: int = 5,
+) -> list[dict[str, Any]]:
+    """Busca RAG em camadas: filtro forte primeiro, relaxamento controlado depois."""
+    attempts = [
+        {
+            "query": query,
+            "service": service,
+            "segment_market": segment_market,
+            "segment_tier": segment_tier,
+            "goal": goal,
+            "stage": stage,
+        },
+        {
+            "query": query,
+            "service": service,
+            "segment_market": None,
+            "segment_tier": None,
+            "goal": goal,
+            "stage": None,
+        },
+        {
+            "query": query,
+            "service": service,
+            "segment_market": None,
+            "segment_tier": None,
+            "goal": None,
+            "stage": None,
+        },
+        {
+            "query": user_text,
+            "service": None,
+            "segment_market": None,
+            "segment_tier": None,
+            "goal": None,
+            "stage": None,
+        },
+    ]
+
+    rag_context: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    for attempt in attempts:
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                _qdrant_search_with_filters,
+                attempt["query"],
+                attempt["service"],
+                top_k,
+                segment_market=attempt["segment_market"],
+                segment_tier=attempt["segment_tier"],
+                goal=attempt["goal"],
+                stage=attempt["stage"],
+            ),
+            timeout=_RAG_TIMEOUT_SECONDS,
+        )
+        for ctx in results:
+            ctx_id = ctx.get("id")
+            if ctx_id in seen:
+                continue
+            rag_context.append(ctx)
+            seen.add(ctx_id)
+            if len(rag_context) >= top_k:
+                return rag_context
+        if len(rag_context) >= 3:
+            break
+    return rag_context[:top_k]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1408,11 +1494,11 @@ def _detect_high_value_reason(text: str, intent: str | None) -> str | None:
 
 
 def _fallback_service_for_high_value(text: str) -> str | None:
-    if any(term in text for term in ("pmoc", "laudo", "art", "preventiva")):
-        return "pmoc"
-    if any(term in text for term in ("vrf", "vrv", "duto", "dutado", "restaurante", "galpao", "sistema central", "multi split", "multisplit", "splitao", "splitão", "cassete", "piso teto", "piso-teto")):
+    if _contains_any(text, ("vrf", "vrv", "duto", "dutado", "restaurante", "galpao", "sistema central", "multi split", "multisplit", "splitao", "splitão", "cassete", "piso teto", "piso-teto")):
         return "projeto-central"
-    if any(term in text for term in ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
+    if _contains_any(text, ("pmoc", "laudo", "art", "preventiva")):
+        return "pmoc"
+    if _contains_any(text, ("consultoria", "projeto", "dimensionamento", "empresa", "condominio")):
         return "consultoria"
     return None
 
@@ -1712,8 +1798,8 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("manutenção", 1): "manutencao",
         ("consertar", 1): "manutencao",
         ("defeito", 1): "manutencao",
-        ("pmoc", 5): "pmoc",
-        ("laudo pmoc", 5): "pmoc",
+        ("pmoc", 8): "pmoc",
+        ("laudo pmoc", 9): "pmoc",
         ("art", 5): "pmoc",
         ("certificado dos aparelhos", 5): "pmoc",
         ("certificado", 3): "pmoc",
@@ -1753,6 +1839,12 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         ("o que é melhor", 3): "consultoria",
         ("qual capacidade", 3): "consultoria",
         ("melhor para", 2): "consultoria",
+        ("vrf", 9): "projeto-central",
+        ("vrv", 9): "projeto-central",
+        ("duto", 7): "projeto-central",
+        ("dutado", 7): "projeto-central",
+        ("splitão", 7): "projeto-central",
+        ("splitao", 7): "projeto-central",
         ("projeto central", 5): "projeto-central",
         ("central de climatização", 6): "projeto-central",
         ("multi split", 4): "projeto-central",
@@ -1821,9 +1913,13 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
     if _looks_like_pmoc_preventive_plan(semantic_text):
         intent = "pmoc"
 
+    high_value_service = _fallback_service_for_high_value(semantic_text)
+    if high_value_service and intent in {None, "unknown", "instalacao"}:
+        intent = high_value_service
+
     # Se intent ainda None (sem keywords e LLM falhou) → recuperação conversacional, não handoff.
     if intent is None:
-        intent = _fallback_service_for_high_value(semantic_text) or "unknown"
+        intent = high_value_service or "unknown"
 
     current_service = _normalize_service(lead_state.get("tipo_servico"))
     correction = detect_service_correction(user_text, current_service)
@@ -1832,7 +1928,9 @@ async def classify_service(state: dict[str, Any]) -> dict[str, Any]:
         lead_state["previous_tipo_servico"] = current_service
         lead_state["tipo_servico"] = correction
         intent = correction
-    elif current_service and intent in _SERVICE_INTENTS and intent != current_service:
+    elif current_service and intent in _SERVICE_INTENTS and intent != current_service and not (
+        current_service == "instalacao" and high_value_service in {"pmoc", "projeto-central", "consultoria"}
+    ):
         intent = current_service
     elif current_service and intent in {None, "unknown"}:
         intent = current_service
@@ -1947,32 +2045,16 @@ async def retrieve_knowledge(state: dict[str, Any]) -> dict[str, Any]:
         selected_template = None
 
     try:
-        rag_context = await asyncio.wait_for(
-            asyncio.to_thread(
-                _qdrant_search_with_filters,
-                query,
-                service,
-                5,
-                segment_market=segment.get("market"),
-                segment_tier=segment.get("tier"),
-                goal=conversation_goal,
-                stage=stage,
-            ),
-            timeout=_RAG_TIMEOUT_SECONDS,
+        rag_context = await _search_rag_layers(
+            query,
+            user_text,
+            service,
+            segment_market=segment.get("market"),
+            segment_tier=segment.get("tier"),
+            goal=conversation_goal,
+            stage=stage,
+            top_k=5,
         )
-        if len(rag_context) < 3:
-            # Complementa com conhecimento geral de vendas, preço e políticas.
-            seen = {ctx["id"] for ctx in rag_context}
-            general_context = await asyncio.wait_for(
-                asyncio.to_thread(qdrant_search, user_text, None, 5),
-                timeout=_RAG_TIMEOUT_SECONDS,
-            )
-            for ctx in general_context:
-                if ctx["id"] not in seen:
-                    rag_context.append(ctx)
-                    seen.add(ctx["id"])
-                if len(rag_context) >= 5:
-                    break
     except asyncio.TimeoutError:
         logger.warning("Qdrant search excedeu timeout de %.1fs", _RAG_TIMEOUT_SECONDS)
         rag_context = []
