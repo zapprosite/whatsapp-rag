@@ -124,7 +124,7 @@ def decide_commercial_path(
     """
     Autoridade final para path comercial.
     Chamado pelo pipeline antes de plan_next_action.
-    O LLM nunca decide o preço — commercial_router说了算。
+    O LLM nunca decide o preço — commercial_router é a autoridade final.
     """
     service = _normalize_service(lead_state.get("service", {}).get("type"))
     text = _fold(user_text)
