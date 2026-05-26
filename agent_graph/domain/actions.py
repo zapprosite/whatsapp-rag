@@ -22,6 +22,7 @@ NextActionType = Literal[
     "reject_security",
     "active_service_followup",
     "fallback_recover_context",
+    "explain_last_offer",
 ]
 
 

@@ -45,6 +45,22 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
     slot_choice = int(text) if re.fullmatch(r"[123]", text) else None
     short_answer = _short_answer_kind(text)
 
+    asks_clarification = any(
+        term in text
+        for term in (
+            "não entendi",
+            "nao entendi",
+            "não compreendi",
+            "nao compreendi",
+            "como assim",
+            "explica melhor",
+            "pode explicar",
+            "não ficou claro",
+            "nao ficou claro",
+            "o que significa",
+            "não entendi isso",
+        )
+    )
     asks_process = any(
         term in text
         for term in (
@@ -111,6 +127,8 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
     kind = "unknown"
     if malicious:
         kind = "security"
+    elif asks_clarification:
+        kind = "clarification_request"
     elif asks_process:
         kind = "process_question"
     elif asks_capability:
@@ -142,6 +160,7 @@ async def understand_message(state: dict[str, Any]) -> dict[str, Any]:
         "asks_calendar": asks_calendar,
         "asks_time_specific": asks_time_specific,
         "asks_capability": asks_capability,
+        "asks_clarification": asks_clarification,
         "unavailable_photo": unavailable_photo,
         "unavailable_infra": unavailable_infra,
         "is_greeting": is_greeting,

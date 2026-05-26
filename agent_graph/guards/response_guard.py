@@ -136,6 +136,12 @@ def _validate_next_action_contract(response: str, state: dict[str, Any], text: s
         if re.search(r"instala[cç][aã]o, manuten[cç][aã]o ou higieniza", text):
             violations.append("action_capability_asked_service_again")
 
+    if action_type == "explain_last_offer":
+        if "claro" not in text:
+            violations.append("action_explain_missing_claro")
+        if any(term in text for term in ("próximo detalhe", "proximo detalhe", "qualquer outro detalhe")):
+            violations.append("action_explain_contains_deprecated_phrase")
+
     if action_type == "ask_missing_field":
         missing_field = next_action.get("missing_field")
         if missing_field:
