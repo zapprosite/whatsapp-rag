@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 01:55:34 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 02:00:38 -03
 ## Top-level
 total 224
 drwxrwxr-x 1 will will   636 mai 27 01:47 .
-drwxr-x--- 1 will will  2002 mai 27 01:50 ..
+drwxr-x--- 1 will will  2002 mai 27 01:55 ..
 drwxrwxr-x 1 will will   114 mai 25 19:58 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   274 mai 26 12:19 app
@@ -13,11 +13,11 @@ drwxrwxr-x 1 will will   216 mai 26 12:08 backups
 -rw-rw-r-- 1 will will 14962 mai 27 01:47 CLAUDE.md
 drwxrwxr-x 1 will will    42 mai 26 12:19 .context
 -rw-rw-r-- 1 will will  2162 mai 26 12:19 docker-compose.yml
-drwxrwxr-x 1 will will   156 mai 27 01:46 docs
+drwxrwxr-x 1 will will   280 mai 27 01:59 docs
 -rw------- 1 will will  2733 mai 26 10:28 .env
 -rw-rw-r-- 1 will will  4294 mai 27 01:24 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   158 mai 27 01:50 .git
+drwxrwxr-x 1 will will   158 mai 27 01:55 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
