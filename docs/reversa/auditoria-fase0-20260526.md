@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 02:35:07 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 02:40:10 -03
 ## Top-level
 total 224
-drwxrwxr-x 1 will will   662 mai 27 02:29 .
-drwxr-x--- 1 will will  2002 mai 27 02:30 ..
+drwxrwxr-x 1 will will   636 mai 27 02:37 .
+drwxr-x--- 1 will will  2002 mai 27 02:35 ..
 drwxrwxr-x 1 will will   114 mai 25 19:58 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   274 mai 26 12:19 app
@@ -13,11 +13,11 @@ drwxrwxr-x 1 will will   216 mai 26 12:08 backups
 -rw-rw-r-- 1 will will 14962 mai 27 01:47 CLAUDE.md
 drwxrwxr-x 1 will will    42 mai 26 12:19 .context
 -rw-rw-r-- 1 will will  2162 mai 26 12:19 docker-compose.yml
-drwxrwxr-x 1 will will   318 mai 27 02:26 docs
+drwxrwxr-x 1 will will   368 mai 27 02:36 docs
 -rw------- 1 will will  2733 mai 26 10:28 .env
 -rw-rw-r-- 1 will will  4649 mai 27 02:24 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   158 mai 27 02:30 .git
+drwxrwxr-x 1 will will   158 mai 27 02:38 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
@@ -33,11 +33,10 @@ drwxrwxr-x 1 will will   166 mai 25 21:50 qdrant
 drwxrwxr-x 1 will will   154 mai 27 02:00 refrimix_core
 -rw-rw-r-- 1 will will   391 mai 25 04:34 requirements.txt
 drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
-drwxrwxr-x 1 will will   514 mai 27 01:45 scripts
+drwxrwxr-x 1 will will   560 mai 27 02:35 scripts
 drwxrwxr-x 1 will will    62 mai 25 21:50 sre
 -rwxrwxr-x 1 will will  6506 mai 26 12:19 sync.sh
-drwxrwxr-x 1 will will  3568 mai 27 02:34 tests
-drwxrwxr-x 1 will will     0 mai 27 02:29 .tests_backup
+drwxrwxr-x 1 will will  3628 mai 27 02:38 tests
 drwxrwxr-x 1 will will    66 mai 24 09:52 .venv
 
 ## app/*.py

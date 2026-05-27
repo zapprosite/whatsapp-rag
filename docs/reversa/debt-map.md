@@ -1,4 +1,4 @@
-# DEBT MAP — qua 27 mai 2026 02:35:07 -03
+# DEBT MAP — qua 27 mai 2026 02:40:10 -03
 ## Legacy agent_graph/
 domain
 graph
@@ -29,6 +29,7 @@ utils
 ./docs/mapa-pc1-pc2-refinamento.md
 ./docs/Phase-2.3-Natural-WhatsApp-Runtime.md
 ./docs/tts-edge-runbook.md
+./docs/whatsapp-audio-runbook.md
 ./env.schema.md
 ./.pytest_cache/README.md
 ./README.md
