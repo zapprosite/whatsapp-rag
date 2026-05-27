@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 02:55:21 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 03:00:25 -03
 ## Top-level
 total 224
-drwxrwxr-x 1 will will   636 mai 27 02:37 .
-drwxr-x--- 1 will will  2002 mai 27 02:53 ..
+drwxrwxr-x 1 will will   650 mai 27 02:56 .
+drwxr-x--- 1 will will  2078 mai 27 02:57 ..
 drwxrwxr-x 1 will will   114 mai 25 19:58 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   274 mai 26 12:19 app
@@ -17,7 +17,7 @@ drwxrwxr-x 1 will will   368 mai 27 02:36 docs
 -rw------- 1 will will  2733 mai 26 10:28 .env
 -rw-rw-r-- 1 will will  4649 mai 27 02:24 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   158 mai 27 02:50 .git
+drwxrwxr-x 1 will will   176 mai 27 02:56 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
@@ -30,7 +30,8 @@ drwxrwxr-x 1 will will    64 mai 24 13:17 .pytest_cache
 -rw-rw-r-- 1 will will   163 mai 27 02:28 pytest.ini
 drwxrwxr-x 1 will will   166 mai 25 21:50 qdrant
 -rw-rw-r-- 1 will will  7089 mai 26 12:19 README.md
-drwxrwxr-x 1 will will   154 mai 27 02:00 refrimix_core
+drwxrwxr-x 1 will will   174 mai 27 02:56 refrimix_core
+drwxrwxr-x 1 will will     0 mai 27 02:56 reports
 -rw-rw-r-- 1 will will   391 mai 25 04:34 requirements.txt
 drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
 drwxrwxr-x 1 will will   560 mai 27 02:35 scripts
@@ -76,6 +77,8 @@ refrimix_core/domain/tts_policy.py
 refrimix_core/domain/types.py
 refrimix_core/domain/typing_policy.py
 refrimix_core/domain/whatsapp_runtime_policy.py
+refrimix_core/evaluation/response_rubric.py
+refrimix_core/evaluation/scenario_generator.py
 refrimix_core/guards/__init__.py
 refrimix_core/guards/language_guard.py
 refrimix_core/__init__.py
