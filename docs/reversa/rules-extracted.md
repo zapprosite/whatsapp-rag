@@ -1,4 +1,4 @@
-# RULES EXTRACTED — qua 27 mai 2026 01:40:22 -03
+# RULES EXTRACTED — qua 27 mai 2026 01:45:26 -03
 ## Prices in code
 ./.venv/lib/python3.12/site-packages/pip/_internal/cli/base_command.py:                    return ERROR
 ./.venv/lib/python3.12/site-packages/pip/_internal/cli/base_command.py:                    return PREVIOUS_BUILD_DIR_ERROR
@@ -33,3 +33,5 @@
 
 ## Intent mapping
 refrimix_core/tools/google_drive_tool.py:        f"**Intent:** {lead_summary.get('intent', 'N/A')}\n",
+refrimix_core/tools/google_integration_smoke.py:        "intent": "higienizacao_rinite",
+refrimix_core/tools/google_integration_smoke.py:        "intent": fake_lead["intent"],
