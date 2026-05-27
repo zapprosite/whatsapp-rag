@@ -7,11 +7,18 @@ import os
 import re
 import shlex
 
+import edge_tts
+
 logger = logging.getLogger(__name__)
 
 # TTS local/PC1. Chatterbox Multilingual é primário; OmniVoice é fallback seguro.
+# Edge TTS (Microsoft Azure) é alternativo — não depende de PC1, usa ThalitaNeural.
 _OMNIVOICE_URL = "http://127.0.0.1:8202"
 _CHATTERBOX_URL = "http://127.0.0.1:8200"
+_EDGE_TTS_TIMEOUT = 30.0
+_DEFAULT_EDGE_VOICE = "pt-BR-ThalitaMultilingualNeural"
+_FALLBACK_EDGE_VOICE = "pt-BR-FranciscaNeural"
+_EDGE_TTS_SPEED = "+0%"   # 1.0 = normal
 _DEFAULT_LOCALE = "pt-BR"
 _CHATTERBOX_LANGUAGE = "pt"
 _TTS_TIMEOUT = 30.0
@@ -230,7 +237,10 @@ def _truncate_for_audio(text: str, max_chars: int) -> str:
 
 
 class TTSService:
-    """Síntese de voz com clone do Will via Chatterbox/OmniVoice e fallbacks controlados."""
+    """Síntese de voz via Chatterbox/OmniVoice (PC1) ou Edge TTS (Microsoft Azure).
+    Engines: chatterbox (default), omnivoice, edge.
+    Edge usa pt-BR-ThalitaMultilingualNeural — não depende de PC1.
+    """
 
     def __init__(self) -> None:
         self._engine = os.getenv("TTS_ENGINE", "chatterbox").lower().strip()
@@ -240,6 +250,10 @@ class TTSService:
         self._chatterbox_language = os.getenv("TTS_CHATTERBOX_LANGUAGE", _CHATTERBOX_LANGUAGE).strip() or _CHATTERBOX_LANGUAGE
         self._allow_chatterbox_ptbr = _env_bool("TTS_ALLOW_CHATTERBOX_PTBR", False)
         self._max_chars = _env_int("TTS_MAX_CHARS", _DEFAULT_MAX_CHARS)
+        # Edge TTS config
+        self._edge_voice = os.getenv("TTS_EDGE_VOICE", _DEFAULT_EDGE_VOICE).strip()
+        self._edge_fallback_voice = os.getenv("TTS_EDGE_FALLBACK_VOICE", _FALLBACK_EDGE_VOICE).strip()
+        self._edge_speed = os.getenv("TTS_EDGE_SPEED", _EDGE_TTS_SPEED).strip()
 
     def _voice_name(self, style: str) -> str:
         return _VOICE_STYLES.get(style, _VOICE_STYLES[_DEFAULT_STYLE])
@@ -372,6 +386,72 @@ sys.stdout.write(response.text)
             f"OmniVoice voice={voice} locale={self._locale}",
         )
 
+    async def _synthesize_edge(self, text: str, _voice_style: str) -> bytes | None:
+        """Sintetiza via Edge TTS (Microsoft Azure) — não depende de PC1.
+        Voz: pt-BR-ThalitaMultilingualNeural (ou FranciscaNeural como fallback).
+        Retorna WAV bytes (compatível com send_whatsapp_audio que espera WAV→OGG).
+        Fallback: se Thalita falhar, tenta FranciscaNeural.
+        """
+        import tempfile
+        import subprocess
+
+        voice = self._edge_voice
+        for attempt_voice in (voice, self._edge_fallback_voice):
+            mp3_path: str | None = None
+            wav_path: str | None = None
+            try:
+                mp3_path = tempfile.mkstemp(suffix=".mp3")[1]
+                wav_path = tempfile.mkstemp(suffix=".wav")[1]
+
+                communicate = edge_tts.Communicate(
+                    text,
+                    voice=attempt_voice,
+                    rate=self._edge_speed,
+                )
+                await communicate.save(mp3_path)
+
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y", "-i", mp3_path,
+                    "-ar", "16000", "-ac", "1",
+                    "-c:a", "pcm_s16le",
+                    wav_path,
+                ]
+                result = subprocess.run(
+                    ffmpeg_cmd,
+                    capture_output=True,
+                    timeout=_EDGE_TTS_TIMEOUT,
+                )
+                if result.returncode != 0:
+                    logger.warning("Edge TTS ffmpeg (%s) falhou: %s", attempt_voice, result.stderr[:200])
+                    continue
+
+                with open(wav_path, "rb") as f:
+                    wav_bytes = f.read()
+
+                if len(wav_bytes) < _MIN_AUDIO_BYTES:
+                    logger.warning("Edge TTS (%s) WAV muito pequeno: %s bytes", attempt_voice, len(wav_bytes))
+                    continue
+
+                logger.info(
+                    "Edge TTS OK: voice=%s speed=%s bytes=%d",
+                    attempt_voice,
+                    self._edge_speed,
+                    len(wav_bytes),
+                )
+                return wav_bytes
+            except Exception as e:
+                logger.warning("Edge TTS (%s) falhou: %s", attempt_voice, e)
+                continue
+            finally:
+                for path in (mp3_path, wav_path):
+                    if path:
+                        try:
+                            os.unlink(path)
+                        except Exception:
+                            pass
+        logger.error("Edge TTS: todas as vozes falharam")
+        return None
+
     async def _synthesize_chatterbox(self, text: str, voice_style: str) -> bytes | None:
         if self._target_is_ptbr() and not self._allow_chatterbox_ptbr:
             logger.warning("Chatterbox local bloqueado para pt-BR: modelo atual do PC1 não está em modo multilíngue")
@@ -414,6 +494,17 @@ sys.stdout.write(response.text)
         if not prepared_text:
             return None
 
+        if self._engine == "edge":
+            audio = await self._synthesize_edge(prepared_text, voice_style)
+            if audio:
+                return audio
+            # Fallback edge → chatterbox → omnivoice
+            logger.warning("Edge TTS falhou; tentando Chatterbox como fallback")
+            audio = await self._synthesize_chatterbox(prepared_text, voice_style)
+            if audio:
+                return audio
+            return await self._synthesize_omnivoice(prepared_text, voice_style)
+
         if self._engine == "omnivoice":
             audio = await self._synthesize_omnivoice(prepared_text, voice_style)
             if audio:
@@ -434,6 +525,31 @@ sys.stdout.write(response.text)
 
     async def health(self) -> bool:
         """Verifica se o servidor TTS primário está acessível."""
+        if self._engine == "edge":
+            # Edge TTS é cloud — verificamos sintetizando texto mínimo via arquivo
+            import tempfile, subprocess
+            mp3_path = wav_path = None
+            try:
+                mp3_path = tempfile.mkstemp(suffix=".mp3")[1]
+                wav_path = tempfile.mkstemp(suffix=".wav")[1]
+                communicate = edge_tts.Communicate("ok", voice=self._edge_voice)
+                await communicate.save(mp3_path)
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-i", mp3_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path],
+                    capture_output=True, timeout=10,
+                )
+                return result.returncode == 0
+            except Exception as e:
+                logger.warning("Edge TTS health falhou: %s", e)
+                return False
+            finally:
+                for p in (mp3_path, wav_path):
+                    if p:
+                        try:
+                            os.unlink(p)
+                        except Exception:
+                            pass
+
         if self._engine in {"omnivoice", "chatterbox"}:
             base_url = self._chatterbox_url if self._engine == "chatterbox" else self._omnivoice_url
             path = "/api/model-info" if self._engine == "chatterbox" else "/health"
