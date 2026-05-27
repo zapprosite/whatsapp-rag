@@ -25,12 +25,72 @@ from agent_graph.services.whatsapp import (
     send_whatsapp_presence,
     send_whatsapp_text,
 )
+from app.runtime_config import (
+    get_runtime_config,
+    is_shadow_mode,
+    is_assisted_mode,
+    is_canary_mode,
+    can_auto_reply,
+    IntentFilter,
+)
+
 try:
     from lead_repository import prisma_healthcheck
     from mvp_attendance import minimal_mvp_enabled, process_mvp_message
 except ModuleNotFoundError:
     from app.lead_repository import prisma_healthcheck
     from app.mvp_attendance import minimal_mvp_enabled, process_mvp_message
+
+# Monitoring collectors (inicializados em runtime)
+_metrics_collector = None
+_status_tracker = None
+_feedback_store = None
+_outcome_tracker = None
+
+
+def _get_metrics_collector():
+    global _metrics_collector
+    if _metrics_collector is None:
+        from refrimix_core.monitoring.conversation_metrics import ConversationMetricsCollector
+        _metrics_collector = ConversationMetricsCollector()
+    return _metrics_collector
+
+
+def _get_status_tracker():
+    global _status_tracker
+    if _status_tracker is None:
+        from refrimix_core.monitoring.whatsapp_status_tracker import WhatsAppStatusTracker
+        _status_tracker = WhatsAppStatusTracker()
+    return _status_tracker
+
+
+def _get_feedback_store():
+    global _feedback_store
+    if _feedback_store is None:
+        from refrimix_core.monitoring.production_feedback import ProductionFeedbackStore
+        _feedback_store = ProductionFeedbackStore()
+    return _feedback_store
+
+
+def _get_outcome_tracker():
+    global _outcome_tracker
+    if _outcome_tracker is None:
+        from refrimix_core.monitoring.lead_outcome_tracker import LeadOutcomeTracker
+        _outcome_tracker = LeadOutcomeTracker()
+    return _outcome_tracker
+
+
+async def _save_conversation_id(phone: str, conversation_id: str, r: redis.Redis) -> None:
+    """Salva conversation_id no lead via Redis (futuro: Postgres)."""
+    key = f"conv_id:{phone}"
+    await r.set(key, conversation_id, ex=86400)
+
+
+def _safe_conversation_id(phone: str, msg_id: str = "") -> str:
+    """Gera conversation_id estável a partir de phone + msg_id."""
+    import hashlib
+    key = f"{phone}:{msg_id}" if msg_id else phone
+    return hashlib.md5(key.encode()).hexdigest()[:16]
 
 logger = logging.getLogger(__name__)
 
@@ -1014,15 +1074,85 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
                 await save_history(phone, clean_history, r)
                 logger.info("Histórico salvo: %s (%s msgs)", phone, len(clean_history))
 
+            # ── MONITORING: track inbound message ─────────────────────────────────
+            conv_id = _safe_conversation_id(phone, payload.msg_id)
+            metrics = _get_metrics_collector()
+            metrics.track_metric(conv_id, "message_received", metadata={"intent": result.get("message_understanding", {}).get("kind")})
+
+            # Salvar mappings para o status webhook resolver depois
+            if payload.msg_id:
+                await r.set(f"msg_conv:{payload.msg_id}", conv_id, ex=86400)
+                await r.set(f"msg_phone:{payload.msg_id}", phone, ex=86400)
+
+            # SHADOW: gerar resposta e salvar, mas NÃO enviar
+            if is_shadow_mode():
+                logger.info(
+                    "[SHADOW] resposta gerada para %s (não enviada): %s",
+                    phone,
+                    (ai_message or "")[:80],
+                )
+                # Track pending status
+                status_tracker = _get_status_tracker()
+                if ai_message:
+                    status_tracker.track_message_status(
+                        payload.msg_id, conv_id,
+                        __import__("refrimix_core.monitoring.whatsapp_status_tracker", fromlist=["StatusType"]).StatusType.PENDING,
+                    )
+                # Save conversation_id to lead
+                await _save_conversation_id(phone, conv_id, r)
+                return
+
+            # ASSISTED: salva para aprovação humana antes de enviar
+            if is_assisted_mode() and ai_message:
+                feedback = _get_feedback_store()
+                # Salva resposta candidata para revisão
+                # (human approval hook — futuro: painel de revisão)
+                logger.info("[ASSISTED] resposta salva para aprovação: %s", (ai_message or "")[:80])
+
+            # CANARY: respeita allowed intents + canary percent
+            intent = result.get("message_understanding", {}).get("kind")
+            if is_canary_mode():
+                if not can_auto_reply(intent):
+                    logger.info(
+                        "[CANARY] intent '%s' não permitido ou bloqueado para %s — humanidade requerida",
+                        intent,
+                        phone,
+                    )
+                    # Track blocked
+                    metrics.track_metric(conv_id, "guardrail_blocked", metadata={"intent": intent})
+                    outcome_tracker = _get_outcome_tracker()
+                    ot = __import__("refrimix_core.monitoring.lead_outcome_tracker", fromlist=["OutcomeType"]).OutcomeType
+                    outcome_tracker.track_outcome(conv_id, ot.BLOQUEADO_GUARDRAIL, turning_point="canary_blocked", intent=intent)
+                    return
+                logger.info("[CANARY] auto-envio liberado para intent=%s phone=%s", intent, phone)
+
             modality = result.get("response_modality", "text")
             audio_bytes = result.get("audio_bytes")
 
             if modality == "audio" and isinstance(audio_bytes, bytes) and audio_bytes:
                 sent = await send_whatsapp_audio(phone, audio_bytes, instance)
-                if not sent and ai_message:
-                    await send_whatsapp_message(phone, ai_message, instance)
+                if sent:
+                    metrics.track_metric(conv_id, "audio_sent")
+                    if ai_message:
+                        status_tracker = _get_status_tracker()
+                        st = __import__("refrimix_core.monitoring.whatsapp_status_tracker", fromlist=["StatusType"]).StatusType
+                        status_tracker.track_message_status(
+                            payload.msg_id, conv_id,
+                            st.SENT,
+                        )
+                else:
+                    metrics.track_metric(conv_id, "audio_failed")
+                    if ai_message:
+                        await send_whatsapp_message(phone, ai_message, instance)
+                    metrics.track_metric(conv_id, "text_fallback_sent")
             elif ai_message:
                 await send_whatsapp_message(phone, ai_message, instance)
+                status_tracker = _get_status_tracker()
+                st = __import__("refrimix_core.monitoring.whatsapp_status_tracker", fromlist=["StatusType"]).StatusType
+                status_tracker.track_message_status(
+                    payload.msg_id, conv_id,
+                    st.SENT,
+                )
             else:
                 logger.warning("Nenhuma resposta AI no resultado para %s", phone)
 

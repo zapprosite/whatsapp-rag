@@ -25,6 +25,10 @@ def pytest_ignore_collect(path, config):
             "test_high_value_routing",
             "test_response_loop_detection",
             "conftest",
+            # Phase 2.7 — monitoring integration tests
+            "test_runtime_shadow_mode",
+            "test_evolution_status_webhook",
+            "test_monitoring_integration",
         }
         name = os.path.basename(str(path))
         # If it's a test file and not in our allowed MVP list, ignore it during collection
@@ -45,6 +49,10 @@ def pytest_collection_modifyitems(config, items):
             "test_brazilian_variations",
             "test_high_value_routing",
             "test_response_loop_detection",
+            # Phase 2.7 — monitoring integration tests
+            "test_runtime_shadow_mode",
+            "test_evolution_status_webhook",
+            "test_monitoring_integration",
         }
         for item in items:
             module_name = item.module.__name__

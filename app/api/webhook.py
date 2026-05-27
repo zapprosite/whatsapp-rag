@@ -22,6 +22,15 @@ router = APIRouter(prefix="/webhook", tags=["webhook"])
 _WEBHOOK_REDIS_TIMEOUT = float(os.getenv("WEBHOOK_REDIS_TIMEOUT_SECONDS", "3.0"))
 _UNSUPPORTED_MESSAGE_TYPES = {"stickerMessage", "videoMessage", "documentMessage"}
 
+# Status webhook mappings (Evolution API -> StatusType)
+_WHATSAPP_STATUS_MAP = {
+    "sent": "sent",
+    "delivered": "delivered",
+    "read": "read",
+    "failed": "failed",
+    "pending": "pending",
+}
+
 
 @dataclass(frozen=True)
 class IncomingWebhook:
@@ -347,3 +356,92 @@ async def receive_webhook(request: Request) -> JSONResponse:
 
     logger.info("Enfileirado [%s] de %s em %s", parsed.message_type, _mask_identifier(parsed.phone), target_queue)
     return JSONResponse({"status": "ok"})
+
+
+# ── WhatsApp Status Webhook ───────────────────────────────────────────────────
+@router.post("/evolution-status")
+async def receive_status_webhook(request: Request) -> JSONResponse:
+    """Recebe webhook de status de mensagem (sent/delivered/read/failed).
+
+    NÃO gera resposta nova — só atualiza o rastreador de status.
+    Status updates não devem fazer o bot responder (evita "vi que você leu").
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    # Evolution API status callback structure
+    event = body.get("event", "")
+    data = _as_dict(body.get("data", {}))
+    key = _as_dict(data.get("key", {}))
+
+    # Só processa eventos de status, não mensagens novas
+    if event and not event.startswith("message."):
+        # Callback de status — processar
+        pass
+    elif event == "messages.update":
+        # Status update via messages.update
+        pass
+    else:
+        return JSONResponse({"status": "ok", "skipped": "not_a_status_event"})
+
+    msg_id = _first_text(key.get("id"), data.get("id"))
+    if not msg_id:
+        return JSONResponse({"status": "ok", "skipped": "no_message_id"})
+
+    # Extrair status do payload — Evolution envia via data.update ключ
+    update_data = _as_dict(data.get("update", {}))
+    status_str = _first_text(
+        update_data.get("status"),
+        data.get("status"),
+        body.get("status"),
+        body.get("update", {}).get("status") if isinstance(body.get("update"), dict) else None,
+    )
+    if not status_str:
+        return JSONResponse({"status": "ok", "skipped": "no_status_field"})
+
+    # Mapear para StatusType
+    from refrimix_core.monitoring.whatsapp_status_tracker import StatusType
+    try:
+        status = StatusType(status_str.lower())
+    except ValueError:
+        logger.info("Status desconhecido ignorado: %s", status_str)
+        return JSONResponse({"status": "ok", "skipped": f"unknown_status:{status_str}"})
+
+    # Resolver conversation_id via Redis (msg_id → phone → conv_id)
+    try:
+        r = await get_redis()
+        # Primeiro: verificar se temos o msg_id como key direta
+        conv_id_key = f"msg_conv:{msg_id}"
+        conv_id_raw = await asyncio.wait_for(r.get(conv_id_key), timeout=_WEBHOOK_REDIS_TIMEOUT)
+        if conv_id_raw:
+            conv_id = conv_id_raw
+        else:
+            # Fallback: derive do phone lookup — busca phone pelo msg_id
+            phone_key = f"msg_phone:{msg_id}"
+            phone_raw = await asyncio.wait_for(r.get(phone_key), timeout=_WEBHOOK_REDIS_TIMEOUT)
+            if phone_raw:
+                import hashlib
+                conv_id = hashlib.md5(f"{phone_raw}:{msg_id}".encode()).hexdigest()[:16]
+            else:
+                conv_id = f"unknown_{msg_id[:12]}"
+    except Exception as e:
+        logger.warning("Status webhook: falha ao buscar conversation_id: %s", e)
+        conv_id = f"unknown_{msg_id[:12]}"
+
+    # Atualizar tracker
+    try:
+        from app.worker import _get_status_tracker
+        tracker = _get_status_tracker()
+        tracker.track_message_status(msg_id, conv_id, status)
+        logger.info(
+            "[STATUS] msg_id=%s conv=%s status=%s",
+            _mask_identifier(msg_id),
+            _mask_identifier(conv_id),
+            status.value,
+        )
+    except Exception as e:
+        logger.warning("Falha ao atualizar status tracker: %s", e)
+
+    return JSONResponse({"status": "ok", "respond": False})
