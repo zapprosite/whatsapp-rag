@@ -1084,7 +1084,7 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
                 await r.set(f"msg_conv:{payload.msg_id}", conv_id, ex=86400)
                 await r.set(f"msg_phone:{payload.msg_id}", phone, ex=86400)
 
-            # SHADOW: gerar resposta e salvar, mas NÃO enviar
+            intent = result.get("message_understanding", {}).get("kind")
             if is_shadow_mode():
                 logger.info(
                     "[SHADOW] resposta gerada para %s (não enviada): %s",
@@ -1102,12 +1102,32 @@ async def _process_customer_message(payload: QueueMessage, r: redis.Redis, worke
                 await _save_conversation_id(phone, conv_id, r)
                 return
 
-            # ASSISTED: salva para aprovação humana antes de enviar
+            # ASSISTED: cria ReviewItem para aprovação humana
             if is_assisted_mode() and ai_message:
-                feedback = _get_feedback_store()
-                # Salva resposta candidata para revisão
-                # (human approval hook — futuro: painel de revisão)
-                logger.info("[ASSISTED] resposta salva para aprovação: %s", (ai_message or "")[:80])
+                from refrimix_core.review.review_models import ReviewItem
+                from refrimix_core.review.review_queue import get_review_queue
+                risk = result.get("risk_classification", "unknown")
+                modality = result.get("response_modality", "text")
+                audio_bytes = result.get("audio_bytes")
+
+                item = ReviewItem.from_worker_response(
+                    phone=phone,
+                    conversation_id=conv_id,
+                    user_message=message_text,
+                    ai_response=ai_message,
+                    intent=intent,
+                    risk=risk,
+                    msg_id=payload.msg_id,
+                    response_modality=modality,
+                    audio_bytes=audio_bytes if isinstance(audio_bytes, bytes) else None,
+                )
+                get_review_queue().create(item)
+                logger.info(
+                    "[ASSISTED] ReviewItem created review_id=%s intent=%s priority=%s",
+                    item.review_id[:8],
+                    item.intent,
+                    item.priority.value,
+                )
 
             # CANARY: respeita allowed intents + canary percent
             intent = result.get("message_understanding", {}).get("kind")

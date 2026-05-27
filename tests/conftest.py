@@ -29,6 +29,12 @@ def pytest_ignore_collect(path, config):
             "test_runtime_shadow_mode",
             "test_evolution_status_webhook",
             "test_monitoring_integration",
+            # Phase 2.8 — assisted inbox / review tests
+            "test_review_models_mvp",
+            "test_review_queue_mvp",
+            "test_review_policy_mvp",
+            "test_review_actions_mvp",
+            "test_review_api_mvp",
         }
         name = os.path.basename(str(path))
         # If it's a test file and not in our allowed MVP list, ignore it during collection
@@ -53,6 +59,12 @@ def pytest_collection_modifyitems(config, items):
             "test_runtime_shadow_mode",
             "test_evolution_status_webhook",
             "test_monitoring_integration",
+            # Phase 2.8 — assisted inbox / review tests
+            "test_review_models_mvp",
+            "test_review_queue_mvp",
+            "test_review_policy_mvp",
+            "test_review_actions_mvp",
+            "test_review_api_mvp",
         }
         for item in items:
             module_name = item.module.__name__

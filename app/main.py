@@ -13,6 +13,7 @@ from api.bot import router as bot_router
 from api.health import router as health_router
 from api.test_routes import router as test_router
 from api.webhook import router as webhook_router
+from api.review import router as review_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,3 +22,4 @@ app.include_router(health_router)
 app.include_router(bot_router)
 app.include_router(webhook_router)
 app.include_router(test_router)
+app.include_router(review_router)
