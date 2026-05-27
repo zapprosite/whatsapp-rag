@@ -1,0 +1,17 @@
+{
+  "total_scenarios": 100,
+  "scenarios_evaluated": 100,
+  "avg_score_before": 4.41,
+  "avg_score_after": 4.41,
+  "total_mutations": 4,
+  "top_failures": [
+    {
+      "failure": "nao_orienta_desligar_em_risco_eletrico",
+      "count": 4
+    }
+  ],
+  "before_after_pairs": [],
+  "critical_failures_count": 4,
+  "final_avg_score": 4.41,
+  "timestamp": "2026-05-27 03:40:28"
+}

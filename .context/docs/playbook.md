@@ -53,7 +53,55 @@ Este script limpa o cache Redis do telefone e remove os campos de estado convers
 
 ---
 
-## 4. Estratégia de Rollback de Código
+## 5. Incident Register — Sistema de Registros de Incidentes
+
+Antes de tratar qualquer incidente, **consulte sempre o Incident Register** em `.context/docs/incident-register.md`.
+
+### Para LLMs: Fluxo de Incident Response
+
+```
+1. DETECTOU SINTOMA
+   └── LER .context/docs/incident-register.md
+   └── PROCURAR entrada que combina com o sintoma
+   └── SE encontrar: seguir Remediation steps em ordem
+   └── SE NÃO encontrar: STOP, não fingir que sabe
+       → Documentar no template [PI-NEW]
+       → Reportar ao Will com diagnóstico preliminar
+
+2. EXECUTOU REMEDIATION
+   └── Documentar resultado no template provisório
+   └── Run ./sync.sh --message "docs: incident register update"
+   └── Se P1/P2: avise Will IMEDIATAMENTE via send_message
+
+3. NÃO RESOLVEU
+   └── Escalate imediatamente com:
+       - Qual entrada do register tentou
+       - Qual comando executou
+       - Resultado de cada comando
+       - Quando desistiu
+```
+
+### Formato de Cada Incidente (para referência rápida)
+
+```
+## [ID] NOME_DO_INCIDENTE
+Remediation:
+  1. <comando 1>
+  2. <comando 2>
+Escalation If: <condição de escalar>
+```
+
+### Severity Quick Reference
+| Level | Autonomous? | Notify Will |
+|-------|-------------|-------------|
+| P1 | Restart primeiro, avise depois | IMEDIATAMENTE |
+| P2 | Execute remediation steps | logo após resolver |
+| P3 | Execute e documente | não precisa |
+| P4 | apenas registre | não precisa |
+
+---
+
+## 6. Estratégia de Rollback de Código
 
 Se uma atualização em produção gerar regressões inesperadas:
 1. **Reverter a Branch**: Restaure o último commit estável conhecido da branch `feature/proxima-tarefa-20260526` ou faça checkout para a `main`.
