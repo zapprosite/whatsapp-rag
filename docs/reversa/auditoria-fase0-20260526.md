@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 12:35:29 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 12:40:33 -03
 ## Top-level
 total 244
 drwxrwxr-x 1 will will   650 mai 27 08:57 .
-drwxr-x--- 1 will will  2178 mai 27 12:30 ..
+drwxr-x--- 1 will will  2178 mai 27 12:35 ..
 drwxrwxr-x 1 will will   114 mai 27 05:23 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   308 mai 27 05:23 app
@@ -17,7 +17,7 @@ drwxrwxr-x 1 will will   606 mai 27 08:56 docs
 -rw------- 1 will will  2806 mai 27 10:02 .env
 -rw-rw-r-- 1 will will  4906 mai 27 08:34 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   176 mai 27 12:30 .git
+drwxrwxr-x 1 will will   176 mai 27 12:35 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
@@ -37,7 +37,7 @@ drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
 drwxrwxr-x 1 will will   952 mai 27 08:48 scripts
 drwxrwxr-x 1 will will    40 mai 27 05:22 sre
 -rwxrwxr-x 1 will will  6506 mai 26 12:19 sync.sh
-drwxrwxr-x 1 will will  4504 mai 27 08:49 tests
+drwxrwxr-x 1 will will  4584 mai 27 12:39 tests
 drwxrwxr-x 1 will will    66 mai 24 09:52 .venv
 
 ## app/*.py
