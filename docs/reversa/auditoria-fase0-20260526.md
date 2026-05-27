@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 14:45:10 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 14:50:13 -03
 ## Top-level
-total 248
-drwxrwxr-x 1 will will   694 mai 27 12:50 .
-drwxr-x--- 1 will will  2178 mai 27 14:40 ..
+total 244
+drwxrwxr-x 1 will will   650 mai 27 14:48 .
+drwxr-x--- 1 will will  2178 mai 27 14:48 ..
 drwxrwxr-x 1 will will   114 mai 27 05:23 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   308 mai 27 05:23 app
@@ -17,13 +17,12 @@ drwxrwxr-x 1 will will   606 mai 27 08:56 docs
 -rw------- 1 will will  2806 mai 27 10:02 .env
 -rw-rw-r-- 1 will will  4906 mai 27 08:34 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   176 mai 27 14:40 .git
+drwxrwxr-x 1 will will   176 mai 27 14:48 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
 -rw-rw-r-- 1 will will 64464 mai 26 08:28 image.png
 drwxrwxr-x 1 will will    16 mai 25 21:50 knowledge
--rw-rw-r-- 1 will will  1691 mai 27 12:50 _manual_shadow_test.sh
 -rw-rw-r-- 1 will will 64548 mai 25 03:30 orcamento_teste.pdf
 drwxrwxr-x 1 will will    50 mai 26 04:04 prisma
 drwxrwxr-x 1 will will    64 mai 24 13:17 .pytest_cache
@@ -31,11 +30,11 @@ drwxrwxr-x 1 will will    64 mai 24 13:17 .pytest_cache
 drwxrwxr-x 1 will will   144 mai 27 05:22 qdrant
 -rw-rw-r-- 1 will will  7089 mai 26 12:19 README.md
 drwxrwxr-x 1 will will   206 mai 27 05:40 refrimix_core
-drwxrwxr-x 1 will will  1542 mai 27 14:24 reports
+drwxrwxr-x 1 will will  1464 mai 27 14:48 reports
 -rw-rw-r-- 1 will will   407 mai 27 11:22 requirements.txt
 drwxrwxr-x 1 will will    58 mai 27 08:51 .ruff_cache
 drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
-drwxrwxr-x 1 will will   952 mai 27 08:48 scripts
+drwxrwxr-x 1 will will   974 mai 27 14:47 scripts
 drwxrwxr-x 1 will will    40 mai 27 05:22 sre
 -rwxrwxr-x 1 will will  6506 mai 26 12:19 sync.sh
 drwxrwxr-x 1 will will  4584 mai 27 12:39 tests
