@@ -24,6 +24,11 @@ _CHATTERBOX_LANGUAGE = "pt"
 _TTS_TIMEOUT = 30.0
 _MIN_AUDIO_BYTES = 512
 _DEFAULT_MAX_CHARS = 420
+_DEFAULT_MAX_SECONDS = 35
+_DEFAULT_EDGE_TIMEOUT = 12.0
+_DEFAULT_EDGE_RETRIES = 1
+_DEFAULT_EDGE_SAMPLE_RATE = 16000
+_DEFAULT_EDGE_CHANNELS = 1
 
 _VOICE_STYLES: dict[str, str] = {
     "influencer": "willrefrimix-influencer",
@@ -254,6 +259,13 @@ class TTSService:
         self._edge_voice = os.getenv("TTS_EDGE_VOICE", _DEFAULT_EDGE_VOICE).strip()
         self._edge_fallback_voice = os.getenv("TTS_EDGE_FALLBACK_VOICE", _FALLBACK_EDGE_VOICE).strip()
         self._edge_speed = os.getenv("TTS_EDGE_SPEED", _EDGE_TTS_SPEED).strip()
+        self._edge_timeout = _env_float("TTS_EDGE_TIMEOUT_SECONDS", _DEFAULT_EDGE_TIMEOUT)
+        self._edge_retries = _env_int("TTS_EDGE_RETRIES", _DEFAULT_EDGE_RETRIES)
+        self._edge_sample_rate = _env_int("TTS_EDGE_OUTPUT_SAMPLE_RATE", _DEFAULT_EDGE_SAMPLE_RATE)
+        self._edge_channels = _env_int("TTS_EDGE_OUTPUT_CHANNELS", _DEFAULT_EDGE_CHANNELS)
+        self._edge_cache_enabled = _env_bool("TTS_EDGE_CACHE_ENABLED", True)
+        self._send_text_fallback = _env_bool("TTS_SEND_TEXT_FALLBACK", True)
+        self._max_seconds = _env_int("TTS_MAX_SECONDS", _DEFAULT_MAX_SECONDS)
 
     def _voice_name(self, style: str) -> str:
         return _VOICE_STYLES.get(style, _VOICE_STYLES[_DEFAULT_STYLE])
@@ -386,17 +398,21 @@ sys.stdout.write(response.text)
             f"OmniVoice voice={voice} locale={self._locale}",
         )
 
-    async def _synthesize_edge(self, text: str, _voice_style: str) -> bytes | None:
+    async def _synthesize_edge(self, text: str, _voice_style: str) -> tuple[bytes | None, str]:
         """Sintetiza via Edge TTS (Microsoft Azure) — não depende de PC1.
         Voz: pt-BR-ThalitaMultilingualNeural (ou FranciscaNeural como fallback).
-        Retorna WAV bytes (compatível com send_whatsapp_audio que espera WAV→OGG).
-        Fallback: se Thalita falhar, tenta FranciscaNeural.
+        Retorna (WAV bytes, fallback_reason) para logging estruturado.
         """
         import tempfile
         import subprocess
 
-        voice = self._edge_voice
-        for attempt_voice in (voice, self._edge_fallback_voice):
+        fallback_reason = "edge_timeout"  # default if we never succeed
+
+        for attempt_idx, attempt_voice in enumerate(
+            [self._edge_voice, self._edge_fallback_voice]
+        ):
+            if attempt_idx > 0:
+                fallback_reason = f"edge_voice_fallback_{self._edge_voice}_to_{attempt_voice}"
             mp3_path: str | None = None
             wav_path: str | None = None
             try:
@@ -412,24 +428,35 @@ sys.stdout.write(response.text)
 
                 ffmpeg_cmd = [
                     "ffmpeg", "-y", "-i", mp3_path,
-                    "-ar", "16000", "-ac", "1",
+                    "-ar", str(self._edge_sample_rate),
+                    "-ac", str(self._edge_channels),
                     "-c:a", "pcm_s16le",
                     wav_path,
                 ]
                 result = subprocess.run(
                     ffmpeg_cmd,
                     capture_output=True,
-                    timeout=_EDGE_TTS_TIMEOUT,
+                    timeout=self._edge_timeout,
                 )
                 if result.returncode != 0:
-                    logger.warning("Edge TTS ffmpeg (%s) falhou: %s", attempt_voice, result.stderr[:200])
+                    logger.warning(
+                        "Edge TTS ffmpeg (%s) falhou: %s",
+                        attempt_voice,
+                        result.stderr[:200],
+                    )
+                    fallback_reason = f"edge_ffmpeg_failed_{attempt_voice}"
                     continue
 
                 with open(wav_path, "rb") as f:
                     wav_bytes = f.read()
 
                 if len(wav_bytes) < _MIN_AUDIO_BYTES:
-                    logger.warning("Edge TTS (%s) WAV muito pequeno: %s bytes", attempt_voice, len(wav_bytes))
+                    logger.warning(
+                        "Edge TTS (%s) WAV muito pequeno: %s bytes",
+                        attempt_voice,
+                        len(wav_bytes),
+                    )
+                    fallback_reason = f"edge_wav_too_small_{attempt_voice}"
                     continue
 
                 logger.info(
@@ -438,9 +465,14 @@ sys.stdout.write(response.text)
                     self._edge_speed,
                     len(wav_bytes),
                 )
-                return wav_bytes
+                return wav_bytes, fallback_reason
+            except TimeoutError:
+                logger.warning("Edge TTS (%s) timeout %.1fs", attempt_voice, self._edge_timeout)
+                fallback_reason = f"edge_timeout_{self._edge_timeout}s"
+                continue
             except Exception as e:
                 logger.warning("Edge TTS (%s) falhou: %s", attempt_voice, e)
+                fallback_reason = f"edge_exception_{type(e).__name__}_{attempt_voice}"
                 continue
             finally:
                 for path in (mp3_path, wav_path):
@@ -450,7 +482,7 @@ sys.stdout.write(response.text)
                         except Exception:
                             pass
         logger.error("Edge TTS: todas as vozes falharam")
-        return None
+        return None, fallback_reason
 
     async def _synthesize_chatterbox(self, text: str, voice_style: str) -> bytes | None:
         if self._target_is_ptbr() and not self._allow_chatterbox_ptbr:
@@ -489,39 +521,99 @@ sys.stdout.write(response.text)
         """
         Sintetiza texto com voz clonada do Will.
         Retorna WAV bytes ou None se os engines estiverem indisponíveis.
+        Logging estruturado: engine_requested, engine_used, fallback_reason, duration_ms, voice.
         """
-        prepared_text = _truncate_for_audio(_normalize_tts_text_ptbr(text), self._max_chars)
+        import time
+        started_at = time.monotonic()
+
+        prepared_text = _truncate_for_audio(
+            _normalize_tts_text_ptbr(text), self._max_chars
+        )
         if not prepared_text:
             return None
 
+        engine_requested = self._engine
+        engine_used = engine_requested
+        fallback_reason = "none"
+        voice_used = ""
+        duration_ms = 0
+
         if self._engine == "edge":
-            audio = await self._synthesize_edge(prepared_text, voice_style)
+            audio, fallback_reason = await self._synthesize_edge(prepared_text, voice_style)
             if audio:
-                return audio
-            # Fallback edge → chatterbox → omnivoice
-            logger.warning("Edge TTS falhou; tentando Chatterbox como fallback")
-            audio = await self._synthesize_chatterbox(prepared_text, voice_style)
-            if audio:
-                return audio
-            return await self._synthesize_omnivoice(prepared_text, voice_style)
+                voice_used = self._edge_voice
+                engine_used = "edge"
+            else:
+                # Fallback edge → chatterbox → omnivoice
+                fallback_reason += " → chatterbox"
+                engine_used = "chatterbox"
+                audio = await self._synthesize_chatterbox(prepared_text, voice_style)
+                if audio:
+                    voice_used = "chatterbox_local"
+                else:
+                    fallback_reason += " → omnivoice"
+                    engine_used = "omnivoice"
+                    audio = await self._synthesize_omnivoice(prepared_text, voice_style)
+                    if audio:
+                        voice_used = "omnivoice"
 
-        if self._engine == "omnivoice":
+            if audio is None:
+                fallback_reason += " → text_fallback"
+                logger.warning(
+                    "TTS fallback chain exhausted",
+                    extra={
+                        "tts_engine_requested": engine_requested,
+                        "tts_engine_used": "none",
+                        "fallback_reason": fallback_reason,
+                        "voice_requested": self._edge_voice,
+                        "duration_ms": 0,
+                        "text_len": len(prepared_text),
+                    },
+                )
+                return None
+
+        elif self._engine == "omnivoice":
             audio = await self._synthesize_omnivoice(prepared_text, voice_style)
-            if audio:
-                return audio
-            return await self._synthesize_chatterbox(prepared_text, voice_style)
+            if not audio:
+                fallback_reason = "omnivoice → chatterbox"
+                engine_used = "chatterbox"
+                audio = await self._synthesize_chatterbox(prepared_text, voice_style)
+                if audio:
+                    voice_used = "chatterbox_local"
+                else:
+                    fallback_reason += " → text_fallback"
+            else:
+                voice_used = "omnivoice"
 
-        if self._engine == "chatterbox":
+        else:  # chatterbox or invalid
             audio = await self._synthesize_chatterbox(prepared_text, voice_style)
-            if audio:
-                return audio
-            return await self._synthesize_omnivoice(prepared_text, voice_style)
+            if not audio:
+                fallback_reason = "chatterbox → omnivoice"
+                engine_used = "omnivoice"
+                audio = await self._synthesize_omnivoice(prepared_text, voice_style)
+                if audio:
+                    voice_used = "omnivoice"
+                else:
+                    fallback_reason += " → text_fallback"
+            else:
+                voice_used = "chatterbox_local"
+                engine_used = "chatterbox"
 
-        logger.warning("TTS_ENGINE inválido: %s; tentando Chatterbox e depois OmniVoice", self._engine)
-        audio = await self._synthesize_chatterbox(prepared_text, voice_style)
-        if audio:
-            return audio
-        return await self._synthesize_omnivoice(prepared_text, voice_style)
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+
+        logger.info(
+            "TTS synthesize",
+            extra={
+                "tts_engine_requested": engine_requested,
+                "tts_engine_used": engine_used,
+                "fallback_reason": fallback_reason,
+                "voice_requested": voice_used or self._edge_voice,
+                "duration_ms": duration_ms,
+                "text_len": len(prepared_text),
+            },
+        )
+
+        return audio
 
     async def health(self) -> bool:
         """Verifica se o servidor TTS primário está acessível."""
@@ -535,8 +627,15 @@ sys.stdout.write(response.text)
                 communicate = edge_tts.Communicate("ok", voice=self._edge_voice)
                 await communicate.save(mp3_path)
                 result = subprocess.run(
-                    ["ffmpeg", "-y", "-i", mp3_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path],
-                    capture_output=True, timeout=10,
+                    [
+                        "ffmpeg", "-y", "-i", mp3_path,
+                        "-ar", str(self._edge_sample_rate),
+                        "-ac", str(self._edge_channels),
+                        "-c:a", "pcm_s16le",
+                        wav_path,
+                    ],
+                    capture_output=True,
+                    timeout=self._edge_timeout,
                 )
                 return result.returncode == 0
             except Exception as e:
