@@ -10,9 +10,12 @@ import pytest
 @pytest.fixture(autouse=True)
 def shadow_env():
     """Força BOT_RUNTIME_MODE=shadow para todos os testes."""
-    os.environ.setdefault("BOT_RUNTIME_MODE", "shadow")
-    os.environ.setdefault("MINIMAL_MVP_ENABLED", "1")
+    os.environ["BOT_RUNTIME_MODE"] = "shadow"
+    os.environ["MINIMAL_MVP_ENABLED"] = "1"
     yield
+    # restore
+    os.environ.pop("BOT_RUNTIME_MODE", None)
+    os.environ.pop("MINIMAL_MVP_ENABLED", None)
 
 
 @pytest.fixture
