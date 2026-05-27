@@ -1,11 +1,11 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 04:40:42 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 04:45:47 -03
 ## Top-level
 total 224
 drwxrwxr-x 1 will will   650 mai 27 03:32 .
-drwxr-x--- 1 will will  2162 mai 27 04:40 ..
+drwxr-x--- 1 will will  2176 mai 27 04:44 ..
 drwxrwxr-x 1 will will   114 mai 25 19:58 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
-drwxrwxr-x 1 will will   274 mai 26 12:19 app
+drwxrwxr-x 1 will will   292 mai 27 04:41 app
 drwxrwxr-x 1 will will    40 mai 26 12:19 _archive
 drwxrwxr-x 1 will will   174 mai 26 09:38 autonomous_refiner
 drwxrwxr-x 1 will will   216 mai 26 12:08 backups
@@ -37,7 +37,7 @@ drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
 drwxrwxr-x 1 will will   700 mai 27 04:40 scripts
 drwxrwxr-x 1 will will    62 mai 25 21:50 sre
 -rwxrwxr-x 1 will will  6506 mai 26 12:19 sync.sh
-drwxrwxr-x 1 will will  3952 mai 27 04:40 tests
+drwxrwxr-x 1 will will  4006 mai 27 04:44 tests
 drwxrwxr-x 1 will will    66 mai 24 09:52 .venv
 
 ## app/*.py
@@ -48,6 +48,7 @@ app/api/__init__.py
 app/api/test_routes.py
 app/api/webhook.py
 app/config/__init__.py
+app/config.py
 app/config/settings.py
 app/__init__.py
 app/lead_repository.py
