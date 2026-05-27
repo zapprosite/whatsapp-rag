@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 14:20:51 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 14:25:56 -03
 ## Top-level
 total 248
 drwxrwxr-x 1 will will   694 mai 27 12:50 .
-drwxr-x--- 1 will will  2178 mai 27 14:19 ..
+drwxr-x--- 1 will will  2178 mai 27 14:20 ..
 drwxrwxr-x 1 will will   114 mai 27 05:23 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   308 mai 27 05:23 app
@@ -17,7 +17,7 @@ drwxrwxr-x 1 will will   606 mai 27 08:56 docs
 -rw------- 1 will will  2806 mai 27 10:02 .env
 -rw-rw-r-- 1 will will  4906 mai 27 08:34 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   176 mai 27 14:15 .git
+drwxrwxr-x 1 will will   176 mai 27 14:20 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
@@ -31,7 +31,7 @@ drwxrwxr-x 1 will will    64 mai 24 13:17 .pytest_cache
 drwxrwxr-x 1 will will   144 mai 27 05:22 qdrant
 -rw-rw-r-- 1 will will  7089 mai 26 12:19 README.md
 drwxrwxr-x 1 will will   206 mai 27 05:40 refrimix_core
-drwxrwxr-x 1 will will  1464 mai 27 08:55 reports
+drwxrwxr-x 1 will will  1542 mai 27 14:24 reports
 -rw-rw-r-- 1 will will   407 mai 27 11:22 requirements.txt
 drwxrwxr-x 1 will will    58 mai 27 08:51 .ruff_cache
 drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
