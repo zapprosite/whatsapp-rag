@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 try:
     from runtime import get_redis, normalize_whatsapp_number, queue_key, send_whatsapp_message, set_manual_takeover
 except ModuleNotFoundError:
-    from app.runtime import get_redis, normalize_whatsapp_number, queue_key, send_whatsapp_message, set_manual_takeover
+    from runtime import get_redis, normalize_whatsapp_number, queue_key, send_whatsapp_message, set_manual_takeover
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -432,7 +432,7 @@ async def receive_status_webhook(request: Request) -> JSONResponse:
 
     # Atualizar tracker
     try:
-        from app.worker import _get_status_tracker
+        from worker import _get_status_tracker
         tracker = _get_status_tracker()
         tracker.track_message_status(msg_id, conv_id, status)
         logger.info(

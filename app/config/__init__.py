@@ -1,5 +1,5 @@
 # Config package — re-export runtime config
-from app.runtime_config import (
+from runtime_config import (
     MonitoringConfig,
     RuntimeMode,
     IntentFilter,

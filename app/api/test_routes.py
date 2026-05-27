@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 try:
     from runtime import get_redis, queue_key, send_whatsapp_message, worker_module
 except ModuleNotFoundError:
-    from app.runtime import get_redis, queue_key, send_whatsapp_message, worker_module
+    from runtime import get_redis, queue_key, send_whatsapp_message, worker_module
 
 logger = logging.getLogger(__name__)
 

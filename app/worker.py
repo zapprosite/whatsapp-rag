@@ -25,7 +25,7 @@ from agent_graph.services.whatsapp import (
     send_whatsapp_presence,
     send_whatsapp_text,
 )
-from app.runtime_config import (
+from runtime_config import (
     get_runtime_config,
     is_shadow_mode,
     is_assisted_mode,
@@ -38,8 +38,8 @@ try:
     from lead_repository import prisma_healthcheck
     from mvp_attendance import minimal_mvp_enabled, process_mvp_message
 except ModuleNotFoundError:
-    from app.lead_repository import prisma_healthcheck
-    from app.mvp_attendance import minimal_mvp_enabled, process_mvp_message
+    from lead_repository import prisma_healthcheck
+    from mvp_attendance import minimal_mvp_enabled, process_mvp_message
 
 # Monitoring collectors (inicializados em runtime)
 _metrics_collector = None
@@ -468,9 +468,9 @@ async def lifespan(app: FastAPI):
     SCHEDULER_TASKS = []
     if os.getenv("AGENDA_GROUP_ENABLED", "1") == "1":
         try:
-            from app.agenda_scheduler import agenda_digest_loop
-        except ModuleNotFoundError:
             from agenda_scheduler import agenda_digest_loop
+        except ModuleNotFoundError:
+            from app.agenda_scheduler import agenda_digest_loop
 
         SCHEDULER_TASKS.append(
             asyncio.create_task(agenda_digest_loop(0, get_redis), name="agenda-refrimix-scheduler")

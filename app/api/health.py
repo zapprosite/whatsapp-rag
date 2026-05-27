@@ -29,7 +29,7 @@ from fastapi import APIRouter
 try:
     from runtime import get_redis
 except ModuleNotFoundError:
-    from app.runtime import get_redis
+    from runtime import get_redis
 
 router = APIRouter(tags=["system"])
 
@@ -50,7 +50,7 @@ async def health() -> dict[str, Any]:
     try:
         from runtime import get_redis
     except ModuleNotFoundError:
-        from app.runtime import get_redis
+        from runtime import get_redis
 
     try:
         r = await get_redis()

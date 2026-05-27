@@ -37,6 +37,8 @@ def pytest_ignore_collect(path, config):
             "test_review_api_mvp",
             # Phase 2.9 — assisted pilot report
             "test_assisted_pilot_report",
+            # Phase 2.10 — V2 PT-BR negative abbreviation handling
+            "test_understand_message_ptbr_variants",
         }
         name = os.path.basename(str(path))
         # If it's a test file and not in our allowed MVP list, ignore it during collection
@@ -69,6 +71,8 @@ def pytest_collection_modifyitems(config, items):
             "test_review_api_mvp",
             # Phase 2.9 — assisted pilot report
             "test_assisted_pilot_report",
+            # Phase 2.10 — V2 PT-BR negative abbreviation handling
+            "test_understand_message_ptbr_variants",
         }
         for item in items:
             module_name = item.module.__name__

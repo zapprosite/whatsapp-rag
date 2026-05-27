@@ -221,7 +221,7 @@ async def send_review_item(review_id: str, request: Request) -> JSONResponse:
     # Colocar envio na fila Redis para o worker processar
     if result.should_send and result.response_to_send:
         try:
-            from app.runtime import get_redis, queue_key
+            from runtime import get_redis, queue_key
             import json
             r = await get_redis()
             # O item tem phone_hash — mas precisamos do telefone real para enviar

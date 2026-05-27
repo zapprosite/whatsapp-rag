@@ -7,8 +7,25 @@ import re
 
 
 def fold(text: str | None) -> str:
-    """Normaliza texto: lowercase, collapse spaces."""
-    return re.sub(r"\s+", " ", str(text or "").strip().lower())
+    """Normaliza texto: lowercase, collapse spaces, expande abreviações negativas PT-BR."""
+    raw = str(text or "").strip().lower()
+    # Normalizar quebras de linha e tabs
+    raw = re.sub(r"[\n\r\t]+", " ", raw)
+    # Expandir abreviações negativas comuns em WhatsApp/áudio PT-BR
+    # só quando aparecem ANTES de verbos/sinais técnicos (contexto de negação)
+    # Padrão: " n " antes de verbo → " não "
+    raw = re.sub(r"\bn\s+(ta|tá)\b", r" não \1", raw)          # n ta, n tá → não ta/tá
+    raw = re.sub(r"\bn\s+gela\b", " não gela", raw)           # n gela → não gela
+    raw = re.sub(r"\bn\s+resfria\b", " não resfria", raw)     # n resfria → não resfria
+    raw = re.sub(r"\bn\s+liga\b", " não liga", raw)           # n liga → não liga
+    raw = re.sub(r"\bn\s+funciona\b", " não funciona", raw)  # n funciona → não funciona
+    raw = re.sub(r"\bn\s+esfria\b", " não esfria", raw)       # n esfria → não esfria
+    raw = re.sub(r"\bn\s+trova\b", " não trova", raw)         # n trova → não trova
+    raw = re.sub(r"\bñ\s+", " não ", raw)                     # ñ → não (no início ou após espaço)
+    raw = re.sub(r"\bnao\b", " não ", raw)                    # nao → não
+    raw = re.sub(r"\bnum\b", " não ", raw)                    # num → não
+    raw = re.sub(r"\bn\b(?=\s+[\w]{3,})", " não", raw)       # n Isolated antes de palavra ≥3 chars → "não" (precaução)
+    return re.sub(r"\s+", " ", raw).strip()
 
 
 def normalize_service(service: str | None) -> str | None:

@@ -19,7 +19,7 @@ try:
         set_manual_takeover,
     )
 except ModuleNotFoundError:
-    from app.runtime import (
+    from runtime import (
         get_redis,
         is_manual_takeover,
         manual_takeover_key,

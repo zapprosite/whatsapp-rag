@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 open
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia código e schema
+# Copia código e schema (layout: /app/ direto, não /app/app/)
 COPY app/ /app/
 COPY agent_graph/ /app/agent_graph/
 COPY knowledge/ /app/knowledge/

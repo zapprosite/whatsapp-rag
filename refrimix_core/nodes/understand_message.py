@@ -12,14 +12,31 @@ from refrimix_core.domain.text_normalizer import (
 
 
 _MAINTENANCE_SIGNALS = (
-    "nao gela", "não gela", "nao liga", "não liga",
-    "nao funciona", "não funciona", "parou de funcionar",
-    "pinga", "pingando", "gotejando",
+    # Não gela / não funciona (todas as variações)
+    "nao gela", "não gela",
+    "nao liga", "não liga",
+    "nao funciona", "não funciona",
+    "nao esfria", "não esfria",
+    "nao resfria", "não resfria",
+    "nao ta gelando", "não ta gelando", "não tá gelando",
+    "nao ta resfriar", "não ta resfriar",
+    # Parou
+    "parou de gelar", "parou de funcionar", "parou de resfriar",
+    "parou de ligar", "não liga mais",
+    # Ventilação sem frio
+    "so ventila", "só ventila", "ventila mas não gela", "ventila mas não resfria",
+    "só vento", "vento quente",
+    # Água / vazamento
+    "pinga", "pingando", "gotejando", "vazando",
+    # Cheiro
     "cheiro ruim", "cheiro mal",
-    "barulho", "barulhento", "vibrando",
-    "nao esfria", "não esfria", "nao resfria", "não resfria",
-    "disjuntor cai", "disjuntor caindo",
-    "codigo erro", "codigo de erro", "erro no visor",
+    # Ruído
+    "barulho", "barulhento", "vibrando", "roncando",
+    # Elétrica (com e sem typo)
+    "disjuntor cai", "disjuntor caindo", "disjuntor desarmando",
+    "dijuntor cai", "dijuntor caindo",  # typo comum: disjuntor → dijuntor
+    # Erro no visor
+    "codigo erro", "codigo de erro", "erro no visor", "erro e1", "erro e2", "codigo e1", "codigo e2",
 )
 
 
