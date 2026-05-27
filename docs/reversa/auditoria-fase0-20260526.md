@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 01:20:06 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 01:25:09 -03
 ## Top-level
-total 220
+total 224
 drwxrwxr-x 1 will will   636 mai 26 12:19 .
-drwxr-x--- 1 will will  2002 mai 27 01:15 ..
+drwxr-x--- 1 will will  2002 mai 27 01:20 ..
 drwxrwxr-x 1 will will   114 mai 25 19:58 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   274 mai 26 12:19 app
@@ -15,9 +15,9 @@ drwxrwxr-x 1 will will    42 mai 26 12:19 .context
 -rw-rw-r-- 1 will will  2162 mai 26 12:19 docker-compose.yml
 drwxrwxr-x 1 will will    98 mai 26 08:51 docs
 -rw------- 1 will will  2733 mai 26 10:28 .env
--rw-rw-r-- 1 will will  3612 mai 26 12:19 .env.example
+-rw-rw-r-- 1 will will  4294 mai 27 01:24 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   158 mai 27 01:16 .git
+drwxrwxr-x 1 will will   158 mai 27 01:20 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
@@ -30,13 +30,13 @@ drwxrwxr-x 1 will will    64 mai 24 13:17 .pytest_cache
 -rw-rw-r-- 1 will will   125 mai 26 12:19 pytest.ini
 drwxrwxr-x 1 will will   166 mai 25 21:50 qdrant
 -rw-rw-r-- 1 will will  7089 mai 26 12:19 README.md
-drwxrwxr-x 1 will will   114 mai 26 09:00 refrimix_core
+drwxrwxr-x 1 will will   124 mai 27 01:21 refrimix_core
 -rw-rw-r-- 1 will will   391 mai 25 04:34 requirements.txt
 drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
 drwxrwxr-x 1 will will   454 mai 26 12:43 scripts
 drwxrwxr-x 1 will will    62 mai 25 21:50 sre
 -rwxrwxr-x 1 will will  6506 mai 26 12:19 sync.sh
-drwxrwxr-x 1 will will  2914 mai 26 12:19 tests
+drwxrwxr-x 1 will will  3108 mai 27 01:24 tests
 drwxrwxr-x 1 will will    66 mai 24 09:52 .venv
 
 ## app/*.py
@@ -75,6 +75,8 @@ refrimix_core/nodes/__init__.py
 refrimix_core/nodes/plan_next_action.py
 refrimix_core/nodes/reduce_lead_state.py
 refrimix_core/nodes/understand_message.py
+refrimix_core/tools/google_calendar_tool.py
+refrimix_core/tools/google_drive_tool.py
 
 ## prisma/
 prisma/.env.example
