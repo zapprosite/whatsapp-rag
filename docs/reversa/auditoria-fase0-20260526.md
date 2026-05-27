@@ -1,8 +1,8 @@
-# AUDITORIA FASE 0 — qua 27 mai 2026 02:30:03 -03
+# AUDITORIA FASE 0 — qua 27 mai 2026 02:35:07 -03
 ## Top-level
 total 224
 drwxrwxr-x 1 will will   662 mai 27 02:29 .
-drwxr-x--- 1 will will  2002 mai 27 02:25 ..
+drwxr-x--- 1 will will  2002 mai 27 02:30 ..
 drwxrwxr-x 1 will will   114 mai 25 19:58 agent_graph
 -rw-rw-r-- 1 will will  4718 mai 26 12:19 AGENTS.md
 drwxrwxr-x 1 will will   274 mai 26 12:19 app
@@ -17,7 +17,7 @@ drwxrwxr-x 1 will will   318 mai 27 02:26 docs
 -rw------- 1 will will  2733 mai 26 10:28 .env
 -rw-rw-r-- 1 will will  4649 mai 27 02:24 .env.example
 -rw-rw-r-- 1 will will 13649 mai 26 12:19 env.schema.md
-drwxrwxr-x 1 will will   158 mai 27 02:29 .git
+drwxrwxr-x 1 will will   158 mai 27 02:30 .git
 -rw-rw-r-- 1 will will    13 mai 25 03:32 .gitattributes
 -rw-rw-r-- 1 will will   701 mai 26 12:19 .gitignore
 -rwxrwxr-x 1 will will  1971 mai 25 06:32 git.sh
@@ -36,7 +36,7 @@ drwxrwxr-x 1 will will    76 mai 25 21:50 .rules
 drwxrwxr-x 1 will will   514 mai 27 01:45 scripts
 drwxrwxr-x 1 will will    62 mai 25 21:50 sre
 -rwxrwxr-x 1 will will  6506 mai 26 12:19 sync.sh
-drwxrwxr-x 1 will will  3510 mai 27 02:29 tests
+drwxrwxr-x 1 will will  3568 mai 27 02:34 tests
 drwxrwxr-x 1 will will     0 mai 27 02:29 .tests_backup
 drwxrwxr-x 1 will will    66 mai 24 09:52 .venv
 
@@ -60,6 +60,7 @@ app/worker.py
 refrimix_core/adapters/evolution_typing_adapter.py
 refrimix_core/config/__init__.py
 refrimix_core/config/settings.py
+refrimix_core/domain/audio_delivery_policy.py
 refrimix_core/domain/commercial_router.py
 refrimix_core/domain/conversation_style.py
 refrimix_core/domain/document_jobs.py
@@ -85,6 +86,7 @@ refrimix_core/nodes/plan_next_action.py
 refrimix_core/nodes/reduce_lead_state.py
 refrimix_core/nodes/understand_message.py
 refrimix_core/runtime/whatsapp_orchestrator.py
+refrimix_core/tools/audio_transcode.py
 refrimix_core/tools/google_auth.py
 refrimix_core/tools/google_calendar_tool.py
 refrimix_core/tools/google_drive_tool.py
