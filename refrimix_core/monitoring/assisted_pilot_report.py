@@ -155,8 +155,6 @@ class AssistedPilotReport:
 
         total_f = float(total)
         self._metrics.approval_without_edit_rate = round(
-            self._metrics.approvals_without_edit / total_f) * total_f / total if total else 0.0
-        self._metrics.approval_without_edit_rate = round(
             self._metrics.approvals_without_edit / total_f, 3)
         self._metrics.edit_rate = round(self._metrics.human_edits / total_f, 3)
         self._metrics.reject_rate = round(self._metrics.rejections / total_f, 3)
@@ -299,7 +297,7 @@ class AssistedPilotReport:
                 handoff_count += 1
 
         conv_ids = {o.conversation_id for o in all_outcomes}
-        total_conv = len(conv_ids) or 1
+        total_conv = self._metrics.total_conversations or max(len(conv_ids), 1)
 
         self._metrics.appointment_offered_count = offer_count
         self._metrics.appointment_scheduled_count = sched_count
@@ -499,8 +497,8 @@ class AssistedPilotReport:
             f"",
             f"| Check | Status |",
             f"|--------|--------|",
-            f"| Risco elétrico autoenviado | {'❌ NÃO' if m.risco_eletrico_autoenviado else '✅ NÃO'} |",
-            f"| Documentos autoenviados | {'❌ NÃO' if m.documentos_autoenviados else '✅ NÃO'} |",
+            f"| Risco elétrico autoenviado | {'❌ AUTOENVIADO' if m.risco_eletrico_autoenviado else '✅ NÃO'} |",
+            f"| Documentos autoenviados | {'❌ AUTOENVIADO' if m.documentos_autoenviados else '✅ NÃO'} |",
             f"| Falhas críticas | {m.critical_guardrail_blocks} |",
             f"|",
             f"",
