@@ -1,0 +1,12 @@
+{
+  "total_scenarios": 10,
+  "scenarios_evaluated": 10,
+  "avg_score_before": 4.38,
+  "avg_score_after": 4.38,
+  "total_mutations": 0,
+  "top_failures": [],
+  "before_after_pairs": [],
+  "critical_failures_count": 0,
+  "final_avg_score": 4.38,
+  "timestamp": "2026-05-27 08:55:27"
+}

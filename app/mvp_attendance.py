@@ -247,7 +247,31 @@ def compose_response_mvp(
     previous_assistant: str,
 ) -> tuple[str, dict[str, Any]]:
     service = lead_state.get("tipo_servico")
+    # Primeiro: se já temos serviço, NÃO mostrar welcome nem ask_basic_service de novo.
+    # priorize南京服务检测 over greeting detection para não ignorar serviço detectado.
+    if service and lead_state.get("nome"):
+        decision = decide_commercial_path(lead_state, user_text).to_dict()
+        lead_state["commercial_decision"] = decision
+        lead_state["pipeline_stage"] = _service_pipeline_stage(service, decision.get("path"))
+
+        if decision.get("path") == "fixed_installation_simple":
+            return compose_response_mvp_catalog("offer_fixed_installation", lead_state), lead_state
+        if service in {"manutencao", "conserto"} or (
+            decision.get("path") == "technical_visit_50" and service == "manutencao"
+        ):
+            return compose_response_mvp_catalog("offer_technical_visit", lead_state), lead_state
+        if service == "higienizacao" and decision.get("path") == "fixed_hygienization":
+            return compose_response_mvp_catalog("offer_fixed_hygienization", lead_state), lead_state
+        if decision.get("path") == "technical_visit_50":
+            return compose_response_mvp_catalog("offer_technical_visit", lead_state), lead_state
+        if service == "higienizacao":
+            return compose_response_mvp_catalog("offer_fixed_hygienization", lead_state), lead_state
+        return compose_response_mvp_catalog("offer_technical_visit", lead_state), lead_state
+
+    # Primeira mensagem: só mostrar welcome se for greeting PURO (sem serviço detectado).
+    # Se detectar serviço, pular welcome e seguir direto para roteamento de serviço.
     if is_first_message and is_generic_greeting_or_message(user_text) and not service:
+        # greeting puro sem serviço → welcome
         lead_state["pipeline_stage"] = "new"
         return compose_response_mvp_catalog("welcome_onboarding", lead_state), lead_state
 

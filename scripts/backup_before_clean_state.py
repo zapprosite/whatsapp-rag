@@ -67,37 +67,43 @@ def _parse_postgres_url(db_url: str) -> dict:
 # ── backup PostgreSQL ─────────────────────────────────────────────────────────
 
 def backup_postgres(env: dict, backup_subdir: Path) -> dict:
-    """Faz pg_dump do banco whatsapp_rag."""
+    """Faz backup do banco whatsapp_rag via psycopg2 COPY."""
     db_url = env.get("DATABASE_URL", "")
     if not db_url or "{SECRET}" in db_url:
         return {"status": "skipped", "reason": "DATABASE_URL placeholder"}
 
-    parsed = _parse_postgres_url(db_url)
-    pg_env = os.environ.copy()
-    if parsed["password"] and parsed["password"] != "***":
-        pg_env["PGPASSWORD"] = parsed["password"]
+    try:
+        import psycopg2
+    except ImportError:
+        return {"status": "error", "reason": "psycopg2 not available"}
 
-    # pg_dump custom format
-    dump_path = backup_subdir / "whatsapp_rag.dump"
-    cmd_dump = [
-        "pg_dump", "-h", parsed["host"], "-p", parsed["port"],
-        "-U", parsed["user"], "-d", parsed["dbname"],
-        "-Fc", "-f", str(dump_path),
-    ]
-    code, _, stderr = run_cmd(cmd_dump, env=pg_env, timeout=180)
-    if code == 0:
-        return {"status": "ok", "path": str(dump_path), "format": "custom"}
-    # Fallback: plain SQL
-    plain_path = backup_subdir / "whatsapp_rag.sql"
-    cmd_plain = [
-        "pg_dump", "-h", parsed["host"], "-p", parsed["port"],
-        "-U", parsed["user"], "-d", parsed["dbname"],
-        "-f", str(plain_path),
-    ]
-    code2, _, _ = run_cmd(cmd_plain, env=pg_env, timeout=180)
-    if code2 == 0:
-        return {"status": "partial", "path": str(plain_path), "note": "plain SQL fallback"}
-    return {"status": "error", "reason": stderr.strip()[:200]}
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        # Lista tabelas operacionais
+        tables = [
+            "review_items", "production_feedback", "lead_outcomes",
+            "whatsapp_status", "bot_decisions", "pending_jobs",
+            "conversations", "messages", "lead_state",
+            "idempotency_keys", "tts_cache_metadata", "conversation_metrics",
+        ]
+
+        for table in tables:
+            out_path = backup_subdir / f"{table}.csv"
+            try:
+                with open(out_path, "w") as f:
+                    cur.copy_expert(f"COPY {table} TO STDOUT WITH CSV HEADER", f)
+                print(f"    {table}: OK")
+            except Exception as e:
+                print(f"    {table}: {e}")
+
+        cur.close()
+        conn.close()
+        return {"status": "ok", "method": "psycopg2 COPY", "tables": len(tables)}
+    except Exception as e:
+        return {"status": "error", "reason": str(e)[:200]}
 
 
 # ── export tabelas operacionais ────────────────────────────────────────────────
@@ -141,19 +147,37 @@ def export_postgres_operational_tables(env: dict, backup_subdir: Path) -> dict:
 # ── backup Redis ──────────────────────────────────────────────────────────────
 
 def backup_redis(env: dict) -> dict:
-    """Lista chaves Redis por prefixo — sem vazar conteúdo."""
-    redis_url = env.get("REDIS_URL", "")
+    """Conta keys por prefixo usando redis-py (não redis-cli)."""
+    redis_url = env.get("REDIS_URL", "redis://localhost:6379")
     if not redis_url or "{SECRET}" in redis_url:
-        return {"status": "skipped", "reason": "REDIS_URL placeholder"}
+        return {"status": "skipped"}
 
     try:
-        addr = redis_url.replace("redis://", "")
-        host_part = addr.split("@")[1] if "@" in addr else addr
-        host_port = host_part.rstrip("/")
-        host = host_port.split(":")[0]
-        port = host_port.split(":")[1] if ":" in host_port else "6379"
-    except Exception as e:
-        return {"status": "error", "reason": str(e)}
+        import redis
+    except ImportError:
+        return {"status": "error", "reason": "redis-py not available"}
+
+    # Try configured URL first, fallback to localhost docker network
+    redis_urls_to_try = [
+        env.get("REDIS_URL", "redis://localhost:6379"),
+        "redis://127.0.0.1:6379",
+    ]
+
+    r = None
+    last_error = ""
+    for url in redis_urls_to_try:
+        if not url or "{SECRET}" in url:
+            continue
+        try:
+            r = redis.from_url(url, decode_responses=True)
+            r.ping()
+            break
+        except Exception as e:
+            last_error = str(e)
+            r = None
+
+    if r is None:
+        return {"status": "error", "reason": last_error}
 
     prefixes = [
         "lead:", "conversation:", "review:", "debounce:", "whatsapp:",
@@ -162,11 +186,14 @@ def backup_redis(env: dict) -> dict:
 
     results = {}
     for prefix in prefixes:
-        cmd = ["redis-cli", "-h", host, "-p", port, "--no-raw", "DBSIZE"]
-        code, stdout, _ = run_cmd(cmd)
-        results[prefix] = {"status": "ok", "dbsize": stdout.strip() if code == 0 else "unknown"}
+        try:
+            count = r.eval("return #redis.call('KEYS', ARGV[1])", 0, prefix)
+            results[prefix] = {"status": "ok", "keys": count}
+        except Exception as e:
+            results[prefix] = {"status": "error", "reason": str(e)}
 
-    return results
+    r.close()
+    return {"status": "ok", "prefixes": results}
 
 
 # ── info Qdrant ───────────────────────────────────────────────────────────────
@@ -175,32 +202,39 @@ def info_qdrant(env: dict) -> dict:
     """Lista collections Qdrant e counts."""
     import urllib.request
 
-    qdrant_url = env.get("QDRANT_URL", "http://localhost:6333")
-    if not qdrant_url or "{SECRET}" in qdrant_url:
-        return {"status": "skipped"}
+    # Try configured URL first, fallback to localhost docker network
+    qdrant_urls_to_try = [
+        env.get("QDRANT_URL", "http://localhost:6333"),
+        "http://127.0.0.1:6333",
+    ]
 
-    try:
-        req = urllib.request.Request(f"{qdrant_url}/collections")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-        collections = data.get("result", {}).get("collections", [])
-        results = []
-        for col in collections:
-            name = col.get("name", "")
-            try:
-                count_req = urllib.request.Request(
-                    f"{qdrant_url}/collections/{name}/points/count",
-                    data=json.dumps({"exact": False}).encode(),
-                    headers={"Content-Type": "application/json"},
-                )
-                with urllib.request.urlopen(count_req, timeout=10) as cr:
-                    count = json.loads(cr.read()).get("result", {}).get("count", 0)
-            except Exception:
-                count = "unknown"
-            results.append({"name": name, "points": count})
-        return {"status": "ok", "collections": results}
-    except Exception as e:
-        return {"status": "error", "reason": str(e)}
+    for qdrant_url in qdrant_urls_to_try:
+        if not qdrant_url or "{SECRET}" in qdrant_url:
+            continue
+        try:
+            req = urllib.request.Request(f"{qdrant_url}/collections")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            collections = data.get("result", {}).get("collections", [])
+            results = []
+            for col in collections:
+                name = col.get("name", "")
+                try:
+                    count_req = urllib.request.Request(
+                        f"{qdrant_url}/collections/{name}/points/count",
+                        data=json.dumps({"exact": False}).encode(),
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(count_req, timeout=10) as cr:
+                        count = json.loads(cr.read()).get("result", {}).get("count", 0)
+                except Exception:
+                    count = "unknown"
+                results.append({"name": name, "points": count})
+            return {"status": "ok", "collections": results}
+        except Exception:
+            continue
+
+    return {"status": "error", "reason": "Could not connect to Qdrant on any URL"}
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
