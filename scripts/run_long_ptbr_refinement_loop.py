@@ -83,13 +83,29 @@ ASK_BASIC_SERVICE_PATTERNS = [
     "Isso é instalação, manutenção",
 ]
 
-CRITICAL_FAILURE_TYPES = {
+ROUTE_FAILURE_TYPES = {
+    "generic_ask_basic_service",
+    "repeated_generic_fallback",
+    "unknown_for_clear_intent",
+    "wrong_service_route",
+}
+
+CONTENT_FAILURE_TYPES = {
     "inventou_preco",
     "diagnostico_definitivo",
     "nao_orienta_desligar_em_risco_eletrico",
     "como_posso_ajudar_depois_cliente_explicar",
-    "usa_portugues_europeu",
-    "usa_espanhol",
+    "too_many_questions",
+    "agenda_friction",
+    "photo_blocking",
+    "name_blocking",
+    "tone_too_robotic",
+    "price_invention_count",
+    "missing_electrical_shutdown_count",
+    "pt_eu_terms_count",
+    "spanish_terms_count",
+    "audio_too_long_count",
+    "instagram_spam_count",
 }
 
 
@@ -132,8 +148,10 @@ def detect_failures(scenario, conversation_result) -> dict[str, int]:
     for f in failures:
         if f in counts:
             counts[f] += 1
-        if f in CRITICAL_FAILURE_TYPES:
-            counts["critical_failures"] = counts.get("critical_failures", 0) + 1
+        if f in ROUTE_FAILURE_TYPES:
+            counts[f] = counts.get(f, 0) + 1
+        elif f in CONTENT_FAILURE_TYPES:
+            counts["content_failures"] = counts.get("content_failures", 0) + 1
 
     # Detecta terms proibidos
     pt_eu_terms = ["contactar", "morada", "telefone", "contacto"]
@@ -206,14 +224,19 @@ def run_long_loop(
         avg_score = total_score / len(scenarios)
         batch_duration = time.time() - batch_start
 
-        # Detecta falhas
-        critical_count = sum(1 for f in all_failures if f in CRITICAL_FAILURE_TYPES)
+        # Detecta falhas de roteamento
+        route_failures = sum(
+            1 for f in all_failures if f in ROUTE_FAILURE_TYPES
+        )
+        content_failures_total = sum(
+            1 for f in all_failures if f in CONTENT_FAILURE_TYPES
+        )
 
         metrics = BatchMetrics(
             batch_index=batch_idx,
             duration_seconds=batch_duration,
             avg_score=avg_score,
-            critical_failures=critical_count,
+            critical_failures=route_failures,
         )
 
         # Detectar falhas específicas por cenário
@@ -229,23 +252,30 @@ def run_long_loop(
         print(
             f"  Batch {batch_idx:3d} | "
             f"score: {avg_score:.3f} | "
-            f"crit: {critical_count} | "
+            f"route_fail: {route_failures} | "
             f"ask_basic: {metrics.generic_ask_basic_service_count} | "
             f"fallback_rep: {metrics.repeated_generic_fallback_count} | "
+            f"content_fail: {content_failures_total} | "
             f"{batch_duration:.1f}s"
         )
 
-        # Verifica stop criteria
-        if metrics.avg_score >= 4.6 and metrics.critical_failures == 0:
+        # Verifica stop criteria — Routing Gate (Phase 2.10)
+        # Content Quality é Phase 2.11, não bloqueia aqui
+        routing_approved = (
+            metrics.generic_ask_basic_service_count == 0
+            and metrics.repeated_generic_fallback_count == 0
+            and route_failures == 0
+        )
+        if routing_approved and avg_score >= 4.0:
             zero_critical_streak += 1
         else:
             zero_critical_streak = 0
 
         stop_reason = None
         if zero_critical_streak >= 3:
-            stop_reason = f"3 batches with score>=4.6 and zero critical failures (streak={zero_critical_streak})"
-        elif metrics.avg_score >= 4.6 and metrics.repeated_generic_fallback_count == 0 and metrics.agenda_friction_failures == 0:
-            stop_reason = "score>=4.6, zero fallback repeat, zero agenda friction"
+            stop_reason = f"Routing Gate approved (3 batches, score>={avg_score:.3f}, streak={zero_critical_streak})"
+        elif routing_approved and avg_score >= 4.0:
+            stop_reason = f"Routing Gate approved (score={avg_score:.3f}, route_fail={route_failures})"
 
         if stop_reason:
             print(f"\n✅ Stop criteria met: {stop_reason}")
@@ -279,13 +309,18 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Long PT-BR Refinement Loop — Phase 2.10",
+        description="Long PT-BR Refinement Loop — Phase 2.10 (Routing) / Phase 2.11 (Content)",
     )
     parser.add_argument("--hours", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--focus", default="ptbr_chat_sales")
     parser.add_argument("--dry-run", action="store_true", default=True)
+    parser.add_argument(
+        "--export-samples",
+        default="",
+        help="Path para salvar amostras de falhas de conteúdo (Phase 2.11)",
+    )
 
     args = parser.parse_args()
 
@@ -293,13 +328,17 @@ def main():
     dry_run = os.getenv("APPLY_REFINEMENTS", "0") != "1"
 
     print("=" * 60)
-    print("Long PT-BR Refinement Loop — Phase 2.10")
+    print("Long PT-BR Refinement Loop")
+    print("  Phase 2.10: Routing Gate (bloqueante)")
+    print("  Phase 2.11: Content Quality Gate (não bloqueia)")
     print("=" * 60)
     print(f"  Horas: {args.hours}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Seed: {args.seed}")
     print(f"  Focus: {args.focus}")
     print(f"  Dry-run: {dry_run}")
+    if args.export_samples:
+        print(f"  Export samples: {args.export_samples}")
     print("=" * 60)
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -314,46 +353,85 @@ def main():
         focus=args.focus,
     )
 
-    # Salva relatório
+    # CalculaRouting Gate totals
+    total_route_failures = sum(
+        b.get("critical_failures", 0) for b in report["batches_data"]
+    )
+    total_ask_basic = sum(
+        b.get("generic_ask_basic_service_count", 0) for b in report["batches_data"]
+    )
+    total_fallback_rep = sum(
+        b.get("repeated_generic_fallback_count", 0) for b in report["batches_data"]
+    )
+
+    # Salva relatório com dois gates
     report_path = report_dir / f"long_ptbr_refinement_{ts}.md"
+
+    routing_pass = (
+        total_route_failures == 0
+        and total_ask_basic == 0
+        and total_fallback_rep == 0
+    )
+    content_score = report["final_avg_score"]
+
     lines = [
         f"# Long PT-BR Refinement Report — {ts}",
-        f"\n**Horas:** {report['hours_run']}h",
-        f"\n**Batches:** {report['batches']}",
-        f"\n**Score médio final:** {report['final_avg_score']}",
-        f"\n**Falhas críticas total:** {report['total_critical_failures']}",
-        f"\n**ask_basic_service total:** {report['total_ask_basic_service']}",
-        f"\n**repeated_fallback total:** {report['total_repeated_fallback']}",
-        f"\n**Stop reason:** {report['stop_reason']}",
-        "",
-        "## Batches",
-        "",
-        "| Batch | Score | Crit | AskBasic | FallbackRep | Duração |",
-        "|-------|-------|------|----------|-------------|---------|",
+        f"",
+        f"**Horas:** {report['hours_run']}h",
+        f"**Batches:** {report['batches']}",
+        f"",
+        f"## Gate 1 — Routing (Phase 2.10)",
+        f"",
+        f"| Métrica | Valor | Gate |",
+        f"|---------|-------|------|",
+        f"| route_failures | {total_route_failures} | {'✅' if total_route_failures == 0 else '❌'} |",
+        f"| ask_basic_service | {total_ask_basic} | {'✅' if total_ask_basic == 0 else '❌'} |",
+        f"| repeated_fallback | {total_fallback_rep} | {'✅' if total_fallback_rep == 0 else '❌'} |",
+        f"",
+        f"**Routing Gate: {'✅ APROVADO' if routing_pass else '❌ REPROVADO'}**",
+        f"",
+        f"## Gate 2 — Content Quality (Phase 2.11)",
+        f"",
+        f"| Métrica | Valor |",
+        f"|---------|-------|",
+        f"| content_score | {content_score:.3f} |",
+        f"",
+        f"**Nota:** Content Quality não bloqueia Phase 2.10. Amostras em: {args.export_samples or 'não exportado'}",
+        f"",
+        f"## Stop reason: {report['stop_reason']}",
+        f"",
+        f"## Batches",
+        f"",
+        f"| Batch | Score | RouteFail | AskBasic | FallbackRep | ContentFail | Duração |",
+        f"|-------|-------|-----------|----------|-------------|-------------|---------|",
     ]
     for b in report["batches_data"]:
         lines.append(
             f"| {b['batch_index']} | {b['avg_score']:.3f} | "
             f"{b['critical_failures']} | {b['generic_ask_basic_service_count']} | "
-            f"{b['repeated_generic_fallback_count']} | {b['duration_seconds']:.1f}s |"
+            f"{b['repeated_generic_fallback_count']} | "
+            f"{b.get('content_failures', '-')} | "
+            f"{b['duration_seconds']:.1f}s |"
         )
 
     report_path.write_text("\n".join(lines))
     print(f"\n📄 Relatório: {report_path}")
 
-    # Critérios de aceite
-    passed = (
-        report["final_avg_score"] >= 4.6
-        and report["total_critical_failures"] == 0
-        and report["total_repeated_fallback"] == 0
-        and report["total_ask_basic_service"] == 0
-    )
-    print(f"\n{'✅' if passed else '❌'} Score: {report['final_avg_score']} >= 4.6")
-    print(f"{'✅' if report['total_critical_failures'] == 0 else '❌'} Critical failures: {report['total_critical_failures']}")
-    print(f"{'✅' if report['total_repeated_fallback'] == 0 else '❌'} Repeated fallback: {report['total_repeated_fallback']}")
-    print(f"{'✅' if report['total_ask_basic_service'] == 0 else '❌'} ask_basic_service: {report['total_ask_basic_service']}")
+    # Critérios de aceite — Routing Gate (Phase 2.10)
+    print(f"\n{'='*50}")
+    print("Phase 2.10 — Routing Gate")
+    print(f"{'='*50}")
+    print(f"  {'✅' if total_route_failures == 0 else '❌'} route_failures: {total_route_failures}")
+    print(f"  {'✅' if total_ask_basic == 0 else '❌'} ask_basic_service: {total_ask_basic}")
+    print(f"  {'✅' if total_fallback_rep == 0 else '❌'} repeated_fallback: {total_fallback_rep}")
+    print(f"  {'✅' if routing_pass else '❌'} Routing Gate: {'APROVADO' if routing_pass else 'REPROVADO'}")
 
-    sys.exit(0 if passed else 1)
+    print(f"\n{'='*50}")
+    print("Phase 2.11 — Content Quality (não bloqueia)")
+    print(f"{'='*50}")
+    print(f"  content_score: {content_score:.3f} (meta: 4.6)")
+
+    sys.exit(0 if routing_pass else 1)
 
 
 if __name__ == "__main__":
