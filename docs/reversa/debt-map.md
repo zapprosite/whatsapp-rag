@@ -1,4 +1,4 @@
-# DEBT MAP — qui 28 mai 2026 19:15:14 -03
+# DEBT MAP — qui 28 mai 2026 19:20:18 -03
 ## Legacy agent_graph/
 domain
 graph
